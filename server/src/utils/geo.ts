@@ -84,7 +84,7 @@ const CN_CITY_NAMES: Record<string, string> = {
     guangzhou: "广州市", shenzhen: "深圳市", dongguan: "东莞市", foshan: "佛山市",
     zhuhai: "珠海市", huizhou: "惠州市", nanjing: "南京市", suzhou: "苏州市",
     wuxi: "无锡市", xuzhou: "徐州市", hangzhou: "杭州市", ningbo: "宁波市",
-    wuhan: "武汉市", chengdu: "成都市", xian: "西安市", xi'an: "西安市",
+    wuhan: "武汉市", chengdu: "成都市", xian: "西安市", "xi'an": "西安市",
     qingdao: "青岛市", jinan: "济南市", zhengzhou: "郑州市", changsha: "长沙市",
     kunming: "昆明市", xiamen: "厦门市", fuzhou: "福州市", hefei: "合肥市",
 };
