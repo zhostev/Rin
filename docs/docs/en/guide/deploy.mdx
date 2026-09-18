@@ -114,7 +114,7 @@ If no S3 environment variables are configured, the deployment script will automa
 
 | Variable Name | Description | Example |
 |--------------|-------------|---------|
-| `R2_BUCKET_NAME` | R2 bucket name | `my-blog-images` |
+| `R2_BUCKET_NAME` | **Required** when using R2 (Workers Builds / `bun run deploy`). Missing it omits `[[r2_buckets]]` and drops the remote binding. | `my-blog-images` |
 
 The deployment script will automatically construct the R2 endpoint and access host. If you want to use a custom domain for images, you can additionally set:
 

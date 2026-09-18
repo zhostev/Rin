@@ -1,7 +1,9 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import {
+  assertR2BucketConfiguredForDeploy,
   buildWranglerObservabilityConfig,
   buildWranglerQueueConfig,
+  buildWranglerR2BucketConfig,
   buildWranglerTriggersConfig,
   collectWorkerSecrets,
 } from "./deploy-cf";
@@ -81,5 +83,52 @@ describe("buildWranglerObservabilityConfig", () => {
 
   it("omits observability overrides for production deploys", () => {
     expect(buildWranglerObservabilityConfig(false)).toBe("");
+  });
+});
+
+describe("assertR2BucketConfiguredForDeploy", () => {
+  const originalAllow = process.env.ALLOW_DEPLOY_WITHOUT_R2;
+
+  afterEach(() => {
+    if (originalAllow === undefined) {
+      delete process.env.ALLOW_DEPLOY_WITHOUT_R2;
+    } else {
+      process.env.ALLOW_DEPLOY_WITHOUT_R2 = originalAllow;
+    }
+  });
+
+  it("returns the trimmed bucket name when set", () => {
+    expect(
+      assertR2BucketConfiguredForDeploy({ r2BucketName: "  rin  ", preview: false }),
+    ).toBe("rin");
+  });
+
+  it("throws on production deploy without R2_BUCKET_NAME", () => {
+    delete process.env.ALLOW_DEPLOY_WITHOUT_R2;
+    expect(() =>
+      assertR2BucketConfiguredForDeploy({ r2BucketName: "", preview: false }),
+    ).toThrow(/R2_BUCKET_NAME is required/);
+  });
+
+  it("allows missing R2 when ALLOW_DEPLOY_WITHOUT_R2=true", () => {
+    process.env.ALLOW_DEPLOY_WITHOUT_R2 = "true";
+    expect(
+      assertR2BucketConfiguredForDeploy({ r2BucketName: "", preview: false }),
+    ).toBe("");
+  });
+
+  it("warns but allows preview without R2", () => {
+    expect(
+      assertR2BucketConfiguredForDeploy({ r2BucketName: "", preview: true }),
+    ).toBe("");
+  });
+});
+
+describe("buildWranglerR2BucketConfig", () => {
+  it("emits R2_BUCKET binding for the given bucket", () => {
+    const config = buildWranglerR2BucketConfig("rin");
+    expect(config).toContain("[[r2_buckets]]");
+    expect(config).toContain('binding = "R2_BUCKET"');
+    expect(config).toContain('bucket_name = "rin"');
   });
 });

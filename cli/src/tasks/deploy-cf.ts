@@ -131,6 +131,55 @@ export function buildWranglerObservabilityConfig(preview = false) {
   `);
 }
 
+
+export function buildWranglerR2BucketConfig(r2BucketName: string) {
+  return stripIndent(`
+    [[r2_buckets]]
+    binding = "R2_BUCKET"
+    bucket_name = "${r2BucketName}"
+    preview_bucket_name = "${r2BucketName}"
+  `);
+}
+
+/**
+ * Production deploys without R2_BUCKET_NAME omit [[r2_buckets]] and overwrite
+ * the remote Worker, dropping an existing R2_BUCKET binding (blob 500s).
+ * Set ALLOW_DEPLOY_WITHOUT_R2=true only for intentional S3-only deploys.
+ */
+export function assertR2BucketConfiguredForDeploy(options: {
+  r2BucketName: string | undefined | null;
+  preview?: boolean;
+  allowWithoutR2?: boolean;
+}) {
+  const name = (options.r2BucketName || "").trim();
+  if (name) {
+    return name;
+  }
+
+  if (options.preview) {
+    console.warn("⚠️ Preview deploy without R2_BUCKET_NAME — [[r2_buckets]] will be omitted");
+    return "";
+  }
+
+  const allow =
+    options.allowWithoutR2 === true || process.env.ALLOW_DEPLOY_WITHOUT_R2 === "true";
+
+  if (allow) {
+    console.warn(
+      "⚠️ Deploying without R2_BUCKET_NAME (ALLOW_DEPLOY_WITHOUT_R2=true). " +
+        "Existing Worker R2_BUCKET binding will be removed if present.",
+    );
+    return "";
+  }
+
+  throw new Error(
+    "R2_BUCKET_NAME is required for production deploy. " +
+      "Without it, generated wrangler.toml omits [[r2_buckets]] and wrangler deploy " +
+      "overwrites the Worker, dropping the R2 binding (causing /api/blob/* 500). " +
+      "Set R2_BUCKET_NAME to your bucket (e.g. rin), or ALLOW_DEPLOY_WITHOUT_R2=true for S3-only.",
+  );
+}
+
 async function resolveR2BucketInfo(r2BucketName: string) {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   if (!accountId) return null;
@@ -150,7 +199,10 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
   const dbName = renv("DB_NAME", "rin");
   const workerName = renv("WORKER_NAME", "rin-server");
   const taskQueueName = env("TASK_QUEUE_NAME", env("AI_SUMMARY_QUEUE_NAME", `${workerName}-tasks`)) ?? `${workerName}-tasks`;
-  const r2BucketName = env("R2_BUCKET_NAME", "");
+  const r2BucketName = assertR2BucketConfiguredForDeploy({
+    r2BucketName: env("R2_BUCKET_NAME", ""),
+    preview,
+  });
   const s3Endpoint = env("S3_ENDPOINT", "");
   const s3AccessHost = env("S3_ACCESS_HOST", "");
   const s3Bucket = env("S3_BUCKET", "");
@@ -204,6 +256,7 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
       ${buildWranglerObservabilityConfig(preview)}
 
       [vars]
+      R2_BUCKET_NAME = "${r2BucketName}"
       S3_FOLDER = "${s3Folder}"
       S3_CACHE_FOLDER="${s3CacheFolder}"
       S3_REGION = "${s3Region}"
@@ -263,12 +316,8 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
   await $`echo ${buildWranglerQueueConfig(taskQueueName, preview)} >> wrangler.toml`.quiet();
 
   if (r2BucketName) {
-    await $`echo ${stripIndent(`
-      [[r2_buckets]]
-      binding = "R2_BUCKET"
-      bucket_name = "${r2BucketName}"
-      preview_bucket_name = "${r2BucketName}"
-    `)} >> wrangler.toml`.quiet();
+    await $`echo ${buildWranglerR2BucketConfig(r2BucketName)} >> wrangler.toml`.quiet();
+    console.log(`✅ Bound R2_BUCKET → ${r2BucketName}`);
   }
 
   const migrationVersion = await getMigrationVersion("remote", dbName);

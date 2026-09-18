@@ -103,7 +103,7 @@ AVATAR            # 网站头像
 PAGE_SIZE         # 分页大小
 RSS_ENABLE        # 是否启用 RSS
 CACHE_STORAGE_MODE # 缓存模式（推荐 database）
-R2_BUCKET_NAME    # 可选：设置后部署会从该 bucket 推导 S3_*；未设置时不会自动选择任何 R2 bucket
+R2_BUCKET_NAME    # 使用 R2 时生产部署必填。缺失会导致生成的 wrangler.toml 不含 [[r2_buckets]]，重新部署会覆盖掉远端 R2_BUCKET 绑定（/api/blob 500）。仅纯 S3 部署可设 ALLOW_DEPLOY_WITHOUT_R2=true。
 WORKER_NAME       # Worker 名称（可选）
 DB_NAME           # D1 数据库名称（可选）
 ```

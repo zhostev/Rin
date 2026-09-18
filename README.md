@@ -100,7 +100,7 @@ bun run deploy:client
 - `WORKER_NAME` - Backend worker name (default: `rin-server`)
 - `PAGES_NAME` - Frontend pages name (default: `rin-client`)
 - `DB_NAME` - D1 database name (default: `rin`)
-- `R2_BUCKET_NAME` - R2 bucket name. If set, deploy derives the matching `S3_*` values automatically. If unset, no bucket is auto-selected.
+- `R2_BUCKET_NAME` - **Required for production R2 deploys.** Deploy writes `[[r2_buckets]] binding = "R2_BUCKET"`. If unset, production `bun run deploy` fails (prevents wiping the remote R2 binding). Override with `ALLOW_DEPLOY_WITHOUT_R2=true` for S3-only.
 
 The deployment script will automatically:
 
