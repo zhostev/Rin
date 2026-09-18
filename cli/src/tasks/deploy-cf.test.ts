@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import {
+  assertIp2regionConfiguredForDeploy,
   assertR2BucketConfiguredForDeploy,
+  assertWranglerTomlContainsIp2region,
   buildWranglerObservabilityConfig,
   buildWranglerQueueConfig,
   buildWranglerR2BucketConfig,
@@ -140,5 +142,59 @@ describe("buildWranglerVpcServiceConfig", () => {
     expect(config).toContain("[[vpc_services]]");
     expect(config).toContain('binding = "IP2REGION"');
     expect(config).toContain('service_id = "svc-ip2region"');
+  });
+});
+
+describe("assertIp2regionConfiguredForDeploy", () => {
+  const originalAllow = process.env.ALLOW_DEPLOY_WITHOUT_IP2REGION;
+
+  afterEach(() => {
+    if (originalAllow === undefined) {
+      delete process.env.ALLOW_DEPLOY_WITHOUT_IP2REGION;
+    } else {
+      process.env.ALLOW_DEPLOY_WITHOUT_IP2REGION = originalAllow;
+    }
+  });
+
+  it("returns the trimmed service id when set", () => {
+    expect(
+      assertIp2regionConfiguredForDeploy({
+        ip2regionServiceId: "  e6a0817c-79c5-40ca-9776-a1c019defe70  ",
+        preview: false,
+      }),
+    ).toBe("e6a0817c-79c5-40ca-9776-a1c019defe70");
+  });
+
+  it("throws on production deploy without IP2REGION_SERVICE_ID", () => {
+    delete process.env.ALLOW_DEPLOY_WITHOUT_IP2REGION;
+    expect(() =>
+      assertIp2regionConfiguredForDeploy({ ip2regionServiceId: "", preview: false }),
+    ).toThrow(/IP2REGION_SERVICE_ID is required/);
+  });
+
+  it("allows missing IP2REGION when ALLOW_DEPLOY_WITHOUT_IP2REGION=true", () => {
+    process.env.ALLOW_DEPLOY_WITHOUT_IP2REGION = "true";
+    expect(
+      assertIp2regionConfiguredForDeploy({ ip2regionServiceId: "", preview: false }),
+    ).toBe("");
+  });
+
+  it("warns but allows preview without IP2REGION", () => {
+    expect(
+      assertIp2regionConfiguredForDeploy({ ip2regionServiceId: "", preview: true }),
+    ).toBe("");
+  });
+});
+
+describe("assertWranglerTomlContainsIp2region", () => {
+  it("accepts config emitted by buildWranglerVpcServiceConfig", () => {
+    const config = buildWranglerVpcServiceConfig("svc-ip2region");
+    expect(() => assertWranglerTomlContainsIp2region(config, "svc-ip2region")).not.toThrow();
+  });
+
+  it("throws when the VPC block is absent", () => {
+    expect(() => assertWranglerTomlContainsIp2region("name = \"rin\"\n", "svc-ip2region")).toThrow(
+      /missing \[\[vpc_services\]\]/,
+    );
   });
 });

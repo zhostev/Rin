@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildPlaceholderToml, buildWranglerTomlFromEnv } from "../ensure-wrangler-toml";
+import { assertWranglerTomlContainsIp2region, buildPlaceholderToml, buildWranglerTomlFromEnv } from "../ensure-wrangler-toml";
 
 describe("buildPlaceholderToml", () => {
   it("keeps dry-run placeholder shape without r2_buckets", () => {
@@ -69,4 +69,40 @@ describe("buildWranglerTomlFromEnv", () => {
     expect(toml).not.toContain("IP2REGION");
   });
 
+});
+
+describe("assertWranglerTomlContainsIp2region", () => {
+  const serviceId = "e6a0817c-79c5-40ca-9776-a1c019defe70";
+
+  it("accepts toml that includes the VPC IP2REGION block", () => {
+    const toml = buildWranglerTomlFromEnv({
+      WORKER_NAME: "rin",
+      R2_BUCKET_NAME: "rin",
+      DB_ID: "abc-123",
+      IP2REGION_SERVICE_ID: serviceId,
+    });
+    expect(() => assertWranglerTomlContainsIp2region(toml, serviceId)).not.toThrow();
+  });
+
+  it("throws when [[vpc_services]] is missing", () => {
+    const toml = buildWranglerTomlFromEnv({
+      WORKER_NAME: "rin",
+      R2_BUCKET_NAME: "rin",
+      IP2REGION_SERVICE_ID: "",
+    });
+    expect(() => assertWranglerTomlContainsIp2region(toml, serviceId)).toThrow(
+      /missing \[\[vpc_services\]\]/,
+    );
+  });
+
+  it("throws when service_id does not match", () => {
+    const toml = buildWranglerTomlFromEnv({
+      WORKER_NAME: "rin",
+      R2_BUCKET_NAME: "rin",
+      IP2REGION_SERVICE_ID: serviceId,
+    });
+    expect(() => assertWranglerTomlContainsIp2region(toml, "other-id")).toThrow(
+      /missing \[\[vpc_services\]\]/,
+    );
+  });
 });

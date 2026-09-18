@@ -188,6 +188,65 @@ export function assertR2BucketConfiguredForDeploy(options: {
   );
 }
 
+/**
+ * Production deploys without IP2REGION_SERVICE_ID omit [[vpc_services]] and overwrite
+ * the remote Worker, dropping an existing IP2REGION binding (comment geolocation breaks).
+ * Set ALLOW_DEPLOY_WITHOUT_IP2REGION=true only for intentional opt-out.
+ */
+export function assertIp2regionConfiguredForDeploy(options: {
+  ip2regionServiceId: string | undefined | null;
+  preview?: boolean;
+  allowWithoutIp2region?: boolean;
+}) {
+  const id = (options.ip2regionServiceId || "").trim();
+  if (id) {
+    return id;
+  }
+
+  if (options.preview) {
+    console.warn(
+      "⚠️ Preview deploy without IP2REGION_SERVICE_ID — [[vpc_services]] will be omitted",
+    );
+    return "";
+  }
+
+  const allow =
+    options.allowWithoutIp2region === true ||
+    process.env.ALLOW_DEPLOY_WITHOUT_IP2REGION === "true";
+
+  if (allow) {
+    console.warn(
+      "⚠️ Deploying without IP2REGION_SERVICE_ID (ALLOW_DEPLOY_WITHOUT_IP2REGION=true). " +
+        "Existing Worker IP2REGION binding will be removed if present.",
+    );
+    return "";
+  }
+
+  throw new Error(
+    "IP2REGION_SERVICE_ID is required for production deploy. " +
+      "Without it, generated wrangler.toml omits [[vpc_services]] and wrangler deploy " +
+      "overwrites the Worker, dropping the IP2REGION binding (comment geolocation breaks). " +
+      "Set IP2REGION_SERVICE_ID to the VPC service UUID, or ALLOW_DEPLOY_WITHOUT_IP2REGION=true to opt out.",
+  );
+}
+
+/**
+ * Read-back guard: wrangler.toml must contain the VPC IP2REGION block before deploy.
+ */
+export function assertWranglerTomlContainsIp2region(toml: string, serviceId: string): void {
+  const id = serviceId.trim();
+  const ok =
+    toml.includes("[[vpc_services]]") &&
+    toml.includes('binding = "IP2REGION"') &&
+    toml.includes(`service_id = "${id}"`);
+  if (!ok) {
+    throw new Error(
+      `wrangler.toml is missing [[vpc_services]] IP2REGION binding for service_id=${id}. ` +
+        "Refusing to run wrangler deploy — this would wipe Runtime IP2REGION.",
+    );
+  }
+}
+
 async function resolveR2BucketInfo(r2BucketName: string) {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   if (!accountId) return null;
@@ -228,16 +287,13 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
   const pageSize = env("PAGE_SIZE", "5");
   const rssEnable = env("RSS_ENABLE", "false");
   const frontendUrl = env("FRONTEND_URL", "");
-  const ip2regionServiceId = env("IP2REGION_SERVICE_ID", "").trim();
+  const ip2regionServiceId = assertIp2regionConfiguredForDeploy({
+    ip2regionServiceId: env("IP2REGION_SERVICE_ID", ""),
+    preview,
+  });
   const ip2regionBaseUrl =
     env("IP2REGION_BASE_URL", "http://ip2region.internal").trim() ||
     "http://ip2region.internal";
-
-  if (!preview && !ip2regionServiceId) {
-    console.warn(
-      "⚠️ Production deploy without IP2REGION_SERVICE_ID — existing Worker IP2REGION binding will be removed if present.",
-    );
-  }
 
   let finalS3Endpoint = s3Endpoint;
   let finalS3Bucket = s3Bucket;
@@ -368,6 +424,17 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
       await updateMigrationVersion("remote", dbName, lastVersion);
     }
   }
+  if (ip2regionServiceId) {
+    const wranglerToml = await Bun.file("wrangler.toml").text();
+    try {
+      assertWranglerTomlContainsIp2region(wranglerToml, ip2regionServiceId);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+    console.log(`✅ Verified wrangler.toml [[vpc_services]] IP2REGION → ${ip2regionServiceId}`);
+  }
+
   if (target === "server") {
     await $`${bunExec} x wrangler deploy`;
     await syncWorkerSecrets(workerName);

@@ -11,8 +11,10 @@
  * - With IP2REGION_SERVICE_ID: also emit [[vpc_services]] binding = IP2REGION so
  *   comment geolocation survives deploys (dashboard-only bindings can be wiped).
  * - On Workers Builds for main/master without R2_BUCKET_NAME: fail closed.
+ * - On Workers Builds for main/master without IP2REGION_SERVICE_ID: fail closed
+ *   (unless ALLOW_DEPLOY_WITHOUT_IP2REGION=true), same wipe class as R2.
  */
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const path = resolve(process.cwd(), "wrangler.toml");
@@ -69,6 +71,25 @@ function isWorkersBuilds(): boolean {
       process.env.WORKERS_CI_BRANCH ||
       process.env.CF_PAGES_BRANCH,
   );
+}
+
+
+/**
+ * Verify generated wrangler.toml kept the IP2REGION VPC binding.
+ * Regenerating toml without [[vpc_services]] wipes the Runtime binding on deploy.
+ */
+export function assertWranglerTomlContainsIp2region(toml: string, serviceId: string): void {
+  const id = serviceId.trim();
+  const ok =
+    toml.includes("[[vpc_services]]") &&
+    toml.includes('binding = "IP2REGION"') &&
+    toml.includes(`service_id = "${id}"`);
+  if (!ok) {
+    throw new Error(
+      `wrangler.toml is missing [[vpc_services]] IP2REGION binding for service_id=${id}. ` +
+        "Refusing to continue — deploying this file would wipe Runtime IP2REGION.",
+    );
+  }
 }
 
 /** Dry-run placeholder — must stay compatible with `wrangler deploy --dry-run`. */
@@ -234,6 +255,8 @@ ${r2Block}${vpcBlock}`;
 export async function main(): Promise<void> {
   const r2BucketName = env("R2_BUCKET_NAME");
   const allowWithoutR2 = env("ALLOW_DEPLOY_WITHOUT_R2") === "true";
+  const ip2regionServiceId = env("IP2REGION_SERVICE_ID");
+  const allowWithoutIp2region = env("ALLOW_DEPLOY_WITHOUT_IP2REGION") === "true";
   const branch = workersBuildsBranch();
   const isProtectedBranch = branch === "main" || branch === "master";
 
@@ -243,6 +266,22 @@ export async function main(): Promise<void> {
         "Without it, generated wrangler.toml omits [[r2_buckets]] and deploy " +
         "drops the remote R2_BUCKET binding (/api/blob → 500). " +
         "Set Build variable R2_BUCKET_NAME=rin, or ALLOW_DEPLOY_WITHOUT_R2=true for S3-only.",
+    );
+    process.exit(1);
+  }
+
+  if (
+    !ip2regionServiceId &&
+    isWorkersBuilds() &&
+    isProtectedBranch &&
+    !allowWithoutIp2region
+  ) {
+    console.error(
+      "IP2REGION_SERVICE_ID is required in Cloudflare Workers Builds for main/master. " +
+        "Without it, generated wrangler.toml omits [[vpc_services]] and deploy " +
+        "drops the remote IP2REGION binding (comment geolocation breaks). " +
+        "Set Build variable IP2REGION_SERVICE_ID to the VPC service UUID, or " +
+        "ALLOW_DEPLOY_WITHOUT_IP2REGION=true to opt out intentionally.",
     );
     process.exit(1);
   }
@@ -261,6 +300,16 @@ export async function main(): Promise<void> {
     const envWithDb = { ...process.env, DB_ID: dbId };
     writeFileSync(path, buildWranglerTomlFromEnv(envWithDb), "utf8");
     console.log(`✅ Wrote wrangler.toml with R2_BUCKET → ${r2BucketName}, DB → ${dbId}`);
+    if (ip2regionServiceId) {
+      const written = readFileSync(path, "utf8");
+      try {
+        assertWranglerTomlContainsIp2region(written, ip2regionServiceId);
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : error);
+        process.exit(1);
+      }
+      console.log(`✅ Verified [[vpc_services]] IP2REGION → ${ip2regionServiceId}`);
+    }
     return;
   }
 
