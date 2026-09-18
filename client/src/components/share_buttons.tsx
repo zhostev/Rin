@@ -1,10 +1,20 @@
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 
 type ShareButtonsProps = {
   title: string;
   url?: string;
 };
+
+/** Share UI copy is intentionally Chinese for b.s7ea.com. */
+const COPY = {
+  title: "分享",
+  copyLink: "复制链接",
+  copied: "已复制",
+  native: "系统分享",
+  twitter: "X",
+  wechat: "微信",
+  wechatTip: "链接已复制，请到微信粘贴分享",
+} as const;
 
 function canNativeShare(): boolean {
   return typeof navigator !== "undefined" && typeof navigator.share === "function";
@@ -37,7 +47,6 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 export function ShareButtons({ title, url }: ShareButtonsProps) {
-  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [wechatTip, setWechatTip] = useState(false);
   const [nativeAvailable, setNativeAvailable] = useState(false);
@@ -88,27 +97,27 @@ export function ShareButtons({ title, url }: ShareButtonsProps) {
     "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-secondary bg-button t-secondary text-sm transition hover:opacity-90";
 
   return (
-    <div className="mt-4 flex flex-col gap-2" aria-label={t("article.share.title")}>
+    <div className="mt-4 flex flex-col gap-2" aria-label={COPY.title}>
       <div className="flex flex-row flex-wrap items-center gap-2">
-        <span className="text-sm text-gray-400 shrink-0">{t("article.share.title")}</span>
+        <span className="text-sm text-gray-400 shrink-0">{COPY.title}</span>
         <button
           type="button"
           className={buttonClass}
           onClick={handleCopyLink}
-          aria-label={t("article.share.copy_link")}
+          aria-label={COPY.copyLink}
         >
           <i className={copied ? "ri-check-line" : "ri-link"} />
-          <span>{copied ? t("article.share.copied") : t("article.share.copy_link")}</span>
+          <span>{copied ? COPY.copied : COPY.copyLink}</span>
         </button>
         {nativeAvailable && (
           <button
             type="button"
             className={buttonClass}
             onClick={handleNativeShare}
-            aria-label={t("article.share.native")}
+            aria-label={COPY.native}
           >
             <i className="ri-share-forward-line" />
-            <span>{t("article.share.native")}</span>
+            <span>{COPY.native}</span>
           </button>
         )}
         <a
@@ -116,24 +125,24 @@ export function ShareButtons({ title, url }: ShareButtonsProps) {
           href={twitterHref}
           target="_blank"
           rel="noopener noreferrer"
-          aria-label={t("article.share.twitter")}
+          aria-label={COPY.twitter}
         >
           <i className="ri-twitter-x-line" />
-          <span>{t("article.share.twitter")}</span>
+          <span>{COPY.twitter}</span>
         </a>
         <button
           type="button"
           className={buttonClass}
           onClick={handleWeChat}
-          aria-label={t("article.share.wechat")}
+          aria-label={COPY.wechat}
         >
           <i className="ri-wechat-line" />
-          <span>{t("article.share.wechat")}</span>
+          <span>{COPY.wechat}</span>
         </button>
       </div>
       {wechatTip && (
         <p className="text-xs text-gray-400" role="status">
-          {t("article.share.wechat_tip")}
+          {COPY.wechatTip}
         </p>
       )}
     </div>
