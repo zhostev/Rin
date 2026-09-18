@@ -36,6 +36,22 @@ export function createMockDB() {
             updated_at INTEGER DEFAULT (unixepoch())
         );
 
+        CREATE TABLE IF NOT EXISTS media_assets (
+            id TEXT PRIMARY KEY,
+            uid INTEGER NOT NULL,
+            feed_id INTEGER,
+            provider TEXT DEFAULT 'r2' NOT NULL,
+            type TEXT NOT NULL,
+            object_key TEXT NOT NULL UNIQUE,
+            mime_type TEXT NOT NULL,
+            file_size INTEGER NOT NULL,
+            status TEXT DEFAULT 'ready' NOT NULL,
+            created_at INTEGER DEFAULT (unixepoch()) NOT NULL,
+            updated_at INTEGER DEFAULT (unixepoch()) NOT NULL,
+            FOREIGN KEY (uid) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE SET NULL
+        );
+
         -- Feeds table
         CREATE TABLE IF NOT EXISTS feeds (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

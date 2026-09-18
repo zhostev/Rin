@@ -10,7 +10,8 @@
     "queue_status_description": "Inspect AI summary queue progress, recent task results, and failures.",
     "settings_description": "Manage site behavior, integrations, and publishing rules in one place.",
     "title": "Admin",
-    "writing_description": "Write, edit, and publish content from the private management workspace."
+    "writing_description": "Write, edit, and publish content from the private management workspace.",
+    "media_description": "Manage audio and video used by your articles without deleting media that is still referenced."
   },
   "compat_tasks": {
     "title": "Compatibility Tasks",
@@ -160,8 +161,25 @@
       "ordered_list": "Ordered list",
       "quote": "Quote",
       "unordered_list": "Unordered list",
-      "upload_image": "Upload image"
+      "upload_image": "Upload image",
+      "upload_media": "Upload audio or video"
     }
+  },
+  "media": {
+    "audio": "Audio",
+    "delete_confirm": "Delete this unattached media?",
+    "delete_referenced": "This media is still used by an article and cannot be deleted.",
+    "delete_stream": "Cloudflare Stream media must be managed from the Stream dashboard.",
+    "delete_success": "Media deleted",
+    "delete_title": "Delete media",
+    "empty": "No audio or video has been uploaded yet. Upload media from the writing page.",
+    "processing": "Processing",
+    "unattached": "Unattached media",
+    "unavailable": "This media is currently unavailable",
+    "total": "Showing {{count}} media assets",
+    "upload_hint": "Upload media from the writing toolbar",
+    "video": "Video",
+    "title": "Media library"
   },
   "error": {
     "api_url": "API_URL in Pages environment variables should be the Worker address. Please check if API_URL in Pages environment variables is correct.",
@@ -555,6 +573,11 @@
       "invalid_type": "Please upload an image file",
       "preview_alt": "Image preview",
       "url_placeholder": "Enter an image URL, or upload an image"
+    },
+    "media": {
+      "invalid_type": "Please upload an audio or video file",
+      "stream_unavailable": "Cloudflare Stream is not configured, so large videos cannot be uploaded yet.",
+      "too_large": "Videos larger than 200 MB are not supported yet. Compress the file and try again."
     },
     "title": "Upload"
   },

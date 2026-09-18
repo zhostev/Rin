@@ -41,6 +41,19 @@ Rin 部署需要配置两类环境变量：**Variables（明文变量）**和**S
 | `S3_ACCESS_HOST` | 否 | 对外访问地址 | 同 S3_ENDPOINT | `https://cdn.example.com` |
 | `S3_FORCE_PATH_STYLE` | 否 | 强制路径样式 | false | `false` |
 
+### Cloudflare Stream（可选）
+
+大于 100 MB 的视频会通过 Cloudflare Stream 直传；当前直传接口支持最大 200 MB。启用时，在 Worker 的 `wrangler.toml` 末尾添加：
+
+```toml
+[stream]
+binding = "STREAM"
+```
+
+Stream 播放默认使用 Cloudflare 的 iframe 播放地址。如需使用自定义 Stream 播放域名，可配置 `STREAM_PUBLIC_HOST`（例如 `https://customer-xxx.cloudflarestream.com`）。未配置 Stream 时，普通音视频和 100 MB 以内的视频仍可通过 R2/S3 使用。
+
+如需接收异步处理状态更新，请将 Stream Webhook 地址配置为 `https://<你的 Worker 域名>/api/media/stream/webhook`，并将 Worker Secret `STREAM_WEBHOOK_SECRET` 设置为 Cloudflare Stream 中配置的同一个值。接口会校验 Cloudflare 的 `Webhook-Signature`；未配置密钥时，Webhook 处理保持关闭。
+
 ### 功能开关
 
 | 变量名 | 必填 | 描述 | 默认值 | 推荐值 |

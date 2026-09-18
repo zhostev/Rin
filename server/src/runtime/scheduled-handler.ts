@@ -16,8 +16,10 @@ export async function handleScheduled(
   const { friendCrontab } = await import("../services/friends");
   const { rssCrontab } = await import("../services/rss");
   const { sitemapCrontab } = await import("../services/sitemap");
+  const { cleanupMediaAssets } = await import("../services/media");
 
   await friendCrontab(env, ctx, db, cache, serverConfig, clientConfig);
   await rssCrontab(env, db);
   await sitemapCrontab(env, db);
+  await cleanupMediaAssets(db, env);
 }

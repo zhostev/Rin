@@ -1,5 +1,5 @@
 import { path_join } from "./path";
-import { buildS3ObjectUrl, createS3Client, putObject as putS3Object } from "./s3";
+import { buildS3ObjectUrl, createS3Client, deleteObject as deleteS3Object, putObject as putS3Object } from "./s3";
 
 type StorageTarget =
   | {
@@ -72,7 +72,12 @@ function buildBlobUrl(storageKey: string, baseUrl?: string) {
   return `${trimTrailingSlash(baseUrl)}${path}`;
 }
 
-function createStorageResponse(object: R2ObjectBody | R2Object, body?: BodyInit | null) {
+function createStorageResponse(
+  object: R2ObjectBody | R2Object,
+  body?: BodyInit | null,
+  status = 200,
+  extraHeaders?: HeadersInit,
+) {
   const headers = new Headers();
   object.writeHttpMetadata(headers);
 
@@ -96,24 +101,66 @@ function createStorageResponse(object: R2ObjectBody | R2Object, body?: BodyInit 
     headers.set("Access-Control-Allow-Origin", "*");
   }
 
+  if (extraHeaders) {
+    new Headers(extraHeaders).forEach((value, key) => headers.set(key, value));
+  }
+
   return new Response(body ?? null, {
-    status: 200,
+    status,
     headers,
   });
 }
 
-export async function getStorageObject(env: Env, storageKey: string): Promise<Response | null> {
+function parseRange(rangeHeader: string | undefined, size: number) {
+  if (!rangeHeader?.startsWith("bytes=") || size <= 0) {
+    return undefined;
+  }
+
+  const [range] = rangeHeader.slice(6).split(",", 1);
+  const [startText, endText] = (range || "").split("-", 2);
+  const suffixRange = !startText;
+  const start = suffixRange ? Math.max(0, size - Number.parseInt(endText || "0", 10)) : Number.parseInt(startText, 10);
+  const end = suffixRange ? size - 1 : (endText ? Number.parseInt(endText, 10) : size - 1);
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start >= size || start > end) {
+    return undefined;
+  }
+
+  return {
+    offset: start,
+    length: Math.min(end, size - 1) - start + 1,
+    end: Math.min(end, size - 1),
+  };
+}
+
+export async function getStorageObject(env: Env, storageKey: string, rangeHeader?: string): Promise<Response | null> {
   if (env.R2_BUCKET) {
-    const object = await env.R2_BUCKET.get(storageKey);
+    const head = rangeHeader ? await env.R2_BUCKET.head(storageKey) : null;
+    if (rangeHeader && !head) {
+      return null;
+    }
+    const range = parseRange(rangeHeader, head?.size ?? 0);
+    const object = await env.R2_BUCKET.get(
+      storageKey,
+      range ? { range: { offset: range.offset, length: range.length } } : undefined,
+    );
     if (!object) {
       return null;
     }
-    return createStorageResponse(object, object.body);
+    const extraHeaders: Record<string, string> = range
+      ? {
+          "Accept-Ranges": "bytes",
+          "Content-Range": `bytes ${range.offset}-${range.end}/${head?.size ?? object.size}`,
+          "Content-Length": String(range.length),
+        }
+      : { "Accept-Ranges": "bytes" };
+    return createStorageResponse(object, object.body, range ? 206 : 200, extraHeaders);
   }
 
   const client = createS3Client(env);
   const response = await client.fetch(buildS3ObjectUrl(env, storageKey), {
     method: "GET",
+    headers: rangeHeader ? { Range: rangeHeader } : undefined,
   });
 
   if (response.status === 404) {
@@ -193,4 +240,14 @@ export async function putStorageObjectAtKey(
     key: storageKey,
     url: getStoragePublicUrl(env, storageKey, baseUrl),
   };
+}
+
+export async function deleteStorageObject(env: Env, storageKey: string) {
+  if (env.R2_BUCKET) {
+    await env.R2_BUCKET.delete(storageKey);
+    return;
+  }
+
+  const client = createS3Client(env);
+  await deleteS3Object(client, env, storageKey);
 }

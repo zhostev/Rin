@@ -20,6 +20,7 @@ import { HealthPage } from "../page/health";
 import { HashtagPage } from "../page/hashtag";
 import { HashtagsPage } from "../page/hashtags";
 import { LoginPage } from "../page/login";
+import { MediaPage } from "../page/media";
 import { MomentsPage } from "../page/moments";
 import { ProfilePage } from "../page/profile";
 import { QueueStatusPage } from "../page/queue-status";
@@ -86,6 +87,10 @@ export function AppRoutes() {
 
       <AdminRoute path="/admin/writing/:id" requirePermission title={t("writing")} description={t("admin.writing_description")}>
         {({ id }) => <WritingPage id={tryInt(0, id)} />}
+      </AdminRoute>
+
+      <AdminRoute path="/admin/media" requirePermission title={t("media.title")} description={t("admin.media_description")}>
+        <MediaPage />
       </AdminRoute>
 
       <AppRoute path="/callback">
