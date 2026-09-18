@@ -141,6 +141,14 @@ export function buildWranglerR2BucketConfig(r2BucketName: string) {
   `);
 }
 
+export function buildWranglerVpcServiceConfig(serviceId: string) {
+  return stripIndent(`
+    [[vpc_services]]
+    binding = "IP2REGION"
+    service_id = "${serviceId}"
+  `);
+}
+
 /**
  * Production deploys without R2_BUCKET_NAME omit [[r2_buckets]] and overwrite
  * the remote Worker, dropping an existing R2_BUCKET binding (blob 500s).
@@ -220,6 +228,16 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
   const pageSize = env("PAGE_SIZE", "5");
   const rssEnable = env("RSS_ENABLE", "false");
   const frontendUrl = env("FRONTEND_URL", "");
+  const ip2regionServiceId = env("IP2REGION_SERVICE_ID", "").trim();
+  const ip2regionBaseUrl =
+    env("IP2REGION_BASE_URL", "http://ip2region.internal").trim() ||
+    "http://ip2region.internal";
+
+  if (!preview && !ip2regionServiceId) {
+    console.warn(
+      "⚠️ Production deploy without IP2REGION_SERVICE_ID — existing Worker IP2REGION binding will be removed if present.",
+    );
+  }
 
   let finalS3Endpoint = s3Endpoint;
   let finalS3Bucket = s3Bucket;
@@ -274,6 +292,7 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
       PAGE_SIZE = "${pageSize}"
       RSS_ENABLE = "${rssEnable}"
       FRONTEND_URL = "${frontendUrl}"
+      ${ip2regionServiceId ? `IP2REGION_BASE_URL = "${ip2regionBaseUrl}"` : ""}
 
       [placement]
       mode = "smart"
@@ -318,6 +337,11 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
   if (r2BucketName) {
     await $`echo ${buildWranglerR2BucketConfig(r2BucketName)} >> wrangler.toml`.quiet();
     console.log(`✅ Bound R2_BUCKET → ${r2BucketName}`);
+  }
+
+  if (ip2regionServiceId) {
+    await $`echo ${buildWranglerVpcServiceConfig(ip2regionServiceId)} >> wrangler.toml`.quiet();
+    console.log(`✅ Bound IP2REGION → ${ip2regionServiceId}`);
   }
 
   const migrationVersion = await getMigrationVersion("remote", dbName);
