@@ -20,6 +20,7 @@ import { Button } from "../components/button";
 import { Tips } from "../components/tips";
 import mermaid from "mermaid";
 import { AdjacentSection } from "../components/adjacent_feed.tsx";
+import { ShareButtons } from "../components/share_buttons";
 import { stripImageUrlMetadata } from "../utils/image-upload";
 
 function extractFirstMarkdownImageUrl(content: string) {
@@ -303,6 +304,7 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                       </span>
                     </div>
                   </div>
+                  <ShareButtons title={feed.title ?? ""} />
                 </div>
               </article>
               {id !== "about" && <AdjacentSection id={id} setError={setError} />}
