@@ -5,35 +5,7 @@ import { comments, feeds, users } from "../db/schema";
 import { profileAsync } from "../core/server-timing";
 import { notify } from "../utils/webhook";
 import { resolveWebhookConfig } from "./config-helpers";
-import { EMPTY_LOCATION, geoFetcherFromEnv, getClientIp, resolveGeoLocation, type GeoLocation } from "../utils/geo";
-
-/**
- * 解析评论者归属地。内网 ip2region 走 VPC Service 绑定 `IP2REGION`，
- * 拿不到时退回 Cloudflare 的 `request.cf` / `CF-IPCountry`。解析失败不影响评论写入。
- */
-async function resolveCommentLocation(c: AppContext, ip: string): Promise<GeoLocation> {
-    try {
-        const env = c.get('env');
-        const binding = geoFetcherFromEnv(env);
-        const cf = (c.req.raw as any)?.cf;
-        const cfCountry =
-            c.req.header('cf-ipcountry') ||
-            (cf?.country as string | undefined) ||
-            "";
-        return await resolveGeoLocation({
-            ip,
-            cfCountry,
-            cfCity: cf?.city,
-            cfRegion: cf?.region,
-            cfRegionCode: cf?.regionCode,
-            fetcher: binding?.fetcher ?? null,
-            baseUrl: binding?.baseUrl,
-        });
-    } catch (error) {
-        console.error("Failed to resolve comment location", error);
-        return { ...EMPTY_LOCATION };
-    }
-}
+import { getClientIp } from "../utils/client-ip";
 
 export function CommentService(): Hono {
     const app = new Hono();
@@ -43,10 +15,25 @@ export function CommentService(): Hono {
         const admin = c.get('admin');
         const feedId = parseInt(c.req.param('feed'));
 
-        // 访客只看到归属地标签，完整 IP 仅管理员可见
+        // 完整 IP 仅管理员可见；归属地功能已移除，不向任何客户端返回 geo 字段
         const columns = admin
-            ? { feedId: false as const, userId: false as const }
-            : { feedId: false as const, userId: false as const, ip: false as const };
+            ? {
+                feedId: false as const,
+                userId: false as const,
+                location: false as const,
+                country: false as const,
+                province: false as const,
+                city: false as const,
+            }
+            : {
+                feedId: false as const,
+                userId: false as const,
+                ip: false as const,
+                location: false as const,
+                country: false as const,
+                province: false as const,
+                city: false as const,
+            };
 
         const comment_list = await profileAsync(c, 'comment_list_db', () => db.query.comments.findMany({
             where: eq(comments.feedId, feedId),
@@ -106,17 +93,11 @@ export function CommentService(): Hono {
                 return c.text('User not found', 400);
             }
 
-            const location = await profileAsync(c, 'comment_create_geo', () => resolveCommentLocation(c, ip));
-
             await db.insert(comments).values({
                 feedId,
                 userId: uid,
                 content,
                 ip,
-                location: location.label,
-                country: location.country,
-                province: location.province,
-                city: location.city,
             });
 
             const { webhookUrl, webhookMethod, webhookContentType, webhookHeaders, webhookBodyTemplate } =
@@ -127,7 +108,7 @@ export function CommentService(): Hono {
                     webhookUrl || "",
                     {
                         event: "comment.created",
-                        message: `${frontendUrl}/feed/${feedId}\n${user.username}${location.label ? `（${location.label}）` : ""} 评论了: ${exist.title}\n${content}`,
+                        message: `${frontendUrl}/feed/${feedId}\n${user.username} 评论了: ${exist.title}\n${content}`,
                         title: exist.title || "",
                         url: `${frontendUrl}/feed/${feedId}`,
                         username: user.username,
@@ -151,8 +132,6 @@ export function CommentService(): Hono {
             return c.text('Guest name is required', 400);
         }
 
-        const location = await profileAsync(c, 'comment_create_geo', () => resolveCommentLocation(c, ip));
-
         await db.insert(comments).values({
             feedId,
             userId: null,
@@ -162,10 +141,6 @@ export function CommentService(): Hono {
             guestWebsite: guestWebsite?.trim() || "",
             approved: 1,
             ip,
-            location: location.label,
-            country: location.country,
-            province: location.province,
-            city: location.city,
         });
 
         const { webhookUrl, webhookMethod, webhookContentType, webhookHeaders, webhookBodyTemplate } =
@@ -176,7 +151,7 @@ export function CommentService(): Hono {
                 webhookUrl || "",
                 {
                     event: "comment.created",
-                    message: `${frontendUrl}/feed/${feedId}\n游客 ${guestName}${location.label ? `（${location.label}）` : ""} 评论了: ${exist.title}\n${content}`,
+                    message: `${frontendUrl}/feed/${feedId}\n游客 ${guestName} 评论了: ${exist.title}\n${content}`,
                     title: exist.title || "",
                     url: `${frontendUrl}/feed/${feedId}`,
                     username: guestName,

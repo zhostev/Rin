@@ -5,7 +5,6 @@ import {
   buildWranglerQueueConfig,
   buildWranglerR2BucketConfig,
   buildWranglerTriggersConfig,
-  buildWranglerVpcServiceConfig,
   collectWorkerSecrets,
 } from "./deploy-cf";
 
@@ -134,11 +133,3 @@ describe("buildWranglerR2BucketConfig", () => {
   });
 });
 
-describe("buildWranglerVpcServiceConfig", () => {
-  it("emits the IP2REGION VPC service binding for the given service", () => {
-    const config = buildWranglerVpcServiceConfig("svc-ip2region");
-    expect(config).toContain("[[vpc_services]]");
-    expect(config).toContain('binding = "IP2REGION"');
-    expect(config).toContain('service_id = "svc-ip2region"');
-  });
-});
