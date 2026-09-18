@@ -85,6 +85,15 @@
       "confirm": "Are you sure you want to untop this article?",
       "success": "Untopped successfully",
       "title": "Untop"
+    },
+    "share": {
+      "title": "Share",
+      "copy_link": "Copy link",
+      "copied": "Copied",
+      "native": "Share",
+      "twitter": "X",
+      "wechat": "WeChat",
+      "wechat_tip": "Link copied. Paste it in WeChat to share."
     }
   },
   "avatar": {

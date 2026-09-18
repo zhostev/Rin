@@ -85,6 +85,15 @@
       "confirm": "确定取消置顶这篇文章吗？",
       "success": "取消置顶成功",
       "title": "取消置顶"
+    },
+    "share": {
+      "title": "分享",
+      "copy_link": "复制链接",
+      "copied": "已复制",
+      "native": "系统分享",
+      "twitter": "X",
+      "wechat": "微信",
+      "wechat_tip": "链接已复制，请到微信粘贴分享"
     }
   },
   "avatar": {
