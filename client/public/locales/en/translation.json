@@ -587,7 +587,7 @@
     "media": {
       "invalid_type": "Please upload an audio or video file",
       "stream_unavailable": "Cloudflare Stream is not configured, so large videos cannot be uploaded yet.",
-      "too_large": "Videos larger than 200 MB are not supported yet. Compress the file and try again."
+      "too_large": "Videos larger than 1 GB (1024 MB) are not supported yet. Compress the file and try again."
     },
     "title": "Upload"
   },

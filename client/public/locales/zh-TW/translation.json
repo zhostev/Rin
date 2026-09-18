@@ -587,7 +587,7 @@
     "media": {
       "invalid_type": "請上傳音訊或影片檔案",
       "stream_unavailable": "尚未設定 Cloudflare Stream，暫時無法上傳大型影片",
-      "too_large": "影片超過 200 MB，請先壓縮後再上傳。"
+      "too_large": "影片超過 1 GB（1024 MB），請先壓縮後再上傳。"
     },
     "title": "上傳"
   },
