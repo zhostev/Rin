@@ -12,6 +12,8 @@ import { Markdown } from "./markdown";
 import { buildMediaMarkup } from "./media-embed";
 import { client } from "../app/runtime";
 
+const R2_MEDIA_MAX_BYTES = 100 * 1024 * 1024;
+const MAX_STREAM_VIDEO_BYTES = 1024 * 1024 * 1024;
 
 interface MarkdownEditorProps {
   content: string;
@@ -112,8 +114,8 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
       let error: { value: string } | undefined;
       let provider: "r2" | "stream" = "r2";
 
-      if (type === "video" && file.size > 100 * 1024 * 1024) {
-        if (file.size > 200 * 1024 * 1024) {
+      if (type === "video" && file.size > R2_MEDIA_MAX_BYTES) {
+        if (file.size > MAX_STREAM_VIDEO_BYTES) {
           throw new Error(t("upload.media.too_large"));
         }
         let uploadedAsset: MediaAsset | undefined;

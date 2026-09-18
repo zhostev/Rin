@@ -4,8 +4,10 @@ import {
   buildWranglerObservabilityConfig,
   buildWranglerQueueConfig,
   buildWranglerR2BucketConfig,
+  buildWranglerStreamConfig,
   buildWranglerTriggersConfig,
   collectWorkerSecrets,
+  shouldEnableStreamBinding,
 } from "./deploy-cf";
 
 describe("collectWorkerSecrets", () => {
@@ -133,3 +135,33 @@ describe("buildWranglerR2BucketConfig", () => {
   });
 });
 
+describe("buildWranglerStreamConfig", () => {
+  it("emits STREAM binding", () => {
+    const config = buildWranglerStreamConfig();
+    expect(config).toContain("[stream]");
+    expect(config).toContain('binding = "STREAM"');
+  });
+});
+
+describe("shouldEnableStreamBinding", () => {
+  it("is true when ENABLE_STREAM=true", () => {
+    expect(shouldEnableStreamBinding({ ENABLE_STREAM: "true" })).toBe(true);
+  });
+
+  it("is true when STREAM_PUBLIC_HOST is set", () => {
+    expect(
+      shouldEnableStreamBinding({
+        STREAM_PUBLIC_HOST: "https://customer-xxx.cloudflarestream.com",
+      }),
+    ).toBe(true);
+  });
+
+  it("is true when STREAM_WEBHOOK_SECRET is set", () => {
+    expect(shouldEnableStreamBinding({ STREAM_WEBHOOK_SECRET: "secret" })).toBe(true);
+  });
+
+  it("is false when Stream is not configured", () => {
+    expect(shouldEnableStreamBinding({ ENABLE_STREAM: "false" })).toBe(false);
+    expect(shouldEnableStreamBinding({})).toBe(false);
+  });
+});

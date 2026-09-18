@@ -587,7 +587,7 @@
     "media": {
       "invalid_type": "请上传音频或视频文件",
       "stream_unavailable": "Cloudflare Stream 未配置，暂时无法上传大视频",
-      "too_large": "视频超过 200 MB，请先压缩后再上传。"
+      "too_large": "视频超过 1 GB（1024 MB），请先压缩后再上传。"
     },
     "title": "上传"
   },

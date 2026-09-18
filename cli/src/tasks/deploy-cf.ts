@@ -142,6 +142,34 @@ export function buildWranglerR2BucketConfig(r2BucketName: string) {
 }
 
 /**
+ * Cloudflare Stream binding. Dashboard-only STREAM bindings are wiped when
+ * generated wrangler.toml omits [stream] — same class of bug as R2 / former IP2REGION.
+ */
+export function buildWranglerStreamConfig() {
+  return stripIndent(`
+    [stream]
+    binding = "STREAM"
+  `);
+}
+
+/** ENABLE_STREAM=true or any Stream-related env → persist [stream] binding. */
+export function shouldEnableStreamBinding(
+  source: Record<string, string | undefined> = process.env,
+): boolean {
+  const flag = (source.ENABLE_STREAM || "").trim().toLowerCase();
+  if (flag === "true" || flag === "1" || flag === "yes") {
+    return true;
+  }
+  if ((source.STREAM_PUBLIC_HOST || "").trim()) {
+    return true;
+  }
+  if ((source.STREAM_WEBHOOK_SECRET || "").trim()) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Production deploys without R2_BUCKET_NAME omit [[r2_buckets]] and overwrite
  * the remote Worker, dropping an existing R2_BUCKET binding (blob 500s).
  * Set ALLOW_DEPLOY_WITHOUT_R2=true only for intentional S3-only deploys.
@@ -317,6 +345,11 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
   if (r2BucketName) {
     await $`echo ${buildWranglerR2BucketConfig(r2BucketName)} >> wrangler.toml`.quiet();
     console.log(`✅ Bound R2_BUCKET → ${r2BucketName}`);
+  }
+
+  if (shouldEnableStreamBinding()) {
+    await $`echo ${buildWranglerStreamConfig()} >> wrangler.toml`.quiet();
+    console.log("✅ Bound STREAM");
   }
 
   const migrationVersion = await getMigrationVersion("remote", dbName);
