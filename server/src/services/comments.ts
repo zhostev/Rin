@@ -9,19 +9,23 @@ import { EMPTY_LOCATION, geoFetcherFromEnv, getClientIp, resolveGeoLocation, typ
 
 /**
  * 解析评论者归属地。内网 ip2region 走 VPC Service 绑定 `IP2REGION`，
- * 拿不到时退回 Cloudflare 的 `CF-IPCountry`。解析失败不影响评论写入。
+ * 拿不到时退回 Cloudflare 的 `request.cf` / `CF-IPCountry`。解析失败不影响评论写入。
  */
 async function resolveCommentLocation(c: AppContext, ip: string): Promise<GeoLocation> {
     try {
         const env = c.get('env');
         const binding = geoFetcherFromEnv(env);
+        const cf = (c.req.raw as any)?.cf;
         const cfCountry =
             c.req.header('cf-ipcountry') ||
-            ((c.req.raw as any)?.cf?.country as string | undefined) ||
+            (cf?.country as string | undefined) ||
             "";
         return await resolveGeoLocation({
             ip,
             cfCountry,
+            cfCity: cf?.city,
+            cfRegion: cf?.region,
+            cfRegionCode: cf?.regionCode,
             fetcher: binding?.fetcher ?? null,
             baseUrl: binding?.baseUrl,
         });

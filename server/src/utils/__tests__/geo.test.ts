@@ -192,6 +192,42 @@ describe("resolveGeoLocation", () => {
         expect(location.label).toBe("中国");
     });
 
+    it("uses Chinese CF province and city for IPv6", async () => {
+        const fetcher = fetcherReturning({ country: "中国", province: "江苏省", city: "南京市" });
+
+        const location = await resolveGeoLocation({
+            ip: "240e:446:3249:b16:a019:a338:6089:5062",
+            cfCountry: "CN",
+            cfRegion: "Guangdong",
+            cfRegionCode: "GD",
+            cfCity: "Shenzhen",
+            fetcher,
+        });
+
+        expect(location).toEqual({
+            label: "广东省·深圳市",
+            country: "中国",
+            province: "广东省",
+            city: "深圳市",
+        });
+        expect((fetcher.fetch as any).mock.calls.length).toBe(0);
+    });
+
+    it("prefers successful IPv4 ip2region data over CF geo", async () => {
+        const fetcher = fetcherReturning({ country: "中国", province: "江苏省", city: "南京市" });
+
+        const location = await resolveGeoLocation({
+            ip: "114.114.114.114",
+            cfCountry: "CN",
+            cfRegion: "Guangdong",
+            cfRegionCode: "GD",
+            cfCity: "Shenzhen",
+            fetcher,
+        });
+
+        expect(location.label).toBe("江苏省·南京市");
+    });
+
     it("skips the binding for ipv6 and uses the country code", async () => {
         const fetcher = fetcherReturning({ country: "中国", province: "江苏省", city: "南京市" });
 
