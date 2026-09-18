@@ -508,6 +508,10 @@ type Comment = {
   guestName?: string;
   guestEmail?: string;
   guestWebsite?: string;
+  /** 归属地标签，如 `江苏省·南京市`；游客看不到原始 IP */
+  location?: string | null;
+  /** 原始 IP，仅管理员请求时后端才会返回 */
+  ip?: string | null;
 };
 
 function Comments({ id }: { id: string }) {
@@ -622,6 +626,14 @@ function CommentItem({
             </a>
           )}
           <div className="flex-1 w-0" />
+          {comment.location && (
+            <span
+              title={comment.ip ? `${t("comment.location")}: ${comment.location} · IP: ${comment.ip}` : t("comment.location")}
+              className="shrink-0 text-sm text-gray-400"
+            >
+              {comment.location}
+            </span>
+          )}
           <span
             title={new Date(comment.createdAt).toLocaleString()}
             className="shrink-0 text-sm text-gray-400"

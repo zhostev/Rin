@@ -178,6 +178,16 @@ export interface Comment {
   guestEmail?: string;
   /** 游客评论的网站 */
   guestWebsite?: string;
+  /** 公开显示的归属地标签，如 `江苏省·南京市`；访客接口不会返回原始 IP */
+  location?: string | null;
+  /** 归属地国家 */
+  country?: string | null;
+  /** 归属地省份（仅国内有值） */
+  province?: string | null;
+  /** 归属地城市（仅国内有值） */
+  city?: string | null;
+  /** 原始 IP，仅管理员请求评论列表时返回 */
+  ip?: string | null;
   /** 审核状态 */
   approved: boolean;
 }

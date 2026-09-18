@@ -43,6 +43,16 @@ declare global {
     DESCRIPTION?: string;
     AVATAR?: string;
     R2_BUCKET_NAME?: string;
+    /**
+     * Cloudflare VPC Service binding to the private ip2region HTTP service
+     * (`GET /lookup?ip=<ipv4>`), used to resolve comment locations.
+     * Configured in wrangler as `[[vpc_services]] binding = "IP2REGION"`.
+     */
+    IP2REGION?: Fetcher;
+    /** Override the URL the IP2REGION binding is called with (hostname is ignored by VPC services) */
+    IP2REGION_BASE_URL?: string;
+    /** Public fallback URL for the ip2region service, used when no VPC binding exists */
+    IP2REGION_URL?: string;
   }
 }
 

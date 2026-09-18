@@ -102,6 +102,13 @@ export const comments = sqliteTable("comments", {
     guestEmail: text("guest_email").default(""),
     guestWebsite: text("guest_website").default(""),
     approved: integer("approved").default(1).notNull(),
+    /** 评论者 IP，仅管理员可见，公开接口不返回 */
+    ip: text("ip").default("").notNull(),
+    /** 展示用归属地标签，如 `江苏省·南京市` */
+    location: text("location").default("").notNull(),
+    country: text("country").default("").notNull(),
+    province: text("province").default("").notNull(),
+    city: text("city").default("").notNull(),
     createdAt: created_at,
     updatedAt: updated_at,
 }, (table) => ({
