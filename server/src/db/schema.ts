@@ -140,6 +140,26 @@ export const cache = sqliteTable("cache", {
     typeKeyIdx: index("cache_type_key_idx").on(table.type, table.key),
 }));
 
+export const mediaAssets = sqliteTable("media_assets", {
+    id: text("id").primaryKey(),
+    uid: integer("uid").references(() => users.id, { onDelete: 'cascade' }).notNull(),
+    feedId: integer("feed_id").references(() => feeds.id, { onDelete: 'set null' }),
+    provider: text("provider").default("r2").notNull(),
+    streamUid: text("stream_uid"),
+    playbackUrl: text("playback_url"),
+    type: text("type").notNull(),
+    objectKey: text("object_key").notNull().unique(),
+    mimeType: text("mime_type").notNull(),
+    fileSize: integer("file_size").notNull(),
+    status: text("status").default("ready").notNull(),
+    createdAt: created_at,
+    updatedAt: updated_at,
+}, (table) => ({
+    uidIdx: index("media_assets_uid_idx").on(table.uid),
+    feedIdx: index("media_assets_feed_idx").on(table.feedId),
+    statusIdx: index("media_assets_status_idx").on(table.status),
+}));
+
 export const feedsRelations = relations(feeds, ({ many, one }) => ({
     hashtags: many(feedHashtags),
     user: one(users, {
@@ -179,5 +199,16 @@ export const feedHashtagsRelations = relations(feedHashtags, ({ one }) => ({
     hashtag: one(hashtags, {
         fields: [feedHashtags.hashtagId],
         references: [hashtags.id],
+    }),
+}));
+
+export const mediaAssetsRelations = relations(mediaAssets, ({ one }) => ({
+    user: one(users, {
+        fields: [mediaAssets.uid],
+        references: [users.id],
+    }),
+    feed: one(feeds, {
+        fields: [mediaAssets.feedId],
+        references: [feeds.id],
     }),
 }));

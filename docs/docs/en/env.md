@@ -41,6 +41,19 @@ Site configuration can be modified via the **Settings Page** after deployment. E
 | `S3_ACCESS_HOST` | No | Public access URL | Same as S3_ENDPOINT | `https://cdn.example.com` |
 | `S3_FORCE_PATH_STYLE` | No | Force path-style URLs | false | `false` |
 
+### Cloudflare Stream (optional)
+
+Videos larger than 100 MB are uploaded through Cloudflare Stream; the current direct-upload path supports files up to 200 MB. To enable it, add this to the end of the Worker's `wrangler.toml`:
+
+```toml
+[stream]
+binding = "STREAM"
+```
+
+Stream playback uses Cloudflare's iframe player by default. Set `STREAM_PUBLIC_HOST` (for example, `https://customer-xxx.cloudflarestream.com`) if you use a custom Stream playback hostname. Without Stream, regular audio/video and videos up to 100 MB continue to use R2/S3.
+
+For asynchronous processing status updates, configure the Stream webhook URL as `https://<your-worker-domain>/api/media/stream/webhook` and set the Worker secret `STREAM_WEBHOOK_SECRET` to the same value configured in Cloudflare Stream. The endpoint verifies Cloudflare's `Webhook-Signature`; if the secret is omitted, webhook handling remains disabled.
+
 ### Feature Flags
 
 | Variable | Required | Description | Default | Recommended |

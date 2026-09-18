@@ -33,6 +33,8 @@ import type {
   AuthStatus,
   LoginRequest,
   LoginResponse,
+  MediaAsset,
+  MediaLibraryResponse,
 } from "@rin/api";
 
 export interface SettingsConfigResponse {
@@ -155,6 +157,8 @@ export type {
   AuthStatus,
   LoginRequest,
   LoginResponse,
+  MediaAsset,
+  MediaLibraryResponse,
 } from "@rin/api";
 
 
@@ -451,6 +455,47 @@ class MomentsAPI {
 }
 
 /**
+ * Media API methods
+ */
+class MediaAPI {
+  constructor(private http: HttpClient) {}
+
+  // POST /api/media
+  async upload(file: File): Promise<ApiResponse<MediaAsset>> {
+    const formData = new FormData();
+    formData.append("file", file);
+    return this.http.post<MediaAsset>("/api/media", formData);
+  }
+
+  // POST /api/media/stream/upload
+  async createStreamUpload(fileName: string, maxDurationSeconds = 3600): Promise<ApiResponse<{ asset: MediaAsset; uploadUrl: string }>> {
+    return this.http.post<{ asset: MediaAsset; uploadUrl: string }>("/api/media/stream/upload", {
+      fileName,
+      maxDurationSeconds,
+    });
+  }
+
+  // GET /api/media/:id
+  async get(id: string): Promise<ApiResponse<MediaAsset>> {
+    return this.http.get<MediaAsset>(`/api/media/${encodeURIComponent(id)}`);
+  }
+
+  // GET /api/media
+  async list(params?: { page?: number; limit?: number }): Promise<ApiResponse<MediaLibraryResponse>> {
+    const searchParams = new URLSearchParams();
+    if (params?.page) searchParams.set("page", params.page.toString());
+    if (params?.limit) searchParams.set("limit", params.limit.toString());
+    const query = searchParams.toString();
+    return this.http.get<MediaLibraryResponse>(`/api/media${query ? `?${query}` : ""}`);
+  }
+
+  // DELETE /api/media/:id
+  async delete(id: string): Promise<ApiResponse<void>> {
+    return this.http.delete<void>(`/api/media/${encodeURIComponent(id)}`);
+  }
+}
+
+/**
  * Config API methods
  */
 class ConfigAPI {
@@ -657,6 +702,7 @@ export class ApiClient {
   user: UserAPI;
   friend: FriendAPI;
   moments: MomentsAPI;
+  media: MediaAPI;
   config: ConfigAPI;
   aiConfig: AIConfigAPI;
   storage: StorageAPI;
@@ -673,6 +719,7 @@ export class ApiClient {
     this.user = new UserAPI(this.http);
     this.friend = new FriendAPI(this.http);
     this.moments = new MomentsAPI(this.http);
+    this.media = new MediaAPI(this.http);
     this.config = new ConfigAPI(this.http);
     this.aiConfig = new AIConfigAPI(this.http);
     this.storage = new StorageAPI(this.http);

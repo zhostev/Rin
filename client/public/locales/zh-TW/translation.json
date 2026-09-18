@@ -10,7 +10,8 @@
     "queue_status_description": "查看 AI 摘要佇列進度、最近任務結果與失敗資訊。",
     "settings_description": "在統一的後台空間中管理站點行為、整合配置與發佈規則。",
     "title": "後台管理",
-    "writing_description": "在獨立的管理工作區中編寫、編輯並發佈內容。"
+    "writing_description": "在獨立的管理工作區中編寫、編輯並發佈內容。",
+    "media_description": "管理文章使用的音訊和影片資源，避免誤刪仍在使用的媒體。"
   },
   "compat_tasks": {
     "title": "相容任務",
@@ -169,8 +170,25 @@
       "ordered_list": "有序列表",
       "quote": "引用",
       "unordered_list": "無序列表",
-      "upload_image": "上傳圖片"
+      "upload_image": "上傳圖片",
+      "upload_media": "上傳音視頻"
     }
+  },
+  "media": {
+    "audio": "音訊",
+    "delete_confirm": "確定要刪除這個未關聯的媒體嗎？",
+    "delete_referenced": "此媒體仍被文章使用，無法刪除。",
+    "delete_stream": "Cloudflare Stream 媒體需要在 Stream 控制台中管理。",
+    "delete_success": "媒體已刪除",
+    "delete_title": "刪除媒體",
+    "empty": "還沒有上傳音訊或影片。可以在寫作頁工具列中上傳。",
+    "processing": "處理中",
+    "unattached": "未關聯文章",
+    "unavailable": "媒體暫時無法使用",
+    "total": "目前顯示 {{count}} 個媒體資源",
+    "upload_hint": "上傳入口位於寫作頁工具列",
+    "video": "影片",
+    "title": "媒體庫"
   },
   "error": {
     "api_url": "Pages 環境變數中 API_URL 應為 Worker 地址，請檢查 Pages 環境變數中 API_URL 是否正確",
@@ -564,6 +582,11 @@
       "invalid_type": "請上傳圖片文件",
       "preview_alt": "圖片預覽",
       "url_placeholder": "填寫圖片 URL，或上傳一張圖片"
+    },
+    "media": {
+      "invalid_type": "請上傳音訊或影片檔案",
+      "stream_unavailable": "尚未設定 Cloudflare Stream，暫時無法上傳大型影片",
+      "too_large": "影片超過 200 MB，請先壓縮後再上傳。"
     },
     "title": "上傳"
   },

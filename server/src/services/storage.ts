@@ -59,7 +59,11 @@ export function BlobService(): Hono {
         }
 
         try {
-            const response = await profileAsync(c, "blob_fetch", () => getStorageObject(env, decodeURIComponent(key)));
+            const response = await profileAsync(c, "blob_fetch", () => getStorageObject(
+                env,
+                decodeURIComponent(key),
+                c.req.header("range"),
+            ));
 
             if (!response) {
                 return c.text("Not found", 404);

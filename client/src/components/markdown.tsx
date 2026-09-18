@@ -22,6 +22,7 @@ import { drawBlurhashToCanvas } from "../utils/blurhash";
 import { useColorMode } from "../utils/darkModeUtils";
 import { parseImageUrlMetadata } from "../utils/image-upload";
 import { useImageLoadState } from "../utils/use-image-load-state";
+import { MediaEmbed } from "./media-embed";
 
 
 const countNewlinesBeforeNode = (text: string, offset: number) => {
@@ -432,6 +433,28 @@ export function Markdown({ content }: { content: string }) {
                 sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
               />
             </div>
+          );
+        },
+        audio(props) {
+          const mediaProps = props as typeof props & { "data-rin-media-id"?: string };
+          return (
+            <MediaEmbed
+              id={mediaProps["data-rin-media-id"]}
+              type="audio"
+              provider="r2"
+              title={typeof mediaProps.title === "string" ? mediaProps.title : undefined}
+            />
+          );
+        },
+        video(props) {
+          const mediaProps = props as typeof props & { "data-rin-media-id"?: string; "data-rin-media-provider"?: "r2" | "stream" };
+          return (
+            <MediaEmbed
+              id={mediaProps["data-rin-media-id"]}
+              type="video"
+              provider={mediaProps["data-rin-media-provider"] || "r2"}
+              title={typeof mediaProps.title === "string" ? mediaProps.title : undefined}
+            />
           );
         },
         div({ children, node, ...props }) {

@@ -10,7 +10,8 @@
     "queue_status_description": "AI 要約キューの進行状況、最近のタスク結果、失敗内容を確認します。",
     "settings_description": "サイトの挙動、連携設定、公開ルールを一か所で管理します。",
     "title": "管理画面",
-    "writing_description": "非公開の管理ワークスペースから記事を作成、編集、公開します。"
+    "writing_description": "非公開の管理ワークスペースから記事を作成、編集、公開します。",
+    "media_description": "記事で使用している音声と動画を管理し、参照中のメディアを誤って削除しないようにします。"
   },
   "compat_tasks": {
     "title": "互換タスク",
@@ -160,8 +161,25 @@
       "ordered_list": "番号付きリスト",
       "quote": "引用",
       "unordered_list": "箇条書き",
-      "upload_image": "画像をアップロード"
+      "upload_image": "画像をアップロード",
+      "upload_media": "音声または動画をアップロード"
     }
+  },
+  "media": {
+    "audio": "音声",
+    "delete_confirm": "この未関連付けのメディアを削除しますか？",
+    "delete_referenced": "このメディアは記事で使用中のため削除できません。",
+    "delete_stream": "Cloudflare Stream のメディアは Stream ダッシュボードで管理してください。",
+    "delete_success": "メディアを削除しました",
+    "delete_title": "メディアを削除",
+    "empty": "音声または動画はまだありません。執筆ページからアップロードできます。",
+    "processing": "処理中",
+    "unattached": "未関連付けのメディア",
+    "unavailable": "このメディアは現在利用できません",
+    "total": "{{count}} 件のメディアを表示",
+    "upload_hint": "アップロードは執筆ツールバーから行えます",
+    "video": "動画",
+    "title": "メディアライブラリ"
   },
   "error": {
     "api_url": "Pages 環境変数のAPI_URLはWorkerアドレスである必要があります。Pages環境変数のAPI_URLが正しいか確認してください。",
@@ -546,6 +564,11 @@
       "invalid_type": "画像ファイルをアップロードしてください",
       "preview_alt": "画像プレビュー",
       "url_placeholder": "画像 URL を入力するか、画像をアップロードしてください"
+    },
+    "media": {
+      "invalid_type": "音声または動画ファイルをアップロードしてください",
+      "stream_unavailable": "Cloudflare Stream が設定されていないため、大きな動画をアップロードできません。",
+      "too_large": "200 MB を超える動画には対応していません。圧縮してから再試行してください。"
     },
     "title": "アップロード"
   },

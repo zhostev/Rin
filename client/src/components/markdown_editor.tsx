@@ -1,4 +1,5 @@
 import Editor from '@monaco-editor/react';
+import type { MediaAsset, MediaType } from '@rin/api';
 import { editor, Range, Selection } from 'monaco-editor';
 import React, { useRef, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,6 +9,8 @@ import { useAlert } from "./dialog";
 import { useColorMode } from "../utils/darkModeUtils";
 import { buildMarkdownImage, uploadImageFile } from "../utils/image-upload";
 import { Markdown } from "./markdown";
+import { buildMediaMarkup } from "./media-embed";
+import { client } from "../app/runtime";
 
 
 interface MarkdownEditorProps {
@@ -72,6 +75,7 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
   const isComposingRef = useRef(false);
   const [preview, setPreview] = useState<'edit' | 'preview' | 'comparison'>('edit');
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const { showAlert, AlertUI } = useAlert();
 
   async function insertImage(
@@ -91,6 +95,74 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
           height: result.height,
         }),
       }]);
+    } catch (error) {
+      console.error(error);
+      showAlert(error instanceof Error ? error.message : t("upload.failed"));
+    }
+  }
+
+  async function insertMedia(
+    file: File,
+    type: MediaType,
+    range: NonNullable<ReturnType<editor.IStandaloneCodeEditor["getSelection"]>>,
+    showAlert: (msg: string) => void,
+  ) {
+    try {
+      let data: MediaAsset | undefined;
+      let error: { value: string } | undefined;
+      let provider: "r2" | "stream" = "r2";
+
+      if (type === "video" && file.size > 100 * 1024 * 1024) {
+        if (file.size > 200 * 1024 * 1024) {
+          throw new Error(t("upload.media.too_large"));
+        }
+        let uploadedAsset: MediaAsset | undefined;
+        let lastUploadError: Error | undefined;
+        for (let attempt = 1; attempt <= 3 && !uploadedAsset; attempt += 1) {
+          const streamUpload = await client.media.createStreamUpload(file.name);
+          if (streamUpload.error || !streamUpload.data) {
+            throw new Error(streamUpload.error?.value || t("upload.media.stream_unavailable"));
+          }
+          try {
+            const response = await new Promise<{ ok: boolean }>((resolve, reject) => {
+              const request = new XMLHttpRequest();
+              request.open("POST", streamUpload.data!.uploadUrl);
+              request.upload.onprogress = (event) => {
+                if (event.lengthComputable) setUploadProgress(Math.round((event.loaded / event.total) * 100));
+              };
+              request.onload = () => resolve({ ok: request.status >= 200 && request.status < 300 });
+              request.onerror = () => reject(new Error(t("upload.failed")));
+              request.onabort = () => reject(new Error(t("upload.failed")));
+              const body = new FormData();
+              body.append("file", file);
+              request.send(body);
+            });
+            if (response.ok) uploadedAsset = streamUpload.data.asset;
+            else lastUploadError = new Error(t("upload.failed"));
+          } catch (error) {
+            lastUploadError = error instanceof Error ? error : new Error(t("upload.failed"));
+          }
+          if (!uploadedAsset) await client.media.delete(streamUpload.data.asset.id);
+          if (!uploadedAsset && attempt < 3) setUploadProgress(0);
+        }
+        if (!uploadedAsset) throw lastUploadError || new Error(t("upload.failed"));
+        data = uploadedAsset;
+        provider = "stream";
+      } else {
+        const uploadResult = await client.media.upload(file);
+        data = uploadResult.data;
+        error = uploadResult.error;
+      }
+      if (error || !data) {
+        throw new Error(error?.value || t("upload.failed"));
+      }
+      const editorInstance = editorRef.current;
+      if (!editorInstance) return;
+      editorInstance.executeEdits(undefined, [{
+        range,
+        text: buildMediaMarkup(type, data.id, file.name, provider),
+      }]);
+      setContent(editorInstance.getValue());
     } catch (error) {
       console.error(error);
       showAlert(error instanceof Error ? error.message : t("upload.failed"));
@@ -352,6 +424,53 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
     );
   }
 
+  function UploadMediaButton() {
+    const uploadRef = useRef<HTMLInputElement>(null);
+    const label = t("markdown_editor.toolbar.upload_media");
+
+    const upChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.currentTarget.files?.[0];
+      const editor = editorRef.current;
+      const selection = editor?.getSelection();
+      if (!file || !editor || !selection) return;
+
+      const type: MediaType | null = file.type.startsWith("audio/")
+        ? "audio"
+        : file.type.startsWith("video/")
+          ? "video"
+          : null;
+      if (!type) {
+        showAlert(t("upload.media.invalid_type"));
+        return;
+      }
+
+      setUploading(true);
+      void insertMedia(file, type, selection, showAlert).finally(() => {
+        setUploading(false);
+        setUploadProgress(null);
+        if (uploadRef.current) uploadRef.current.value = "";
+      });
+    };
+
+    return (
+      <>
+        <input
+          ref={uploadRef}
+          onChange={upChange}
+          className="hidden"
+          type="file"
+          accept="audio/*,video/*"
+        />
+        <MarkdownToolButton
+          label={label}
+          icon="ri-movie-2-line"
+          disabled={uploading}
+          onClick={() => uploadRef.current?.click()}
+        />
+      </>
+    );
+  }
+
   /* ---------------- Monaco Mount & IME Optimization ---------------- */
 
   const handleEditorMount = (editor: editor.IStandaloneCodeEditor) => {
@@ -420,11 +539,14 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
           ))}
           <span className="mx-1 hidden h-6 w-px bg-black/10 dark:bg-white/10 sm:block" aria-hidden="true" />
           <UploadImageButton />
+          <UploadMediaButton />
         </div>
         {uploading &&
           <div className="flex flex-row items-center space-x-2 px-2">
             <Loading type="spin" color="#FC466B" height={16} width={16} />
-            <span className="text-sm text-neutral-500">{t('uploading')}</span>
+            <span className="text-sm text-neutral-500">
+              {t('uploading')}{uploadProgress === null ? "" : ` ${uploadProgress}%`}
+            </span>
           </div>
         }
       </FlatInset>

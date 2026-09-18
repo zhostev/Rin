@@ -251,6 +251,32 @@ export interface CreateMomentRequest {
   content: string;
 }
 
+// ============================================================================
+// Media Types
+// ============================================================================
+
+export type MediaType = "audio" | "video";
+
+export interface MediaAsset {
+  id: string;
+  provider: "r2" | "stream";
+  type: MediaType;
+  mimeType: string;
+  fileSize: number;
+  status: "uploading" | "processing" | "ready" | "failed";
+  playbackUrl: string;
+  createdAt: string;
+  feedId?: number | null;
+  feedTitle?: string | null;
+  streamUid?: string | null;
+}
+
+export interface MediaLibraryResponse {
+  size: number;
+  data: MediaAsset[];
+  hasNext: boolean;
+}
+
 export interface MomentListResponse {
   data: Moment[];
   hasNext: boolean;
