@@ -115,7 +115,7 @@ Rin 支持两种存储方式：**Cloudflare R2**（推荐）或 **S3 兼容存�
 
 | Variable 名称 | 说明 | 示例 |
 |--------------|------|------|
-| `R2_BUCKET_NAME` | R2 存储桶名称 | `my-blog-images` |
+| `R2_BUCKET_NAME` | **使用 R2 时必填**（Workers Builds / `bun run deploy`）。缺失会省略 `[[r2_buckets]]` 并覆盖掉远端绑定。 | `my-blog-images` |
 
 部署脚本会自动构建 R2 的 endpoint 和 access host。如果您希望使用自定义域名访问图片，可以额外设置：
 

@@ -103,7 +103,7 @@ AVATAR                  # Site avatar URL
 PAGE_SIZE               # Pagination size
 RSS_ENABLE              # Enable RSS
 CACHE_STORAGE_MODE      # Cache mode (recommended: database)
-R2_BUCKET_NAME          # Optional: if set, deploy derives S3_* from this bucket; if unset, no R2 bucket is auto-selected
+R2_BUCKET_NAME          # Required for production Workers Builds/deploy when using R2. Missing this omits [[r2_buckets]] and drops the remote R2_BUCKET binding on redeploy (blob 500s). Set ALLOW_DEPLOY_WITHOUT_R2=true only for intentional S3-only deploys.
 WORKER_NAME             # Worker name (optional)
 DB_NAME                 # D1 database name (optional)
 ```

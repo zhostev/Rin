@@ -56,4 +56,31 @@ describe("handleFetch", () => {
     expect(new URL(getAppFetch.mock.calls[0][0].url).pathname).toBe("/blob/images/test.txt");
     expect(getAppFetch.mock.calls[0][2]).toBe(executionContext);
   });
+
+  it("falls back to SPA for /feed/:id when no crawler OG applies", async () => {
+    getAppFetch.mockResolvedValue(new Response("app-body", { status: 200 }));
+
+    const { handleFetch } = await import("../fetch-handler");
+    const spaHtml =
+      '<!DOCTYPE html><html><head><meta charset="UTF-8" /></head><body><div id="root"></div></body></html>';
+    const assetFetch = mock(
+      async () => new Response(spaHtml, { status: 200, headers: { "Content-Type": "text/html" } }),
+    );
+
+    const response = await handleFetch(
+      new Request("http://localhost/feed/5", {
+        headers: {
+          "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X) Chrome/120.0.0.0",
+        },
+      }),
+      {
+        ASSETS: { fetch: assetFetch },
+      } as unknown as Env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('id="root"');
+    expect(getAppFetch).toHaveBeenCalledTimes(0);
+    expect(assetFetch).toHaveBeenCalled();
+  });
 });
