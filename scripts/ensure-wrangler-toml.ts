@@ -28,6 +28,37 @@ function workersBuildsBranch(): string {
   ).trim();
 }
 
+
+async function resolveD1DatabaseId(dbName: string): Promise<string> {
+  const fromEnv = env("DB_ID") || env("D1_DATABASE_ID");
+  if (fromEnv && fromEnv !== "local") {
+    return fromEnv;
+  }
+
+  try {
+    const proc = Bun.spawn(["bunx", "wrangler", "d1", "list", "--json"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: process.env,
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const code = await proc.exited;
+    if (code !== 0) {
+      return fromEnv || "local";
+    }
+    const rows = JSON.parse(stdout) as Array<{ name: string; uuid: string }>;
+    const match = rows.find((row) => row.name === dbName);
+    if (match?.uuid) {
+      console.log(`✅ Resolved D1 ${dbName} → ${match.uuid}`);
+      return match.uuid;
+    }
+  } catch (error) {
+    console.warn("⚠️ Failed to resolve D1 database id via wrangler:", error);
+  }
+
+  return fromEnv || "local";
+}
+
 function isWorkersBuilds(): boolean {
   return Boolean(
     process.env.WORKERS_CI ||
@@ -183,7 +214,7 @@ max_batch_timeout = 5
 ${r2Block}`;
 }
 
-export function main(): void {
+export async function main(): Promise<void> {
   const r2BucketName = env("R2_BUCKET_NAME");
   const allowWithoutR2 = env("ALLOW_DEPLOY_WITHOUT_R2") === "true";
   const branch = workersBuildsBranch();
@@ -200,8 +231,19 @@ export function main(): void {
   }
 
   if (r2BucketName) {
-    writeFileSync(path, buildWranglerTomlFromEnv(process.env), "utf8");
-    console.log(`✅ Wrote wrangler.toml with R2_BUCKET → ${r2BucketName}`);
+    const dbName = env("DB_NAME", "rin") || "rin";
+    const dbId = await resolveD1DatabaseId(dbName);
+    if (isWorkersBuilds() && (dbId === "local" || !dbId)) {
+      console.error(
+        "D1 database_id could not be resolved. Set Build variable DB_ID / D1_DATABASE_ID " +
+          "to the UUID of your D1 database (Workers Builds → Settings), or ensure " +
+          "`wrangler d1 list` works with the Builds Cloudflare credentials.",
+      );
+      process.exit(1);
+    }
+    const envWithDb = { ...process.env, DB_ID: dbId };
+    writeFileSync(path, buildWranglerTomlFromEnv(envWithDb), "utf8");
+    console.log(`✅ Wrote wrangler.toml with R2_BUCKET → ${r2BucketName}, DB → ${dbId}`);
     return;
   }
 
@@ -215,5 +257,5 @@ export function main(): void {
 }
 
 if (import.meta.main) {
-  main();
+  await main();
 }
