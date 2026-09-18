@@ -246,49 +246,36 @@ describe('CommentService', () => {
         });
     });
 
-    describe('Comment location (IP2REGION)', () => {
-        function ip2regionBinding(body: unknown) {
-            return {
-                fetch: mock(async () => new Response(JSON.stringify(body), { status: 200 })),
-            } as unknown as Fetcher;
-        }
-
-        it('stores ip and resolved location for guest comments', async () => {
-            const binding = ip2regionBinding({
-                country: '中国', province: '江苏省', city: '南京市', isp: '电信',
-            });
-            env.IP2REGION = binding;
-
+    describe('Comment IP capture (no geolocation)', () => {
+        it('stores visitor IP from CF-Connecting-IP without writing location', async () => {
             const res = await app.request('/1', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'CF-Connecting-IP': '114.114.114.114',
+                    'CF-Connecting-IP': '223.5.5.5',
                     'CF-IPCountry': 'CN',
                 },
-                body: JSON.stringify({ content: 'Guest from Nanjing', guestName: 'Nanjinger' }),
+                body: JSON.stringify({ content: 'Hello', guestName: 'Guest' }),
             }, env);
 
             expect(res.status).toBe(200);
             const row = sqlite.prepare(
-                `SELECT ip, location, country, province, city FROM comments WHERE guest_name = 'Nanjinger'`
+                `SELECT ip, location, country, province, city FROM comments WHERE guest_name = 'Guest' ORDER BY id DESC LIMIT 1`
             ).get() as any;
-            expect(row.ip).toBe('114.114.114.114');
-            expect(row.location).toBe('江苏省·南京市');
-            expect(row.country).toBe('中国');
-            expect(row.province).toBe('江苏省');
-            expect(row.city).toBe('南京市');
+            expect(row.ip).toBe('223.5.5.5');
+            expect(row.location).toBe('');
+            expect(row.country).toBe('');
+            expect(row.province).toBe('');
+            expect(row.city).toBe('');
         });
 
-        it('stores location for authenticated comments too', async () => {
-            env.IP2REGION = ip2regionBinding({ country: '中国', province: '广东省', city: '深圳市' });
-
+        it('stores IP for logged-in comments without geolocation', async () => {
             const res = await app.request('/2', {
                 method: 'POST',
                 headers: {
                     'Authorization': 'Bearer mock_token_1',
                     'Content-Type': 'application/json',
-                    'CF-Connecting-IP': '223.5.5.5',
+                    'CF-Connecting-IP': '1.2.3.4',
                 },
                 body: JSON.stringify({ content: 'Logged in comment' }),
             }, env);
@@ -297,13 +284,11 @@ describe('CommentService', () => {
             const row = sqlite.prepare(
                 `SELECT ip, location FROM comments WHERE content = 'Logged in comment'`
             ).get() as any;
-            expect(row.ip).toBe('223.5.5.5');
-            expect(row.location).toBe('广东省·深圳市');
+            expect(row.ip).toBe('1.2.3.4');
+            expect(row.location).toBe('');
         });
 
-        it('falls back to x-real-ip and CF-IPCountry when the binding is missing', async () => {
-            delete (env as any).IP2REGION;
-
+        it('falls back to x-real-ip when CF-Connecting-IP is missing', async () => {
             const res = await app.request('/1', {
                 method: 'POST',
                 headers: {
@@ -316,38 +301,13 @@ describe('CommentService', () => {
 
             expect(res.status).toBe(200);
             const row = sqlite.prepare(
-                `SELECT ip, location, country, province FROM comments WHERE guest_name = 'Abroad'`
+                `SELECT ip, location FROM comments WHERE guest_name = 'Abroad'`
             ).get() as any;
             expect(row.ip).toBe('8.8.8.8');
-            expect(row.location).toBe('美国');
-            expect(row.province).toBe('');
+            expect(row.location).toBe('');
         });
 
-        it('still creates the comment when the binding fails', async () => {
-            env.IP2REGION = {
-                fetch: mock(async () => {
-                    throw new Error('VPC service unreachable');
-                }),
-            } as unknown as Fetcher;
-
-            const res = await app.request('/1', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'CF-Connecting-IP': '114.114.114.114',
-                    'CF-IPCountry': 'CN',
-                },
-                body: JSON.stringify({ content: 'Survives geo failure', guestName: 'Resilient' }),
-            }, env);
-
-            expect(res.status).toBe(200);
-            const row = sqlite.prepare(
-                `SELECT location FROM comments WHERE guest_name = 'Resilient'`
-            ).get() as any;
-            expect(row.location).toBe('中国');
-        });
-
-        it('never exposes the raw ip to anonymous visitors', async () => {
+        it('never exposes raw ip or location to anonymous visitors', async () => {
             sqlite.exec(`UPDATE comments SET ip = '114.114.114.114', location = '江苏省·南京市' WHERE id = 1`);
 
             const res = await app.request('/1', { method: 'GET' }, env);
@@ -356,8 +316,11 @@ describe('CommentService', () => {
             expect(data.length).toBeGreaterThan(0);
             for (const comment of data) {
                 expect(comment).not.toHaveProperty('ip');
+                expect(comment).not.toHaveProperty('location');
+                expect(comment).not.toHaveProperty('country');
+                expect(comment).not.toHaveProperty('province');
+                expect(comment).not.toHaveProperty('city');
             }
-            expect(data.some((c) => c.location === '江苏省·南京市')).toBe(true);
         });
 
         it('does not expose the raw ip to a non-admin logged-in user', async () => {
@@ -371,11 +334,12 @@ describe('CommentService', () => {
 
             for (const comment of data) {
                 expect(comment).not.toHaveProperty('ip');
+                expect(comment).not.toHaveProperty('location');
             }
         });
 
-        it('exposes the raw ip to admins', async () => {
-            sqlite.exec(`UPDATE comments SET ip = '114.114.114.114' WHERE id = 1`);
+        it('exposes the raw ip to admins but not location', async () => {
+            sqlite.exec(`UPDATE comments SET ip = '114.114.114.114', location = '江苏省·南京市' WHERE id = 1`);
 
             const res = await app.request('/1', {
                 method: 'GET',
@@ -385,6 +349,7 @@ describe('CommentService', () => {
 
             const target = data.find((c) => c.id === 1);
             expect(target.ip).toBe('114.114.114.114');
+            expect(target).not.toHaveProperty('location');
         });
     });
 
