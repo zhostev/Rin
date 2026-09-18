@@ -27,6 +27,8 @@ const WORKER_SECRET_KEYS = [
   "RIN_GITHUB_CLIENT_SECRET",
   "S3_ACCESS_KEY_ID",
   "S3_SECRET_ACCESS_KEY",
+  // Runtime: provision TUS direct uploads (createDirectUpload does not support >200MB).
+  "CLOUDFLARE_API_TOKEN",
 ] as const;
 
 function isQueueAlreadyPresentError(stderr: string) {
@@ -144,6 +146,8 @@ export function buildWranglerR2BucketConfig(r2BucketName: string) {
 /**
  * Cloudflare Stream binding. Dashboard-only STREAM bindings are wiped when
  * generated wrangler.toml omits [stream] — same class of bug as R2 / former IP2REGION.
+ * Official format is `[stream]` (not `[[streams]]`). Requires wrangler >= 4.80.0
+ * or the field is ignored with "unexpected top-level field stream".
  */
 export function buildWranglerStreamConfig() {
   return stripIndent(`
@@ -248,6 +252,7 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
   const pageSize = env("PAGE_SIZE", "5");
   const rssEnable = env("RSS_ENABLE", "false");
   const frontendUrl = env("FRONTEND_URL", "");
+  const cloudflareAccountId = env("CLOUDFLARE_ACCOUNT_ID", "");
   let finalS3Endpoint = s3Endpoint;
   let finalS3Bucket = s3Bucket;
   let finalS3AccessHost = s3AccessHost;
@@ -301,6 +306,7 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
       PAGE_SIZE = "${pageSize}"
       RSS_ENABLE = "${rssEnable}"
       FRONTEND_URL = "${frontendUrl}"
+      CLOUDFLARE_ACCOUNT_ID = "${cloudflareAccountId}"
 
       [placement]
       mode = "smart"

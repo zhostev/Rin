@@ -467,10 +467,15 @@ class MediaAPI {
     return this.http.post<MediaAsset>("/api/media", formData);
   }
 
-  // POST /api/media/stream/upload
-  async createStreamUpload(fileName: string, maxDurationSeconds = 3600): Promise<ApiResponse<{ asset: MediaAsset; uploadUrl: string }>> {
-    return this.http.post<{ asset: MediaAsset; uploadUrl: string }>("/api/media/stream/upload", {
+  // POST /api/media/stream/upload — provisions a TUS URL for 100MB–1GB Stream videos
+  async createStreamUpload(
+    fileName: string,
+    fileSize: number,
+    maxDurationSeconds = 3600,
+  ): Promise<ApiResponse<{ asset: MediaAsset; uploadUrl: string; protocol: "tus" }>> {
+    return this.http.post<{ asset: MediaAsset; uploadUrl: string; protocol: "tus" }>("/api/media/stream/upload", {
       fileName,
+      fileSize,
       maxDurationSeconds,
     });
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { extractMediaIds, verifyStreamWebhookSignature } from "../media";
+import { buildStreamTusMetadata, extractMediaIds, STREAM_DIRECT_UPLOAD_MAX_BYTES, verifyStreamWebhookSignature } from "../media";
 
 describe("media content references", () => {
   it("extracts unique media ids from audio and video blocks", () => {
@@ -27,5 +27,23 @@ describe("stream webhook signatures", () => {
 
     expect(await verifyStreamWebhookSignature(`time=${timestamp},sig1=${signature}`, body, "secret", timestamp)).toBe(true);
     expect(await verifyStreamWebhookSignature(`time=${timestamp},sig1=${signature}`, body, "secret", timestamp + 301)).toBe(false);
+  });
+});
+
+
+describe("stream TUS metadata", () => {
+  it("encodes maxDurationSeconds and flags for Cloudflare Upload-Metadata", () => {
+    const header = buildStreamTusMetadata({
+      fileName: "clip.mp4",
+      maxDurationSeconds: 600,
+      creator: "user-1",
+      requireSignedURLs: true,
+      allowedOrigins: ["example.com"],
+    });
+    expect(header).toContain("maxdurationseconds NjAw");
+    expect(header).toContain("requiresignedurls");
+    expect(header).toContain(`name ${btoa("clip.mp4")}`);
+    expect(header).toContain(`creator ${btoa("user-1")}`);
+    expect(STREAM_DIRECT_UPLOAD_MAX_BYTES).toBe(200 * 1024 * 1024);
   });
 });

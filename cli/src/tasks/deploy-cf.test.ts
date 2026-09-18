@@ -20,6 +20,7 @@ describe("collectWorkerSecrets", () => {
       RIN_GITHUB_CLIENT_SECRET: "client-secret",
       S3_ACCESS_KEY_ID: "access-key",
       S3_SECRET_ACCESS_KEY: "secret-key",
+      CLOUDFLARE_API_TOKEN: "cf-token",
       UNUSED: "ignored",
     });
 
@@ -31,6 +32,7 @@ describe("collectWorkerSecrets", () => {
       RIN_GITHUB_CLIENT_SECRET: "client-secret",
       S3_ACCESS_KEY_ID: "access-key",
       S3_SECRET_ACCESS_KEY: "secret-key",
+      CLOUDFLARE_API_TOKEN: "cf-token",
     });
   });
 
@@ -140,6 +142,8 @@ describe("buildWranglerStreamConfig", () => {
     const config = buildWranglerStreamConfig();
     expect(config).toContain("[stream]");
     expect(config).toContain('binding = "STREAM"');
+    // Official TOML; ignored by wrangler <4.80 (unexpected top-level field "stream").
+    expect(config).toMatch(/\[stream\][\s\S]*binding = "STREAM"/);
   });
 });
 

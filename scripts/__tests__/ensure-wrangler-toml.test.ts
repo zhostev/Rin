@@ -56,6 +56,8 @@ describe("buildWranglerTomlFromEnv", () => {
     });
     expect(toml).toContain("[stream]");
     expect(toml).toContain('binding = "STREAM"');
+    // Official docs use [stream] (not [[streams]]); wrangler >=4.80 required to honor it.
+    expect(toml).toMatch(/\[stream\]\s*\nbinding = "STREAM"/);
   });
 
   it("includes [stream] when STREAM_PUBLIC_HOST is set", () => {
