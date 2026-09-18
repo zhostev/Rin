@@ -42,4 +42,31 @@ describe("buildWranglerTomlFromEnv", () => {
     });
     expect(toml).not.toContain("[[r2_buckets]]");
   });
+
+
+  it("includes [[vpc_services]] IP2REGION when IP2REGION_SERVICE_ID is set", () => {
+    const toml = buildWranglerTomlFromEnv({
+      WORKER_NAME: "rin",
+      R2_BUCKET_NAME: "rin",
+      DB_ID: "abc-123",
+      IP2REGION_SERVICE_ID: "e6a0817c-79c5-40ca-9776-a1c019defe70",
+      IP2REGION_BASE_URL: "http://ip2region.internal",
+    });
+
+    expect(toml).toContain("[[vpc_services]]");
+    expect(toml).toContain('binding = "IP2REGION"');
+    expect(toml).toContain('service_id = "e6a0817c-79c5-40ca-9776-a1c019defe70"');
+    expect(toml).toContain('IP2REGION_BASE_URL = "http://ip2region.internal"');
+  });
+
+  it("omits vpc_services when IP2REGION_SERVICE_ID is empty", () => {
+    const toml = buildWranglerTomlFromEnv({
+      WORKER_NAME: "rin",
+      R2_BUCKET_NAME: "rin",
+      IP2REGION_SERVICE_ID: "",
+    });
+    expect(toml).not.toContain("[[vpc_services]]");
+    expect(toml).not.toContain("IP2REGION");
+  });
+
 });
