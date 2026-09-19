@@ -8,6 +8,7 @@ import { FlatInset, FlatTabButton } from "@rin/ui";
 import { useAlert } from "./dialog";
 import { useColorMode } from "../utils/darkModeUtils";
 import { buildMarkdownImage, uploadImageFile } from "../utils/image-upload";
+import * as tus from "tus-js-client";
 import { Markdown } from "./markdown";
 import { buildMediaMarkup } from "./media-embed";
 import { client } from "../app/runtime";
@@ -121,26 +122,34 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
         let uploadedAsset: MediaAsset | undefined;
         let lastUploadError: Error | undefined;
         for (let attempt = 1; attempt <= 3 && !uploadedAsset; attempt += 1) {
-          const streamUpload = await client.media.createStreamUpload(file.name);
+          // createDirectUpload (FormData POST) is capped at 200MB; use TUS for 100MB–1GB.
+          const streamUpload = await client.media.createStreamUpload(file.name, file.size);
           if (streamUpload.error || !streamUpload.data) {
             throw new Error(streamUpload.error?.value || t("upload.media.stream_unavailable"));
           }
           try {
-            const response = await new Promise<{ ok: boolean }>((resolve, reject) => {
-              const request = new XMLHttpRequest();
-              request.open("POST", streamUpload.data!.uploadUrl);
-              request.upload.onprogress = (event) => {
-                if (event.lengthComputable) setUploadProgress(Math.round((event.loaded / event.total) * 100));
-              };
-              request.onload = () => resolve({ ok: request.status >= 200 && request.status < 300 });
-              request.onerror = () => reject(new Error(t("upload.failed")));
-              request.onabort = () => reject(new Error(t("upload.failed")));
-              const body = new FormData();
-              body.append("file", file);
-              request.send(body);
+            await new Promise<void>((resolve, reject) => {
+              const upload = new tus.Upload(file, {
+                // Pre-provisioned one-time URL from /api/media/stream/upload (direct_user TUS).
+                uploadUrl: streamUpload.data!.uploadUrl,
+                // CF Stream: min 5MiB chunk unless whole file is smaller; prefer ~50MiB.
+                chunkSize: 52_428_800,
+                retryDelays: [0, 3000, 5000, 10000, 20000],
+                metadata: {
+                  filename: file.name,
+                  filetype: file.type || "video/mp4",
+                },
+                onError: (error) => reject(error instanceof Error ? error : new Error(t("upload.failed"))),
+                onProgress: (bytesUploaded, bytesTotal) => {
+                  if (bytesTotal > 0) {
+                    setUploadProgress(Math.round((bytesUploaded / bytesTotal) * 100));
+                  }
+                },
+                onSuccess: () => resolve(),
+              });
+              upload.start();
             });
-            if (response.ok) uploadedAsset = streamUpload.data.asset;
-            else lastUploadError = new Error(t("upload.failed"));
+            uploadedAsset = streamUpload.data.asset;
           } catch (error) {
             lastUploadError = error instanceof Error ? error : new Error(t("upload.failed"));
           }

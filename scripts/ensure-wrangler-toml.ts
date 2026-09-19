@@ -135,6 +135,11 @@ export function shouldEnableStreamBinding(
   return false;
 }
 
+/**
+ * Official Stream binding TOML (`[stream]`, not `[[streams]]`).
+ * Requires wrangler >= 4.80.0 — older versions warn "unexpected top-level field
+ * stream" and silently omit the binding at deploy time.
+ */
 export function buildWranglerStreamConfig(): string {
   return `
 [stream]
@@ -175,6 +180,7 @@ export function buildWranglerTomlFromEnv(
   const rssTitle = (source.RSS_TITLE || "").trim();
   const rssDescription = (source.RSS_DESCRIPTION || "").trim();
   const webhookUrl = (source.WEBHOOK_URL || "").trim();
+  const cloudflareAccountId = (source.CLOUDFLARE_ACCOUNT_ID || "").trim();
 
   const r2Block = r2BucketName
     ? `
@@ -222,6 +228,7 @@ AVATAR = "${avatar}"
 PAGE_SIZE = "${pageSize}"
 RSS_ENABLE = "${rssEnable}"
 FRONTEND_URL = "${frontendUrl}"
+CLOUDFLARE_ACCOUNT_ID = "${cloudflareAccountId}"
 [placement]
 mode = "smart"
 

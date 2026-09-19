@@ -13,6 +13,83 @@ const MIME_TYPES: Record<MediaType, Set<string>> = {
     video: new Set(["video/mp4", "video/webm", "video/ogg", "video/quicktime"]),
 };
 
+
+export const MAX_STREAM_VIDEO_SIZE = 1024 * 1024 * 1024;
+/** createDirectUpload (Workers binding) does not support files over 200MB; use TUS. */
+export const STREAM_DIRECT_UPLOAD_MAX_BYTES = 200 * 1024 * 1024;
+
+function encodeTusMetadataValue(value: string): string {
+    return btoa(unescape(encodeURIComponent(value)));
+}
+
+/** Build Cloudflare Stream Upload-Metadata header (tus). Values are base64. */
+export function buildStreamTusMetadata(options: {
+    fileName?: string;
+    maxDurationSeconds: number;
+    creator?: string;
+    requireSignedURLs?: boolean;
+    allowedOrigins?: string[];
+}): string {
+    const parts: string[] = [
+        `maxdurationseconds ${encodeTusMetadataValue(String(options.maxDurationSeconds))}`,
+    ];
+    if (options.fileName) {
+        parts.push(`name ${encodeTusMetadataValue(options.fileName)}`);
+    }
+    if (options.creator) {
+        parts.push(`creator ${encodeTusMetadataValue(options.creator)}`);
+    }
+    if (options.requireSignedURLs) {
+        parts.push("requiresignedurls");
+    }
+    if (options.allowedOrigins?.length) {
+        parts.push(`allowedorigins ${encodeTusMetadataValue(options.allowedOrigins.join(","))}`);
+    }
+    return parts.join(",");
+}
+
+export type StreamTusProvisionResult = {
+    uploadUrl: string;
+    streamUid: string;
+};
+
+/**
+ * Provision a one-time TUS upload URL via Stream REST (`direct_user=true`).
+ * Required for videos over 200MB (Workers createDirectUpload limit).
+ */
+export async function provisionStreamTusUpload(options: {
+    accountId: string;
+    apiToken: string;
+    uploadLength: number;
+    metadata: string;
+}): Promise<StreamTusProvisionResult> {
+    const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(options.accountId)}/stream?direct_user=true`;
+    const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${options.apiToken}`,
+            "Tus-Resumable": "1.0.0",
+            "Upload-Length": String(options.uploadLength),
+            "Upload-Metadata": options.metadata,
+        },
+    });
+    if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        throw new Error(
+            `Stream TUS provision failed (${response.status}): ${body.slice(0, 300) || response.statusText}`,
+        );
+    }
+    const uploadUrl = response.headers.get("Location");
+    const streamUid =
+        response.headers.get("stream-media-id") ||
+        response.headers.get("Stream-Media-Id") ||
+        "";
+    if (!uploadUrl || !streamUid) {
+        throw new Error("Stream TUS provision did not return Location / stream-media-id");
+    }
+    return { uploadUrl, streamUid };
+}
+
 function mediaTypeForMime(mimeType: string): MediaType | null {
     if (MIME_TYPES.audio.has(mimeType)) return "audio";
     if (MIME_TYPES.video.has(mimeType)) return "video";
@@ -270,56 +347,90 @@ export function MediaService(): Hono<{
 
     app.post("/stream/upload", adminOnly(async (c) => {
         const uid = c.get("uid");
-        const stream = c.get("env").STREAM;
+        const env = c.get("env");
+        const stream = env.STREAM;
         if (!uid) return c.text("Unauthorized", 401);
+        // STREAM binding still required for playback tokens / delete / details.
         if (!stream) return c.text("Cloudflare Stream is not configured", 503);
 
-        let body: { fileName?: string; maxDurationSeconds?: number };
+        let body: { fileName?: string; fileSize?: number; maxDurationSeconds?: number };
         try {
             body = await c.req.json();
         } catch {
             return c.text("Invalid JSON body", 400);
         }
 
+        const fileSize = Math.floor(Number(body.fileSize) || 0);
+        if (fileSize <= 0 || fileSize > MAX_STREAM_VIDEO_SIZE) {
+            return c.text("Stream video fileSize is required and must be <= 1 GiB", 400);
+        }
+
         const maxDurationSeconds = Math.min(
             36000,
             Math.max(1, Math.floor(Number(body.maxDurationSeconds) || 3600)),
         );
-        const upload = await stream.createDirectUpload({
-            maxDurationSeconds,
-            creator: String(uid),
-            meta: { name: String(body.fileName || "video") },
-            allowedOrigins: streamAllowedOrigin(c.get("env").FRONTEND_URL),
-            requireSignedURLs: true,
-        });
+        const fileName = String(body.fileName || "video");
+        const allowedOrigins = streamAllowedOrigin(env.FRONTEND_URL);
+
+        // Workers binding createDirectUpload does not support >200MB; always use TUS
+        // for the editor Stream path (100MB–1GB). Requires account id + API token.
+        const accountId = (env.CLOUDFLARE_ACCOUNT_ID || "").trim();
+        const apiToken = (env.CLOUDFLARE_API_TOKEN || "").trim();
+        if (!accountId || !apiToken) {
+            return c.text(
+                "Stream TUS upload requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN",
+                503,
+            );
+        }
+
+        let provisioned: StreamTusProvisionResult;
+        try {
+            provisioned = await provisionStreamTusUpload({
+                accountId,
+                apiToken,
+                uploadLength: fileSize,
+                metadata: buildStreamTusMetadata({
+                    fileName,
+                    maxDurationSeconds,
+                    creator: String(uid),
+                    requireSignedURLs: true,
+                    allowedOrigins,
+                }),
+            });
+        } catch (error) {
+            console.error("Stream TUS provision failed:", error);
+            return c.text(error instanceof Error ? error.message : "Stream TUS provision failed", 502);
+        }
+
         const id = crypto.randomUUID();
-        const playbackUrl = streamPlaybackUrl(c.get("env"), upload.id);
+        const playbackUrl = streamPlaybackUrl(env, provisioned.streamUid);
         let asset: typeof mediaAssets.$inferSelect | undefined;
         try {
             asset = await c.get("db").insert(mediaAssets).values({
                 id,
                 uid,
                 provider: "stream",
-                streamUid: upload.id,
+                streamUid: provisioned.streamUid,
                 playbackUrl,
                 type: "video",
-                objectKey: `stream/${uid}/${upload.id}`,
+                objectKey: `stream/${uid}/${provisioned.streamUid}`,
                 mimeType: "video/mp4",
-                fileSize: 0,
+                fileSize,
                 status: "processing",
             }).returning().then((rows) => rows[0]);
         } catch (error) {
-            await stream.video(upload.id).delete().catch(() => undefined);
+            await stream.video(provisioned.streamUid).delete().catch(() => undefined);
             throw error;
         }
 
         if (!asset) {
-            await stream.video(upload.id).delete().catch(() => undefined);
+            await stream.video(provisioned.streamUid).delete().catch(() => undefined);
             return c.text("Failed to create Stream media asset", 500);
         }
         return c.json({
             asset: toContract(asset),
-            uploadUrl: upload.uploadURL,
+            uploadUrl: provisioned.uploadUrl,
+            protocol: "tus" as const,
         });
     }, { message: "Permission denied", status: 403 }));
 
