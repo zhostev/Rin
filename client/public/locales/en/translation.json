@@ -70,6 +70,8 @@
     "range_pv": "Page views",
     "range_uv": "Visitors",
     "uv_approximate": "Approximate (sum of daily values)",
+    "vs_yesterday": "vs yesterday",
+    "live_unavailable": "Live data unavailable",
     "trend": "Traffic trend",
     "top_feeds": "Top posts",
     "referrer": "Referrers",

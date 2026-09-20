@@ -70,6 +70,8 @@
     "range_pv": "區間瀏覽量",
     "range_uv": "區間訪客數",
     "uv_approximate": "近似值（各日之和）",
+    "vs_yesterday": "較昨日",
+    "live_unavailable": "即時資料不可用",
     "trend": "訪問趨勢",
     "top_feeds": "熱門文章",
     "referrer": "流量來源",

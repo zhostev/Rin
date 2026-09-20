@@ -6,6 +6,7 @@ import { Link } from "wouter";
 import type {
   AnalyticsDimensionsResponse,
   AnalyticsDimensionType,
+  AnalyticsLiveResponse,
   AnalyticsOverview,
   AnalyticsTopFeedsResponse,
 } from "../api/client";
@@ -17,6 +18,35 @@ import { useSiteConfig } from "../hooks/useSiteConfig";
 type AnalyticsRangeDays = 7 | 30 | 90;
 
 const RANGE_OPTIONS: AnalyticsRangeDays[] = [7, 30, 90];
+
+/**
+ * 环比指示器（设计文档 §8.1）。
+ * 昨日为 0 时不渲染：没有可比基数，百分比不成立。
+ */
+function ChangeIndicator({ current, previous }: { current: number; previous: number }) {
+  const { t } = useTranslation();
+
+  if (previous <= 0) {
+    return null;
+  }
+
+  const percent = Math.round(((current - previous) / previous) * 100);
+  const tone =
+    percent === 0
+      ? "text-neutral-500 dark:text-neutral-400"
+      : percent > 0
+        ? "text-emerald-600 dark:text-emerald-400"
+        : "text-rose-600 dark:text-rose-400";
+  const icon = percent === 0 ? "ri-subtract-line" : percent > 0 ? "ri-arrow-up-line" : "ri-arrow-down-line";
+
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium ${tone}`}>
+      <i className={icon} aria-hidden="true" />
+      <span className="tabular-nums">{`${Math.abs(percent)}%`}</span>
+      <span className="text-neutral-500 dark:text-neutral-400">{t("analytics.vs_yesterday")}</span>
+    </span>
+  );
+}
 
 function DimensionSection({
   title,
@@ -63,10 +93,33 @@ export function AnalyticsPage() {
   const loadTopFeeds = useCallback(() => client.analytics.getTopFeeds(days), [days]);
   const { data: topFeedsData, loading: topFeedsLoading, error: topFeedsError } = useApiResource<AnalyticsTopFeedsResponse>(loadTopFeeds);
 
+  // cron 从不聚合当天（未完结的一天不能冻进永久表），所以 analytics_daily 里没有今天。
+  // 今日两张卡只能走 /analytics/live，它正好覆盖尚未聚合的当天数据。
+  const loadLive = useCallback(() => client.analytics.getLive(24), []);
+  const { data: live, loading: liveLoading, error: liveError } = useApiResource<AnalyticsLiveResponse>(loadLive);
+
   const series = overview?.series ?? [];
   const topFeeds = Array.isArray(topFeedsData?.items) ? topFeedsData.items : [];
-  const showEmpty = !overviewLoading && !overviewError && series.length === 0;
-  const showContent = !overviewLoading && !overviewError && overview !== null && series.length > 0;
+
+  // API token 缺少 Account Analytics Read 时返回 available:false，
+  // 这不是错误状态：其余板块照常渲染，今日卡退回聚合值。
+  const liveAvailable = !liveLoading && !liveError && live?.available === true;
+  const liveTotals = (liveAvailable ? live?.items ?? [] : []).reduce(
+    (totals, item) => ({ pv: totals.pv + item.pv, uv: totals.uv + item.uv }),
+    { pv: 0, uv: 0 },
+  );
+  const todayPv = liveAvailable ? liveTotals.pv : overview?.today.pv ?? 0;
+  const todayUv = liveAvailable ? liveTotals.uv : overview?.today.uv ?? 0;
+  const liveWarning = !liveLoading && !liveAvailable ? (
+    <SettingsBadge tone="warning">{t("analytics.live_unavailable")}</SettingsBadge>
+  ) : undefined;
+
+  // series 现在由服务端补零，长度恒等于区间天数，不能再用它判断「有没有数据」。
+  const hasHistory = series.some((point) => point.pv > 0 || point.uv > 0);
+  const hasData = hasHistory || todayPv > 0 || todayUv > 0;
+  // live 未落定前不下「无数据」结论，避免空状态闪一下再被今日数据顶掉。
+  const showEmpty = !overviewLoading && !liveLoading && !overviewError && !hasData;
+  const showContent = !overviewLoading && !overviewError && overview !== null && hasData;
 
   return (
     <div className="flex w-full flex-col gap-4">
@@ -114,10 +167,30 @@ export function AnalyticsPage() {
         <>
           <div className="grid gap-4 md:grid-cols-4">
             <SettingsCard>
-              <SettingsCardHeader title={String(overview.today.pv)} description={t("analytics.today_pv")} />
+              <SettingsCardHeader
+                title={String(todayPv)}
+                description={t("analytics.today_pv")}
+                badge={
+                  liveAvailable ? (
+                    <ChangeIndicator current={todayPv} previous={overview.yesterday.pv} />
+                  ) : (
+                    liveWarning
+                  )
+                }
+              />
             </SettingsCard>
             <SettingsCard>
-              <SettingsCardHeader title={String(overview.today.uv)} description={t("analytics.today_uv")} />
+              <SettingsCardHeader
+                title={String(todayUv)}
+                description={t("analytics.today_uv")}
+                badge={
+                  liveAvailable ? (
+                    <ChangeIndicator current={todayUv} previous={overview.yesterday.uv} />
+                  ) : (
+                    liveWarning
+                  )
+                }
+              />
             </SettingsCard>
             <SettingsCard>
               <SettingsCardHeader title={String(overview.totals.pv)} description={t("analytics.range_pv")} />
