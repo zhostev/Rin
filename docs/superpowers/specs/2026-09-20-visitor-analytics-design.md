@@ -75,7 +75,7 @@
 
 复用现有的 `*/20 * * * *` 触发器（`wrangler.toml` 的 `[triggers]`），在
 `server/src/runtime/scheduled-handler.ts` 中追加 `analyticsCrontab`。该函数内部依据
-`info` 表的 `analytics_last_rollup` 游标判断是否有未聚合的 UTC 日期，没有则直接返回，
+`serverConfig` 中的 `analytics.last_rollup` 游标判断是否有未聚合的 UTC 日期，没有则直接返回，
 因此不会每 20 分钟重复执行聚合。
 
 ### 4.2 降级行为
@@ -147,7 +147,7 @@ fingerprint = SHA-256(ip + user-agent + feedId + dailySalt).slice(0, 16)
 dailySalt   = HMAC(seed, utcDateString)
 ```
 
-`seed` 是一次性生成并存于 `info` 表的随机值；`dailySalt` 按 UTC 日期派生，**每日轮换**。
+`seed` 是一次性生成并通过 `serverConfig`（`CacheImpl`，database 模式，落盘到 `cache` 表）持久化的随机值，键名 `analytics.salt_seed`；`dailySalt` 按 UTC 日期派生，**每日轮换**。
 
 结果：无法跨天关联同一访客，也无法从存储值反推 IP。
 
@@ -202,7 +202,7 @@ dailySalt   = HMAC(seed, utcDateString)
 
 `analyticsCrontab(env, db, ...)`：
 
-1. 读 `info` 表的 `analytics_last_rollup` 游标（UTC 日期字符串）。
+1. 读 `serverConfig` 中的 `analytics.last_rollup` 游标（UTC 日期字符串）。
 2. 对每个未聚合且仍在 AE 3 个月窗口内的日期，发送 3 条 SQL：
    - 按 `index1`（feed_id）聚合 PV
    - 按 `blob2/blob3/blob5` 分别聚合维度计数
