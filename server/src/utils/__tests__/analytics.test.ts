@@ -1,13 +1,16 @@
 import { describe, expect, it } from "bun:test";
+import type { AppContext } from "../../core/hono-types";
 import {
     buildPageViewDataPoint,
     detectDevice,
     isBotUserAgent,
     normalizeReferrer,
+    recordPageView,
     resolveDailySalt,
     utcDateString,
     visitorFingerprint,
 } from "../analytics";
+import type { PageViewDataPoint } from "../analytics";
 
 describe("isBotUserAgent", () => {
     it("detects common crawlers", () => {
@@ -165,5 +168,95 @@ describe("buildPageViewDataPoint", () => {
     it("tolerates a null title", () => {
         const point = buildPageViewDataPoint({ ...input, title: null });
         expect(point.blobs[6]).toBe("");
+    });
+});
+
+describe("recordPageView", () => {
+    function fakeAnalyticsDataset(options: { throwOnWrite?: boolean } = {}) {
+        const points: PageViewDataPoint[] = [];
+        return {
+            points,
+            writeDataPoint(point: PageViewDataPoint) {
+                if (options.throwOnWrite) {
+                    throw new Error("writeDataPoint boom");
+                }
+                points.push(point);
+            },
+        };
+    }
+
+    function fakeServerConfig() {
+        const store = new Map<string, unknown>();
+        return {
+            async getOrDefault<T>(key: string, defaultValue: T): Promise<T> {
+                return (store.has(key) ? store.get(key) : defaultValue) as T;
+            },
+            async set(key: string, value: unknown) {
+                store.set(key, value);
+            },
+        };
+    }
+
+    function fakeContext(options: {
+        analytics?: ReturnType<typeof fakeAnalyticsDataset>;
+        userAgent?: string;
+        url?: string;
+    }): AppContext {
+        const userAgent = options.userAgent ?? "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120";
+        const url = options.url ?? "https://blog.example.com/feed/42";
+
+        const req = {
+            header(name: string) {
+                return name.toLowerCase() === "user-agent" ? userAgent : undefined;
+            },
+            raw: {
+                headers: { get: () => null },
+                cf: {},
+            },
+            url,
+        };
+
+        const context = {
+            env: { ANALYTICS: options.analytics },
+            req,
+            get(key: string) {
+                return key === "serverConfig" ? fakeServerConfig() : undefined;
+            },
+        };
+
+        return context as unknown as AppContext;
+    }
+
+    it("writes exactly one data point for a normal request", async () => {
+        const dataset = fakeAnalyticsDataset();
+        const c = fakeContext({ analytics: dataset });
+
+        await recordPageView(c, { feedId: 42, title: "Hello" });
+
+        expect(dataset.points).toHaveLength(1);
+        expect(dataset.points[0].indexes[0]).toBe("42");
+        expect(dataset.points[0].blobs[6]).toBe("Hello");
+    });
+
+    it("writes nothing for a bot user agent", async () => {
+        const dataset = fakeAnalyticsDataset();
+        const c = fakeContext({ analytics: dataset, userAgent: "curl/8.4.0" });
+
+        await recordPageView(c, { feedId: 42, title: "Hello" });
+
+        expect(dataset.points).toHaveLength(0);
+    });
+
+    it("writes nothing and does not throw when the ANALYTICS binding is missing", async () => {
+        const c = fakeContext({ analytics: undefined });
+
+        await expect(recordPageView(c, { feedId: 42, title: "Hello" })).resolves.toBeUndefined();
+    });
+
+    it("does not propagate an error thrown while writing the data point", async () => {
+        const dataset = fakeAnalyticsDataset({ throwOnWrite: true });
+        const c = fakeContext({ analytics: dataset });
+
+        await expect(recordPageView(c, { feedId: 42, title: "Hello" })).resolves.toBeUndefined();
     });
 });
