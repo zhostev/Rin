@@ -252,8 +252,20 @@ CREATE INDEX `analytics_dim_daily_date_type_idx` ON `analytics_dim_daily` (`date
 --> statement-breakpoint
 DROP TABLE IF EXISTS `visits`;
 --> statement-breakpoint
+ALTER TABLE `visit_stats` ADD COLUMN `uv` integer DEFAULT 0 NOT NULL;
+--> statement-breakpoint
+ALTER TABLE `visit_stats` ADD COLUMN `pv_baseline` integer DEFAULT 0 NOT NULL;
+--> statement-breakpoint
+ALTER TABLE `visit_stats` ADD COLUMN `uv_baseline` integer DEFAULT 0 NOT NULL;
+--> statement-breakpoint
+UPDATE `visit_stats` SET `pv_baseline` = `pv`;
+--> statement-breakpoint
 UPDATE `info` SET `value` = '16' WHERE `key` = 'migration_version';
 ```
+
+**为什么要 baseline 列：** `visit_stats.pv` 保存着本功能上线之前累计的全部浏览量，而 Task 5 的聚合只能从 Analytics Engine 得到上线之后的数据。若让聚合直接覆盖 `pv`，历史累计数就被抹掉了——spec §5.3 明确要求「历史累计数字不丢失」。因此把迁移时的存量值冻结进 `pv_baseline`，之后 `pv = pv_baseline + SUM(analytics_daily.pv)`，既保住历史又保持聚合幂等。
+
+`uv_baseline` 固定为 0：历史 UV 只存在于即将停用的 `hll_data` 估算值里，spec 已接受 UV 为估算口径。文章页的 UV 会从 0 重新累积，PV 则连续。
 
 - [ ] **Step 2: 更新 Drizzle schema**
 
@@ -287,20 +299,42 @@ export const analyticsDimDaily = sqliteTable("analytics_dim_daily", {
 import { index, integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 ```
 
+同时在 `visitStats` 定义中，于 `pv` 之后新增三列（与迁移一致）：
+
+```ts
+    uv: integer("uv").default(0).notNull(),
+    pvBaseline: integer("pv_baseline").default(0).notNull(),
+    uvBaseline: integer("uv_baseline").default(0).notNull(),
+```
+
 - [ ] **Step 3: 清理 visits 的残留引用**
 
 Run: `grep -rn "visits" server/src --include=*.ts`
-Expected: 只剩 `server/src/services/feed.ts` 的 import 与两处使用。**本步骤先不改 feed.ts**（Task 3 会整段替换）——但必须确认没有其它文件引用 `visits`。若 grep 出现 feed.ts 之外的文件，把它们一并处理后再继续。
+Expected: 只剩 `server/src/services/feed.ts` 的 import 与其中一处 INSERT。若出现 feed.ts 之外的文件，把它们一并处理后再继续。
 
-- [ ] **Step 4: 本地迁移并类型检查**
+在 `server/src/services/feed.ts` 中做**最小改动**，让代码树在本任务结束时仍能编译：
 
-Run: `bun run db:migrate && bun run check`
-Expected: 迁移成功；`check` 此时**预期在 `feed.ts` 报 `visits` 未定义**，这是正常的，Task 3 修复。若除此之外还有其它错误，先解决。
+1. 第 12 行 `import { feeds, visits, visitStats } from "../db/schema";` → `import { feeds, visitStats } from "../db/schema";`
+2. 删除这两行（原第 303-304 行附近）：
+
+```ts
+            // Keep recording to visits table for backup/history
+            await profileAsync(c, 'feed_detail_visit_insert', () => db.insert(visits).values({ feedId: feed.id, ip: ip }));
+```
+
+3. 删除上述两行后，局部变量 `ip` 可能变为未使用。**保留它**——Task 3 会整段重写这块逻辑。
+
+HLL 的读写逻辑本步骤**不动**，由 Task 3 整段替换。
+
+- [ ] **Step 4: 本地迁移、类型检查、跑测试**
+
+Run: `bun run db:migrate && bun run check && bun run test:server`
+Expected: 全部通过。代码树在本任务结束时是绿的。若 `server/src/services/__tests__/feed.test.ts` 断言了 `visits` 表的写入，删掉该断言（该表已不存在）。
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add server/sql/0016.sql server/src/db/schema.ts
+git add server/sql/0016.sql server/src/db/schema.ts server/src/services/feed.ts server/src/services/__tests__/feed.test.ts
 git commit -m "feat: add analytics rollup tables and drop write-only visits table"
 ```
 
@@ -742,20 +776,11 @@ Expected: PASS（全部用例）
         }
 ```
 
-**注意：** `visit_stats` 目前没有 `uv` 列（UV 原本是从 `hll_data` 算出来的）。本步骤需要给该表补一个 `uv` 列。把下面两条语句追加到 `server/sql/0016.sql` 的 `DROP TABLE` 之后、`UPDATE info` 之前：
+**不要修改 `server/sql/0016.sql`。** `visit_stats.uv` 及两个 baseline 列已由 Task 2 一并迁移完毕；Task 2 结束时 `migration_version` 已被置为 `'16'`，此时再改该文件不会被重新应用。本任务只改 TypeScript。
 
-```sql
-ALTER TABLE `visit_stats` ADD COLUMN `uv` integer DEFAULT 0 NOT NULL;
---> statement-breakpoint
-```
+- [ ] **Step 6: 跑全部服务端测试**
 
-并在 `server/src/db/schema.ts` 的 `visitStats` 定义中，于 `pv` 之后新增 `uv: integer("uv").default(0).notNull(),`。
-
-**历史 UV 回填：** 迁移后 `uv` 初始为 0，直到 cron 首次聚合。这是可接受的——`pv` 的历史累计值完整保留，`uv` 本来就是估算值。不写回填脚本（`hll_data` 的反序列化逻辑即将随 Task 3 停用，为一次性回填保留它不划算）。
-
-- [ ] **Step 6: 重新迁移并跑全部服务端测试**
-
-Run: `bun run db:migrate && bun run test:server`
+Run: `bun run test:server`
 Expected: 全部 PASS。`server/src/services/__tests__/feed.test.ts` 若断言了 `visits` 的写入或 HLL 行为，按新语义更新断言（pv/uv 来自 `visit_stats` 读取，不再有写入）。
 
 - [ ] **Step 7: 类型检查**
@@ -766,7 +791,7 @@ Expected: PASS（Task 2 遗留的 `visits` 未定义错误此时应消失）
 - [ ] **Step 8: 提交**
 
 ```bash
-git add server/src/utils/analytics.ts server/src/utils/__tests__/analytics.test.ts server/src/services/feed.ts server/src/services/__tests__/feed.test.ts server/sql/0016.sql server/src/db/schema.ts
+git add server/src/utils/analytics.ts server/src/utils/__tests__/analytics.test.ts server/src/services/feed.ts server/src/services/__tests__/feed.test.ts
 git commit -m "feat: record page views via Analytics Engine off the response path"
 ```
 
@@ -1246,7 +1271,9 @@ async function rollupDate(env: Env, db: DB, date: string): Promise<void> {
                 set: { pv, uv },
             });
 
-        // visit_stats 是文章页读取的持久计数器，由聚合结果重算，保证幂等。
+        // visit_stats 是文章页读取的持久计数器。
+        // 由 baseline + 聚合结果重算：baseline 冻结了本功能上线前的历史累计值，
+        // 重算保证幂等（同一天重复聚合不会重复计数）。
         const totals = await db
             .select({
                 pv: sql<number>`COALESCE(SUM(${analyticsDaily.pv}), 0)`,
@@ -1255,16 +1282,25 @@ async function rollupDate(env: Env, db: DB, date: string): Promise<void> {
             .from(analyticsDaily)
             .where(eq(analyticsDaily.feedId, feedId));
 
+        const aggregatedPv = Number(totals[0]?.pv) || 0;
+        const aggregatedUv = Number(totals[0]?.uv) || 0;
+
         const existing = await db.query.visitStats.findFirst({ where: eq(visitStats.feedId, feedId) });
         if (existing) {
             await db.update(visitStats)
-                .set({ pv: totals[0]?.pv ?? 0, uv: totals[0]?.uv ?? 0, updatedAt: new Date() })
+                .set({
+                    pv: existing.pvBaseline + aggregatedPv,
+                    uv: existing.uvBaseline + aggregatedUv,
+                    updatedAt: new Date(),
+                })
                 .where(eq(visitStats.feedId, feedId));
         } else {
             await db.insert(visitStats).values({
                 feedId,
-                pv: totals[0]?.pv ?? 0,
-                uv: totals[0]?.uv ?? 0,
+                pv: aggregatedPv,
+                uv: aggregatedUv,
+                pvBaseline: 0,
+                uvBaseline: 0,
                 hllData: "",
             });
         }
@@ -1367,8 +1403,8 @@ git commit -m "feat: roll Analytics Engine data into D1 daily aggregates via cro
   export interface AnalyticsOverview {
       range: { days: number; from: string; to: string };
       totals: { pv: number; uv: number; uvApproximate: boolean };
-      today: { pv: number; uv: number };
-      yesterday: { pv: number; uv: number };
+      today: AnalyticsDailyPoint;
+      yesterday: AnalyticsDailyPoint;
       series: AnalyticsDailyPoint[];
   }
   export interface AnalyticsTopFeed { feedId: number; title: string | null; pv: number; uv: number; }
@@ -1400,8 +1436,7 @@ git commit -m "feat: roll Analytics Engine data into D1 daily aggregates via cro
 ```ts
 import { describe, expect, it } from "bun:test";
 import { Hono } from "hono";
-import { adminOnly } from "../../core/route-boundaries";
-import { parseDays, parseDimensionType, parseHours, parseLimit } from "../analytics";
+import { AnalyticsService, parseDays, parseDimensionType, parseHours, parseLimit } from "../analytics";
 
 describe("parseDays", () => {
     it("accepts only the three supported ranges", () => {
@@ -1459,29 +1494,35 @@ describe("parseDimensionType", () => {
     });
 });
 
-describe("analytics routes are admin only", () => {
-    it("rejects non-admin requests with 403", async () => {
+describe("AnalyticsService admin guard", () => {
+    // 挂载真实的 AnalyticsService，确保测的是本服务的接线，
+    // 而不是 adminOnly 本身（那已由 core/route-boundaries.test.ts 覆盖）。
+    function mount(admin: boolean) {
         const app = new Hono();
         app.use("*", async (c, next) => {
-            c.set("admin", false);
+            c.set("admin", admin);
             await next();
         });
-        app.get("/overview", adminOnly(async (c) => c.json({ ok: true }), { status: 403, format: "json" }));
+        app.route("/analytics", AnalyticsService());
+        return app;
+    }
 
-        const response = await app.request("/overview");
-        expect(response.status).toBe(403);
+    const paths = ["/analytics/overview", "/analytics/top-feeds", "/analytics/dimensions", "/analytics/live"];
+
+    it("rejects every endpoint for non-admins with 403", async () => {
+        const app = mount(false);
+        for (const path of paths) {
+            const response = await app.request(path);
+            expect(response.status).toBe(403);
+        }
     });
 
-    it("allows admin requests through", async () => {
-        const app = new Hono();
-        app.use("*", async (c, next) => {
-            c.set("admin", true);
-            await next();
-        });
-        app.get("/overview", adminOnly(async (c) => c.json({ ok: true }), { status: 403, format: "json" }));
-
-        const response = await app.request("/overview");
-        expect(response.status).toBe(200);
+    it("does not reject admins at the guard", async () => {
+        // 没有挂 db，处理器会在访问 db 时抛错——但那说明请求已通过守卫。
+        // 这里只断言「不是 403」。
+        const app = mount(true);
+        const response = await app.request("/analytics/overview").catch(() => null);
+        expect(response?.status).not.toBe(403);
     });
 });
 ```
