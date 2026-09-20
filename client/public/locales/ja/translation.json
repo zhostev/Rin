@@ -4,6 +4,7 @@
     "title": "概要"
   },
   "admin": {
+    "analytics_description": "サイトのアクセス推移、人気記事、参照元・地域・デバイスの内訳を確認します。",
     "back_to_site": "サイトに戻る",
     "compat_tasks_description": "過去記事向けの AI 要約と画像 blurhash メタデータを一括補完する互換タスクを実行します。",
     "health_description": "必須設定、未構成の連携、動作に影響するリスクを確認します。",
@@ -61,6 +62,22 @@
   },
   "alert": "警告",
   "alias": "エイリアス",
+  "analytics": {
+    "title": "アクセス解析",
+    "range": { "7": "過去 7 日間", "30": "過去 30 日間", "90": "過去 90 日間" },
+    "today_pv": "本日のページビュー",
+    "today_uv": "本日の訪問者数",
+    "range_pv": "ページビュー",
+    "range_uv": "訪問者数",
+    "uv_approximate": "概算値（日次の合計）",
+    "trend": "アクセス推移",
+    "top_feeds": "人気記事",
+    "referrer": "参照元",
+    "country": "国・地域",
+    "device": "デバイス",
+    "empty": "データがまだありません。日次集計ジョブの初回実行後に表示されます。",
+    "load_failed": "アクセス解析の読み込みに失敗しました。"
+  },
   "article": {
     "delete": {
       "confirm": "この記事を削除してもよろしいですか？",

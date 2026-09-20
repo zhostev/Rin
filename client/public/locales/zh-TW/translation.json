@@ -4,6 +4,7 @@
     "title": "關於"
   },
   "admin": {
+    "analytics_description": "查看網站訪問趨勢、熱門文章以及來源、地區和裝置分布。",
     "back_to_site": "返回站點",
     "compat_tasks_description": "批次觸發向前相容任務，用於補齊歷史文章缺失的 AI 摘要與圖片 blurhash 中繼資料。",
     "health_description": "檢查關鍵配置、缺失的整合項，以及可能影響服務正常運行的風險。",
@@ -61,6 +62,22 @@
   },
   "alert": "提示",
   "alias": "別名",
+  "analytics": {
+    "title": "訪問統計",
+    "range": { "7": "近 7 天", "30": "近 30 天", "90": "近 90 天" },
+    "today_pv": "今日瀏覽量",
+    "today_uv": "今日訪客數",
+    "range_pv": "區間瀏覽量",
+    "range_uv": "區間訪客數",
+    "uv_approximate": "近似值（各日之和）",
+    "trend": "訪問趨勢",
+    "top_feeds": "熱門文章",
+    "referrer": "流量來源",
+    "country": "國家和地區",
+    "device": "裝置",
+    "empty": "暫無資料。統計會在每日彙總任務首次執行後顯示。",
+    "load_failed": "載入訪問統計失敗。"
+  },
   "article": {
     "delete": {
       "confirm": "確定刪除這篇文章嗎？",

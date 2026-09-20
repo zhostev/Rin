@@ -10,6 +10,7 @@ import { getHeaderLayoutDefinition } from "../components/site-header/layout-regi
 import { Tips, TipsPage } from "../components/tips";
 import useTableOfContents from "../hooks/useTableOfContents";
 import { useSiteConfig } from "../hooks/useSiteConfig";
+import { AnalyticsPage } from "../page/analytics";
 import { CallbackPage } from "../page/callback";
 import { CompatTasksPage } from "../page/compat-tasks";
 import { ErrorPage } from "../page/error";
@@ -75,6 +76,10 @@ export function AppRoutes() {
 
       <AdminRoute path="/admin/queue-status" requirePermission title={t("queue_status.title")} description={t("admin.queue_status_description")}>
         <QueueStatusPage />
+      </AdminRoute>
+
+      <AdminRoute path="/admin/analytics" requirePermission title={t("analytics.title")} description={t("admin.analytics_description")}>
+        <AnalyticsPage />
       </AdminRoute>
 
       <AdminRoute path="/admin/compat-tasks" requirePermission title={t("compat_tasks.title")} description={t("admin.compat_tasks_description")}>

@@ -164,6 +164,13 @@ export type {
   LoginResponse,
   MediaAsset,
   MediaLibraryResponse,
+  AnalyticsDimensionItem,
+  AnalyticsDimensionType,
+  AnalyticsDimensionsResponse,
+  AnalyticsLiveResponse,
+  AnalyticsOverview,
+  AnalyticsTopFeed,
+  AnalyticsTopFeedsResponse,
 } from "@rin/api";
 
 
