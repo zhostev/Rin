@@ -70,6 +70,7 @@
     "range_pv": "ページビュー",
     "range_uv": "訪問者数",
     "uv_approximate": "概算値（日次の合計）",
+    "vs_previous": "前の期間比",
     "vs_yesterday": "前日比",
     "live_unavailable": "リアルタイムデータを取得できません",
     "trend": "アクセス推移",

@@ -8,6 +8,7 @@ import {
     parseDays,
     parseDimensionType,
     parseLimit,
+    previousWindow,
     zeroFillSeries,
 } from "../analytics";
 
@@ -130,5 +131,55 @@ describe("live totals SQL", () => {
         expect(text).toContain("toDate(now() - INTERVAL '1' DAY)");
         expect(text).toContain("toHour(timestamp) <= toHour(now())");
         expect(text).not.toContain("GROUP BY");
+    });
+});
+
+describe("previousWindow", () => {
+    it("is contiguous with the current range and never overlaps it", () => {
+        const { from, to } = previousWindow("2026-08-22", 30);
+        expect(to).toBe("2026-08-21");
+        expect(from).toBe("2026-07-24");
+    });
+
+    it("matches the number of COMPLETE days in the current range, not `days`", () => {
+        // days=30 starting 2026-08-22 covers through today 2026-09-20, but today is
+        // never aggregated, so only 29 days carry data. previous must be 29 too.
+        const { from, to } = previousWindow("2026-08-22", 30);
+        const span = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000 + 1;
+        expect(span).toBe(29);
+    });
+
+    it("spans 6 days for a 7-day range", () => {
+        const { from, to } = previousWindow("2026-09-14", 7);
+        expect(to).toBe("2026-09-13");
+        expect(from).toBe("2026-09-08");
+        const span = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000 + 1;
+        expect(span).toBe(6);
+    });
+
+    it("spans 89 days for a 90-day range", () => {
+        const { from, to } = previousWindow("2026-06-23", 90);
+        const span = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000 + 1;
+        expect(span).toBe(89);
+        expect(to).toBe("2026-06-22");
+    });
+
+    it("crosses a month boundary", () => {
+        expect(previousWindow("2026-03-01", 7)).toEqual({ from: "2026-02-23", to: "2026-02-28" });
+    });
+
+    it("crosses a leap-day boundary", () => {
+        // 2028 is a leap year, so February has 29 days.
+        expect(previousWindow("2028-03-01", 7)).toEqual({ from: "2028-02-24", to: "2028-02-29" });
+    });
+
+    it("crosses a year boundary", () => {
+        expect(previousWindow("2026-01-03", 7)).toEqual({ from: "2025-12-28", to: "2026-01-02" });
+    });
+
+    it("never returns an empty window", () => {
+        const { from, to } = previousWindow("2026-09-20", 1);
+        expect(from).toBe("2026-09-19");
+        expect(to).toBe("2026-09-19");
     });
 });

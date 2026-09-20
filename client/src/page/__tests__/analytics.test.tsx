@@ -14,7 +14,11 @@ const overview: AnalyticsOverview = {
     { date: "2026-09-19", pv: 20, uv: 10 },
     { date: "2026-09-20", pv: 0, uv: 0 },
   ],
+  // 紧邻区间之前的等长完整窗口：range.from 2026-09-14 往前 6 天。
+  previous: { from: "2026-09-08", to: "2026-09-13", pv: 100, uv: 50 },
 };
+
+let overviewResponse: AnalyticsOverview = overview;
 
 function live(totals: { pv: number; uv: number }, yesterday = { pv: 0, uv: 0 }): AnalyticsLiveResponse {
   return { available: true, date: "2026-09-20", totals, yesterday, uvApproximate: true, elapsedHours: 12 };
@@ -36,7 +40,7 @@ let liveResponse: AnalyticsLiveResponse = live({ pv: 0, uv: 0 });
 mock.module("../../app/runtime", () => ({
   client: {
     analytics: {
-      getOverview: async () => ({ data: overview }),
+      getOverview: async () => ({ data: overviewResponse }),
       getTopFeeds: async () => ({ data: { items: [] } }),
       getDimensions: async () => ({ data: { type: "referrer", items: [] } }),
       getLive: async () => ({ data: liveResponse }),
@@ -57,6 +61,7 @@ const { AnalyticsPage } = await import("../analytics");
 describe("AnalyticsPage today cards", () => {
   beforeEach(() => {
     liveResponse = live({ pv: 0, uv: 0 });
+    overviewResponse = overview;
   });
 
   afterEach(() => {
@@ -95,5 +100,45 @@ describe("AnalyticsPage today cards", () => {
     expect(getByText("analytics.trend")).toBeDefined();
     expect(getByText(String(overview.totals.pv))).toBeDefined();
     expect(queryByText("analytics.vs_yesterday")).toBeNull();
+  });
+});
+
+describe("AnalyticsPage range cards", () => {
+  beforeEach(() => {
+    liveResponse = live({ pv: 0, uv: 0 });
+    overviewResponse = overview;
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("compares the range totals against the preceding equal-length window", async () => {
+    // 140 pv vs 100, 70 uv vs 50 — both +40%.
+    const { getAllByText } = render(<AnalyticsPage />);
+
+    await waitFor(() => expect(getAllByText("analytics.vs_previous").length).toBe(2));
+    expect(getAllByText("40%").length).toBe(2);
+  });
+
+  it("does not render the arrow when the previous window has no traffic", async () => {
+    // 基数为 0 时不渲染，避免除以零。
+    overviewResponse = { ...overview, previous: { from: "2026-09-08", to: "2026-09-13", pv: 0, uv: 0 } };
+
+    const { getByText, queryByText } = render(<AnalyticsPage />);
+
+    await waitFor(() => expect(getByText("analytics.trend")).toBeDefined());
+    expect(queryByText("analytics.vs_previous")).toBeNull();
+    // 区间数字本身照常渲染。
+    expect(getByText(String(overview.totals.pv))).toBeDefined();
+  });
+
+  it("keeps the approximate-UV badge alongside the new arrow", async () => {
+    const { getAllByText } = render(<AnalyticsPage />);
+
+    await waitFor(() => expect(getAllByText("analytics.vs_previous").length).toBe(2));
+    // Two badges: the today UV card (live is available here) and the range UV card.
+    // The new arrow must not have displaced either of them.
+    expect(getAllByText("analytics.uv_approximate").length).toBe(2);
   });
 });

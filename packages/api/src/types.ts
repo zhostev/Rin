@@ -424,6 +424,16 @@ export interface AnalyticsOverview {
     today: AnalyticsDailyPoint;
     yesterday: AnalyticsDailyPoint;
     series: AnalyticsDailyPoint[];
+    /**
+     * 紧邻当前区间之前的等长窗口，供区间卡做环比。
+     *
+     * 长度对齐的是当前区间里**已完结**的天数（cron 从不聚合当天，所以当前区间
+     * 的最后一天在 analytics_daily 里恒为 0）。以 days=30、今天 2026-09-20 为例：
+     * 当前区间 2026-08-22..2026-09-20 里有 29 天完整数据，previous 即
+     * 2026-07-24..2026-08-21，同样 29 天且全部完整——两侧口径一致，
+     * 不会因为当前区间含一个空当天而系统性显示下降。
+     */
+    previous: { from: string; to: string; pv: number; uv: number };
 }
 export interface AnalyticsTopFeed { feedId: number; title: string | null; pv: number; uv: number; }
 export interface AnalyticsTopFeedsResponse { items: AnalyticsTopFeed[]; }
