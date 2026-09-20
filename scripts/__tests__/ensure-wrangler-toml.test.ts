@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildPlaceholderToml, buildWranglerTomlFromEnv } from "../ensure-wrangler-toml";
+import { buildPlaceholderToml, buildWranglerAnalyticsConfig, buildWranglerTomlFromEnv } from "../ensure-wrangler-toml";
 
 describe("buildPlaceholderToml", () => {
   it("keeps dry-run placeholder shape without r2_buckets", () => {
@@ -104,4 +104,24 @@ describe("buildWranglerTomlFromEnv", () => {
     expect(toml).not.toContain("IP2REGION");
   });
 
+});
+
+describe("buildWranglerAnalyticsConfig", () => {
+  it("emits the analytics engine dataset binding", () => {
+    const block = buildWranglerAnalyticsConfig();
+    expect(block).toContain("[[analytics_engine_datasets]]");
+    expect(block).toContain('binding = "ANALYTICS"');
+    expect(block).toContain('dataset = "rin_analytics"');
+  });
+});
+
+describe("analytics binding is always persisted", () => {
+  it("appears in the placeholder toml", () => {
+    expect(buildPlaceholderToml()).toContain("[[analytics_engine_datasets]]");
+  });
+
+  it("appears in the env-built toml", () => {
+    const toml = buildWranglerTomlFromEnv({ R2_BUCKET_NAME: "rin" });
+    expect(toml).toContain("[[analytics_engine_datasets]]");
+  });
 });

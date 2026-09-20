@@ -17,7 +17,10 @@ import { users } from '../../src/db/schema';
  */
 export function createMockDB() {
     const sqlite = new Database(':memory:');
-    
+
+    // Match D1: foreign keys are enforced there, so tests must see the same failures.
+    sqlite.exec('PRAGMA foreign_keys = ON;');
+
     // Initialize Drizzle with the database
     const db = drizzle(sqlite, { schema });
     
@@ -81,22 +84,34 @@ export function createMockDB() {
             FOREIGN KEY (uid) REFERENCES users(id)
         );
 
-        -- Visits table
-        CREATE TABLE IF NOT EXISTS visits (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            feed_id INTEGER NOT NULL,
-            ip TEXT NOT NULL,
-            created_at INTEGER DEFAULT (unixepoch()),
-            FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE
-        );
-
         -- Visit stats table
         CREATE TABLE IF NOT EXISTS visit_stats (
             feed_id INTEGER PRIMARY KEY NOT NULL,
             pv INTEGER DEFAULT 0 NOT NULL,
+            uv INTEGER DEFAULT 0 NOT NULL,
+            pv_baseline INTEGER DEFAULT 0 NOT NULL,
+            uv_baseline INTEGER DEFAULT 0 NOT NULL,
             hll_data TEXT DEFAULT '' NOT NULL,
             updated_at INTEGER DEFAULT (unixepoch()),
             FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE
+        );
+
+        -- Analytics daily rollup table
+        CREATE TABLE IF NOT EXISTS analytics_daily (
+            date TEXT NOT NULL,
+            feed_id INTEGER NOT NULL,
+            pv INTEGER DEFAULT 0 NOT NULL,
+            uv INTEGER DEFAULT 0 NOT NULL,
+            PRIMARY KEY (date, feed_id)
+        );
+
+        -- Analytics dimension daily rollup table
+        CREATE TABLE IF NOT EXISTS analytics_dim_daily (
+            date TEXT NOT NULL,
+            dim_type TEXT NOT NULL,
+            dim_value TEXT NOT NULL,
+            count INTEGER DEFAULT 0 NOT NULL,
+            PRIMARY KEY (date, dim_type, dim_value)
         );
 
         -- Info table

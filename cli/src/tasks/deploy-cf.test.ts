@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import {
   assertR2BucketConfiguredForDeploy,
+  buildWranglerAnalyticsConfig,
   buildWranglerObservabilityConfig,
   buildWranglerQueueConfig,
   buildWranglerR2BucketConfig,
@@ -167,5 +168,14 @@ describe("shouldEnableStreamBinding", () => {
   it("is false when Stream is not configured", () => {
     expect(shouldEnableStreamBinding({ ENABLE_STREAM: "false" })).toBe(false);
     expect(shouldEnableStreamBinding({})).toBe(false);
+  });
+});
+
+describe("buildWranglerAnalyticsConfig", () => {
+  it("emits the analytics engine dataset binding", () => {
+    const block = buildWranglerAnalyticsConfig();
+    expect(block).toContain("[[analytics_engine_datasets]]");
+    expect(block).toContain('binding = "ANALYTICS"');
+    expect(block).toContain('dataset = "rin_analytics"');
   });
 });

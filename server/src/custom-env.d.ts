@@ -47,6 +47,9 @@ declare global {
     DESCRIPTION?: string;
     AVATAR?: string;
     R2_BUCKET_NAME?: string;
+    /** Workers Analytics Engine dataset for page-view ingestion. Optional so
+     *  that a missing binding degrades to "no analytics" instead of throwing. */
+    ANALYTICS?: AnalyticsEngineDataset;
   }
 }
 

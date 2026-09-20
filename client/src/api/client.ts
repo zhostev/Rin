@@ -35,6 +35,11 @@ import type {
   LoginResponse,
   MediaAsset,
   MediaLibraryResponse,
+  AnalyticsDimensionType,
+  AnalyticsDimensionsResponse,
+  AnalyticsLiveResponse,
+  AnalyticsOverview,
+  AnalyticsTopFeedsResponse,
 } from "@rin/api";
 
 export interface SettingsConfigResponse {
@@ -159,6 +164,14 @@ export type {
   LoginResponse,
   MediaAsset,
   MediaLibraryResponse,
+  AnalyticsDimensionItem,
+  AnalyticsDimensionType,
+  AnalyticsDimensionsResponse,
+  AnalyticsLiveTotals,
+  AnalyticsLiveResponse,
+  AnalyticsOverview,
+  AnalyticsTopFeed,
+  AnalyticsTopFeedsResponse,
 } from "@rin/api";
 
 
@@ -589,6 +602,37 @@ class ConfigAPI {
 }
 
 /**
+ * Analytics API methods (admin only)
+ */
+class AnalyticsAPI {
+  constructor(private http: HttpClient) {}
+
+  // GET /api/analytics/overview
+  async getOverview(days = 30): Promise<ApiResponse<AnalyticsOverview>> {
+    return this.http.get<AnalyticsOverview>(`/api/analytics/overview?days=${days}`);
+  }
+
+  // GET /api/analytics/top-feeds
+  async getTopFeeds(days = 30, limit = 20): Promise<ApiResponse<AnalyticsTopFeedsResponse>> {
+    return this.http.get<AnalyticsTopFeedsResponse>(`/api/analytics/top-feeds?days=${days}&limit=${limit}`);
+  }
+
+  // GET /api/analytics/dimensions
+  async getDimensions(
+    type: AnalyticsDimensionType,
+    days = 30,
+  ): Promise<ApiResponse<AnalyticsDimensionsResponse>> {
+    return this.http.get<AnalyticsDimensionsResponse>(`/api/analytics/dimensions?type=${type}&days=${days}`);
+  }
+
+  // GET /api/analytics/live
+  // GET /api/analytics/live —— 站点级 UTC 当日累计；同时带「昨天同一时刻」的累计供环比
+  async getLive(): Promise<ApiResponse<AnalyticsLiveResponse>> {
+    return this.http.get<AnalyticsLiveResponse>("/api/analytics/live");
+  }
+}
+
+/**
  * AI Config API methods (deprecated, use ConfigAPI instead)
  * @deprecated AI config is now part of server config. Use client.config.get('server') and client.config.update('server', {...}) instead.
  */
@@ -709,6 +753,7 @@ export class ApiClient {
   moments: MomentsAPI;
   media: MediaAPI;
   config: ConfigAPI;
+  analytics: AnalyticsAPI;
   aiConfig: AIConfigAPI;
   storage: StorageAPI;
   search: SearchAPI;
@@ -726,6 +771,7 @@ export class ApiClient {
     this.moments = new MomentsAPI(this.http);
     this.media = new MediaAPI(this.http);
     this.config = new ConfigAPI(this.http);
+    this.analytics = new AnalyticsAPI(this.http);
     this.aiConfig = new AIConfigAPI(this.http);
     this.storage = new StorageAPI(this.http);
     this.search = new SearchAPI(this.http);

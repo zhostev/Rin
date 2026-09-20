@@ -414,3 +414,41 @@ export const API_PATHS = {
 } as const;
 
 export type APIEndpoint = typeof API_PATHS;
+
+// Analytics
+export type AnalyticsDimensionType = "referrer" | "country" | "device";
+export interface AnalyticsDailyPoint { date: string; pv: number; uv: number; }
+export interface AnalyticsOverview {
+    range: { days: number; from: string; to: string };
+    totals: { pv: number; uv: number; uvApproximate: boolean };
+    today: AnalyticsDailyPoint;
+    yesterday: AnalyticsDailyPoint;
+    series: AnalyticsDailyPoint[];
+}
+export interface AnalyticsTopFeed { feedId: number; title: string | null; pv: number; uv: number; }
+export interface AnalyticsTopFeedsResponse { items: AnalyticsTopFeed[]; }
+export interface AnalyticsDimensionItem { value: string; count: number; }
+export interface AnalyticsDimensionsResponse { type: AnalyticsDimensionType; items: AnalyticsDimensionItem[]; }
+export interface AnalyticsLiveTotals { pv: number; uv: number; }
+
+/**
+ * GET /api/analytics/live —— 唯一直接查 Analytics Engine 的端点。
+ *
+ * 刻意做成「站点级 UTC 当日累计」，而不是「按文章分组的滚动 24 小时」：
+ * 后者同时踩三个坑 —— ①挂在「今日」卡上标签就是错的（滚动窗口横跨两个 UTC 日）；
+ * ②环比要除以昨天一整天，两个窗口根本不可比；③把每篇文章各自的基数去重值相加，
+ * 同一个人读两篇会被算两次，而且会被 LIMIT 20 截断。
+ */
+export interface AnalyticsLiveResponse {
+    available: boolean;
+    /** UTC 当天的日期（YYYY-MM-DD）。 */
+    date: string;
+    /** 站点级：UTC 当天 00:00 起的累计。 */
+    totals: AnalyticsLiveTotals;
+    /** 站点级：昨天「同一已过小时数」之前的累计 —— 与 totals 窗口对齐，环比才有意义。 */
+    yesterday: AnalyticsLiveTotals;
+    /** UV 来自 AE 的基数估算，不是精确去重。 */
+    uvApproximate: true;
+    /** 已过的 UTC 小时数（0–23），用于说明比较窗口。 */
+    elapsedHours: number;
+}

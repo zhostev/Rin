@@ -5,6 +5,7 @@ import type { Variables } from "../../core/hono-types";
 import { setupTestApp, createTestUser, cleanupTestDB } from '../../../tests/fixtures';
 import type { Database } from 'bun:sqlite';
 import type { TestCacheImpl } from '../../../tests/fixtures';
+import type { PageViewDataPoint } from '../../utils/analytics';
 
 describe('FeedService', () => {
     let db: any;
@@ -611,6 +612,128 @@ describe('FeedService', () => {
             }, env);
 
             expect(res.status).toBe(404);
+        });
+    });
+
+    describe('GET /:id - page view analytics wiring', () => {
+        it('records a page view carrying the feed id and title when the route succeeds', async () => {
+            const points: PageViewDataPoint[] = [];
+            const analyticsDataset = {
+                writeDataPoint(point: PageViewDataPoint) {
+                    points.push(point);
+                },
+            } as unknown as AnalyticsEngineDataset;
+
+            const wiringCtx = await setupTestApp(FeedService, { ANALYTICS: analyticsDataset });
+            await createTestUser(wiringCtx.sqlite);
+
+            try {
+                const createRes = await wiringCtx.app.request('/', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer mock_token_1',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        title: 'Analytics Wiring',
+                        content: 'Content',
+                        listed: true,
+                        draft: false,
+                        tags: [],
+                    }),
+                }, wiringCtx.env);
+
+                expect(createRes.status).toBe(200);
+                const createData = await createRes.json() as any;
+                const feedId = createData.insertedId;
+
+                // Capture the fire-and-forget waitUntil promise so the test can
+                // deterministically wait for recordPageView to finish before
+                // asserting, instead of racing its internal awaits.
+                const waitPromises: Promise<unknown>[] = [];
+                const executionCtx = {
+                    waitUntil(promise: Promise<unknown>) {
+                        waitPromises.push(promise);
+                    },
+                    passThroughOnException() { },
+                } as unknown as ExecutionContext;
+
+                const getRes = await wiringCtx.app.request(
+                    `/${feedId}`,
+                    {
+                        method: 'GET',
+                        headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120' },
+                    },
+                    wiringCtx.env,
+                    executionCtx,
+                );
+
+                expect(getRes.status).toBe(200);
+
+                await Promise.all(waitPromises);
+
+                expect(points).toHaveLength(1);
+                expect(points[0].indexes[0]).toBe(String(feedId));
+                expect(points[0].blobs[6]).toBe('Analytics Wiring');
+            } finally {
+                cleanupTestDB(wiringCtx.sqlite);
+            }
+        });
+
+        it('does not record a page view for a bot user agent', async () => {
+            const points: PageViewDataPoint[] = [];
+            const analyticsDataset = {
+                writeDataPoint(point: PageViewDataPoint) {
+                    points.push(point);
+                },
+            } as unknown as AnalyticsEngineDataset;
+
+            const wiringCtx = await setupTestApp(FeedService, { ANALYTICS: analyticsDataset });
+            await createTestUser(wiringCtx.sqlite);
+
+            try {
+                const createRes = await wiringCtx.app.request('/', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer mock_token_1',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        title: 'Analytics Wiring Bot',
+                        content: 'Content',
+                        listed: true,
+                        draft: false,
+                        tags: [],
+                    }),
+                }, wiringCtx.env);
+
+                expect(createRes.status).toBe(200);
+                const createData = await createRes.json() as any;
+                const feedId = createData.insertedId;
+
+                const waitPromises: Promise<unknown>[] = [];
+                const executionCtx = {
+                    waitUntil(promise: Promise<unknown>) {
+                        waitPromises.push(promise);
+                    },
+                    passThroughOnException() { },
+                } as unknown as ExecutionContext;
+
+                const getRes = await wiringCtx.app.request(
+                    `/${feedId}`,
+                    { method: 'GET', headers: { 'User-Agent': 'curl/8.4.0' } },
+                    wiringCtx.env,
+                    executionCtx,
+                );
+
+                expect(getRes.status).toBe(200);
+
+                await Promise.all(waitPromises);
+
+                expect(points).toHaveLength(0);
+            } finally {
+                cleanupTestDB(wiringCtx.sqlite);
+            }
         });
     });
 });

@@ -4,6 +4,7 @@
     "title": "关于"
   },
   "admin": {
+    "analytics_description": "查看站点访问趋势、热门文章以及来源、地区和设备分布。",
     "back_to_site": "返回站点",
     "compat_tasks_description": "批量触发向前兼容任务，用于补齐历史帖子缺失的 AI 摘要和图片 blurhash 元数据。",
     "health_description": "检查关键配置、缺失的集成项，以及可能影响服务正常运行的风险。",
@@ -61,6 +62,24 @@
   },
   "alert": "提示",
   "alias": "别名",
+  "analytics": {
+    "title": "访问统计",
+    "range": { "7": "近 7 天", "30": "近 30 天", "90": "近 90 天" },
+    "today_pv": "今日浏览量",
+    "today_uv": "今日访客数",
+    "range_pv": "区间浏览量",
+    "range_uv": "区间访客数",
+    "uv_approximate": "近似值（各日之和）",
+    "vs_yesterday": "较昨日",
+    "live_unavailable": "实时数据不可用",
+    "trend": "访问趋势",
+    "top_feeds": "热门文章",
+    "referrer": "流量来源",
+    "country": "国家和地区",
+    "device": "设备",
+    "empty": "暂无数据。统计在每日聚合任务首次运行后显示。",
+    "load_failed": "加载访问统计失败。"
+  },
   "article": {
     "delete": {
       "confirm": "确定删除这篇文章吗？",

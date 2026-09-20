@@ -156,6 +156,18 @@ export function buildWranglerStreamConfig() {
   `);
 }
 
+/**
+ * Workers Analytics Engine binding, emitted unconditionally. See the [stream]
+ * comment above for why an omitted block is a deploy-time hazard.
+ */
+export function buildWranglerAnalyticsConfig() {
+  return stripIndent(`
+    [[analytics_engine_datasets]]
+    binding = "ANALYTICS"
+    dataset = "rin_analytics"
+  `);
+}
+
 /** ENABLE_STREAM=true or any Stream-related env → persist [stream] binding. */
 export function shouldEnableStreamBinding(
   source: Record<string, string | undefined> = process.env,
@@ -357,6 +369,8 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
     await $`echo ${buildWranglerStreamConfig()} >> wrangler.toml`.quiet();
     console.log("✅ Bound STREAM");
   }
+
+  await $`echo ${buildWranglerAnalyticsConfig()} >> wrangler.toml`.quiet();
 
   const migrationVersion = await getMigrationVersion("remote", dbName);
   // Migration 0011 indexes feeds.top, so repair the column before pending SQL runs.
