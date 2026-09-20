@@ -91,6 +91,15 @@
       "title": "検索",
       "title$keyword": "検索: {{keyword}}"
     },
+    "share": {
+      "title": "共有",
+      "copy_link": "リンクをコピー",
+      "copied": "コピーしました",
+      "native": "端末で共有",
+      "twitter": "X",
+      "wechat": "WeChat",
+      "wechat_tip": "リンクをコピーしました。WeChat に貼り付けて共有してください"
+    },
     "title": "記事",
     "top": {
       "confirm": "この記事をトップにしてもよろしいですか？",
@@ -242,7 +251,16 @@
   "listed": "記事にリスト",
   "load_more": "もっと読み込む",
   "login": {
+    "error": {
+      "empty": "ユーザー名とパスワードを入力してください",
+      "failed": "ログインに失敗しました",
+      "invalid": "ユーザー名またはパスワードが正しくありません",
+      "network": "ネットワークエラーです。もう一度お試しください"
+    },
+    "loading": "ログイン中...",
+    "no_methods": "利用可能なログイン方法がありません",
     "oauth_only": "続行するにはログインしてください",
+    "or": "または",
     "password": {
       "placeholder": "パスワードを入力してください"
     },
