@@ -115,7 +115,7 @@ describe("backfillUvBaseline", () => {
         expect(afterSecond.uv).toBe(afterFirst.uv);
     });
 
-    it("skips rows with empty hll_data and does nothing once the flag is set", async () => {
+    it("skips rows with empty hll_data", async () => {
         insertFeed(1);
         sqlite.exec(
             `INSERT INTO visit_stats (feed_id, pv, uv, pv_baseline, uv_baseline, hll_data) VALUES (1, 10, 0, 10, 0, '')`,
@@ -127,16 +127,50 @@ describe("backfillUvBaseline", () => {
         const [row] = await db.select().from(visitStats).where(eq(visitStats.feedId, 1));
         expect(row.uvBaseline).toBe(0);
         expect(row.uv).toBe(0);
+    });
 
+    it("sets the guard flag once it has actually seeded a row", async () => {
+        insertFeed(1);
+        const { data, estimate } = serializedHll(25);
+        sqlite.exec(
+            `INSERT INTO visit_stats (feed_id, pv, uv, pv_baseline, uv_baseline, hll_data) VALUES (1, 80, 0, 80, 0, '${data}')`,
+        );
+
+        const serverConfig = createTestServerConfig();
+        expect(await backfillUvBaseline(db, serverConfig)).toBe(1);
+        expect(serverConfig.store.get(ANALYTICS_UV_BACKFILL_KEY)).toBe(true);
+
+        const [row] = await db.select().from(visitStats).where(eq(visitStats.feedId, 1));
+        expect(row.uvBaseline).toBe(estimate);
+    });
+
+    it("leaves the guard flag unset when there was nothing to seed, and retries later", async () => {
+        // A brand-new site, or a deploy that lands before any hll_data exists:
+        // zero rows seeded means "nothing to backfill yet", not "backfill done".
+        insertFeed(1);
+        sqlite.exec(
+            `INSERT INTO visit_stats (feed_id, pv, uv, pv_baseline, uv_baseline, hll_data) VALUES (1, 10, 0, 10, 0, '')`,
+        );
+
+        const serverConfig = createTestServerConfig();
+        expect(await backfillUvBaseline(db, serverConfig)).toBe(0);
+        // The flag must NOT be set — otherwise the backfill never happens again.
+        expect(serverConfig.store.has(ANALYTICS_UV_BACKFILL_KEY)).toBe(false);
+
+        // A later row arrives with real hll_data; the next cron tick must still pick it up.
         insertFeed(2);
-        const { data } = serializedHll(12);
+        const { data, estimate } = serializedHll(12);
         sqlite.exec(
             `INSERT INTO visit_stats (feed_id, pv, uv, pv_baseline, uv_baseline, hll_data) VALUES (2, 0, 0, 0, 0, '${data}')`,
         );
 
-        // The flag was set by the first run, so the new row is not touched.
+        expect(await backfillUvBaseline(db, serverConfig)).toBe(1);
+        expect(serverConfig.store.get(ANALYTICS_UV_BACKFILL_KEY)).toBe(true);
+
+        const [seeded] = await db.select().from(visitStats).where(eq(visitStats.feedId, 2));
+        expect(seeded.uvBaseline).toBe(estimate);
+
+        // And now that it has run for real, it stops scanning.
         expect(await backfillUvBaseline(db, serverConfig)).toBe(0);
-        const [untouched] = await db.select().from(visitStats).where(eq(visitStats.feedId, 2));
-        expect(untouched.uvBaseline).toBe(0);
     });
 });

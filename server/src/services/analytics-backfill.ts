@@ -29,6 +29,9 @@ function isFlagSet(value: unknown): boolean {
  *
  * 幂等：uv_baseline 由 hll_data 确定性推导（赋值而非累加），hll_data 已不再更新，
  * 因此重复执行结果相同；serverConfig 标记只是避免每 20 分钟重复扫表。
+ *
+ * 标记只在**确实种下了至少一行**之后才置位。零行意味着「还没有可回填的数据」，
+ * 不是「回填完成了」——把这两种情况混为一谈会让新站点永久错过回填。
  */
 export async function backfillUvBaseline(db: DB, serverConfig: BackfillConfig): Promise<number> {
     const flag = await serverConfig.getOrDefault<unknown>(ANALYTICS_UV_BACKFILL_KEY, false);
@@ -60,6 +63,13 @@ export async function backfillUvBaseline(db: DB, serverConfig: BackfillConfig): 
                 target: visitStats.feedId,
                 set: { uvBaseline: sql`excluded.uv_baseline` },
             });
+    }
+
+    if (seeded.length === 0) {
+        // 一行都没种下时**不要**置位。首次运行可能早于任何 hll_data 落库
+        // （全新站点，或回填先于文章产生历史），此时置位会让回填永远不再发生。
+        // 保持未置位，下一轮 cron 继续尝试；扫表本身很廉价（visit_stats 每篇一行）。
+        return 0;
     }
 
     await recomputeVisitStats(db, seeded.map((entry) => entry.feedId));
