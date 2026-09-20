@@ -167,6 +167,7 @@ export type {
   AnalyticsDimensionItem,
   AnalyticsDimensionType,
   AnalyticsDimensionsResponse,
+  AnalyticsLiveTotals,
   AnalyticsLiveResponse,
   AnalyticsOverview,
   AnalyticsTopFeed,
@@ -625,8 +626,9 @@ class AnalyticsAPI {
   }
 
   // GET /api/analytics/live
-  async getLive(hours = 24): Promise<ApiResponse<AnalyticsLiveResponse>> {
-    return this.http.get<AnalyticsLiveResponse>(`/api/analytics/live?hours=${hours}`);
+  // GET /api/analytics/live —— 站点级 UTC 当日累计；同时带「昨天同一时刻」的累计供环比
+  async getLive(): Promise<ApiResponse<AnalyticsLiveResponse>> {
+    return this.http.get<AnalyticsLiveResponse>("/api/analytics/live");
   }
 }
 

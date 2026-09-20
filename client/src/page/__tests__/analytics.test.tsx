@@ -16,7 +16,22 @@ const overview: AnalyticsOverview = {
   ],
 };
 
-let liveResponse: AnalyticsLiveResponse = { available: true, hours: 24, items: [] };
+function live(totals: { pv: number; uv: number }, yesterday = { pv: 0, uv: 0 }): AnalyticsLiveResponse {
+  return { available: true, date: "2026-09-20", totals, yesterday, uvApproximate: true, elapsedHours: 12 };
+}
+
+function liveUnavailable(): AnalyticsLiveResponse {
+  return {
+    available: false,
+    date: "2026-09-20",
+    totals: { pv: 0, uv: 0 },
+    yesterday: { pv: 0, uv: 0 },
+    uvApproximate: true,
+    elapsedHours: 12,
+  };
+}
+
+let liveResponse: AnalyticsLiveResponse = live({ pv: 0, uv: 0 });
 
 mock.module("../../app/runtime", () => ({
   client: {
@@ -41,7 +56,7 @@ const { AnalyticsPage } = await import("../analytics");
 
 describe("AnalyticsPage today cards", () => {
   beforeEach(() => {
-    liveResponse = { available: true, hours: 24, items: [] };
+    liveResponse = live({ pv: 0, uv: 0 });
   });
 
   afterEach(() => {
@@ -49,14 +64,8 @@ describe("AnalyticsPage today cards", () => {
   });
 
   it("fills the today cards from /analytics/live, not from the rolled-up zero", async () => {
-    liveResponse = {
-      available: true,
-      hours: 24,
-      items: [
-        { feedId: 1, title: "A", pv: 20, uv: 8 },
-        { feedId: 2, title: "B", pv: 10, uv: 7 },
-      ],
-    };
+    // 站点级当日累计：服务端已经聚合好，前端不再自己对每篇求和（那会把跨篇读者算两次）
+    liveResponse = live({ pv: 30, uv: 15 });
 
     const { getByText } = render(<AnalyticsPage />);
 
@@ -65,11 +74,7 @@ describe("AnalyticsPage today cards", () => {
   });
 
   it("shows the period-over-period comparison against yesterday", async () => {
-    liveResponse = {
-      available: true,
-      hours: 24,
-      items: [{ feedId: 1, title: "A", pv: 30, uv: 20 }],
-    };
+    liveResponse = live({ pv: 30, uv: 20 }, { pv: 20, uv: 10 });
 
     const { getAllByText, getByText } = render(<AnalyticsPage />);
 
@@ -80,7 +85,7 @@ describe("AnalyticsPage today cards", () => {
   });
 
   it("degrades gracefully when live analytics are unavailable", async () => {
-    liveResponse = { available: false, hours: 24, items: [] };
+    liveResponse = liveUnavailable();
 
     const { getAllByText, getByText, queryByText } = render(<AnalyticsPage />);
 

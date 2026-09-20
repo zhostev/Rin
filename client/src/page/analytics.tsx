@@ -95,7 +95,7 @@ export function AnalyticsPage() {
 
   // cron 从不聚合当天（未完结的一天不能冻进永久表），所以 analytics_daily 里没有今天。
   // 今日两张卡只能走 /analytics/live，它正好覆盖尚未聚合的当天数据。
-  const loadLive = useCallback(() => client.analytics.getLive(24), []);
+  const loadLive = useCallback(() => client.analytics.getLive(), []);
   const { data: live, loading: liveLoading, error: liveError } = useApiResource<AnalyticsLiveResponse>(loadLive);
 
   const series = overview?.series ?? [];
@@ -104,10 +104,11 @@ export function AnalyticsPage() {
   // API token 缺少 Account Analytics Read 时返回 available:false，
   // 这不是错误状态：其余板块照常渲染，今日卡退回聚合值。
   const liveAvailable = !liveLoading && !liveError && live?.available === true;
-  const liveTotals = (liveAvailable ? live?.items ?? [] : []).reduce(
-    (totals, item) => ({ pv: totals.pv + item.pv, uv: totals.uv + item.uv }),
-    { pv: 0, uv: 0 },
-  );
+  // /live 给的是**站点级** UTC 当日累计：不是按文章分组的和（那样会把同一个人读两篇算两次），
+  // 也不是前 20 篇的截断和。
+  const liveTotals = liveAvailable ? live?.totals ?? { pv: 0, uv: 0 } : { pv: 0, uv: 0 };
+  // 环比只跟「昨天同一已过小时数」比：拿今天过了 3 小时去比昨天一整天是没有意义的。
+  const liveYesterday = liveAvailable ? live?.yesterday ?? { pv: 0, uv: 0 } : { pv: 0, uv: 0 };
   const todayPv = liveAvailable ? liveTotals.pv : overview?.today.pv ?? 0;
   const todayUv = liveAvailable ? liveTotals.uv : overview?.today.uv ?? 0;
   const liveWarning = !liveLoading && !liveAvailable ? (
@@ -172,7 +173,7 @@ export function AnalyticsPage() {
                 description={t("analytics.today_pv")}
                 badge={
                   liveAvailable ? (
-                    <ChangeIndicator current={todayPv} previous={overview.yesterday.pv} />
+                    <ChangeIndicator current={todayPv} previous={liveYesterday.pv} />
                   ) : (
                     liveWarning
                   )
@@ -185,7 +186,11 @@ export function AnalyticsPage() {
                 description={t("analytics.today_uv")}
                 badge={
                   liveAvailable ? (
-                    <ChangeIndicator current={todayUv} previous={overview.yesterday.uv} />
+                    <>
+                      <ChangeIndicator current={todayUv} previous={liveYesterday.uv} />
+                      {/* UV 是 AE 的基数估算，不是精确去重 —— 得标出来 */}
+                      <SettingsBadge>{t("analytics.uv_approximate")}</SettingsBadge>
+                    </>
                   ) : (
                     liveWarning
                   )
