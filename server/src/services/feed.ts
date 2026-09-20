@@ -9,7 +9,7 @@ import { Hono } from "hono";
 import type { Variables } from "../core/hono-types";
 import { adminOnly, userOnly, withJsonBody } from "../core/route-boundaries";
 import { profileAsync } from "../core/server-timing";
-import { feeds, visits, visitStats } from "../db/schema";
+import { feeds, visitStats } from "../db/schema";
 import {
     deleteFeedById,
     findDuplicateFeed,
@@ -300,8 +300,6 @@ export function FeedService(): Hono<{
                 uv = Math.round(hll.count());
             }
 
-            // Keep recording to visits table for backup/history
-            await profileAsync(c, 'feed_detail_visit_insert', () => db.insert(visits).values({ feedId: feed.id, ip: ip }));
         }
 
         return c.json({ ...other, hashtags: hashtags_flatten, pv, uv });

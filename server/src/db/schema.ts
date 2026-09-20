@@ -1,5 +1,5 @@
 import { relations, sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 
 const created_at = integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`).notNull();
 const updated_at = integer("updated_at", { mode: 'timestamp' }).default(sql`(unixepoch())`).notNull();
@@ -39,21 +39,35 @@ export const moments = sqliteTable("moments", {
     updatedAt: updated_at
 });
 
-export const visits = sqliteTable("visits", {
-    id: integer("id").primaryKey(),
-    feedId: integer("feed_id").references(() => feeds.id, { onDelete: 'cascade' }).notNull(),
-    ip: text("ip").notNull(),
-    createdAt: created_at,
-}, (table) => ({
-    feedCreatedAtIdx: index("visits_feed_created_at_idx").on(table.feedId, table.createdAt),
-}));
-
 export const visitStats = sqliteTable("visit_stats", {
     feedId: integer("feed_id").references(() => feeds.id, { onDelete: 'cascade' }).notNull().primaryKey(),
     pv: integer("pv").default(0).notNull(),
+    uv: integer("uv").default(0).notNull(),
+    pvBaseline: integer("pv_baseline").default(0).notNull(),
+    uvBaseline: integer("uv_baseline").default(0).notNull(),
     hllData: text("hll_data").default("").notNull(),
     updatedAt: updated_at,
 });
+
+export const analyticsDaily = sqliteTable("analytics_daily", {
+    date: text("date").notNull(),
+    feedId: integer("feed_id").notNull(),
+    pv: integer("pv").default(0).notNull(),
+    uv: integer("uv").default(0).notNull(),
+}, (table) => ({
+    pk: primaryKey({ columns: [table.date, table.feedId] }),
+    dateIdx: index("analytics_daily_date_idx").on(table.date),
+}));
+
+export const analyticsDimDaily = sqliteTable("analytics_dim_daily", {
+    date: text("date").notNull(),
+    dimType: text("dim_type").notNull(),
+    dimValue: text("dim_value").notNull(),
+    count: integer("count").default(0).notNull(),
+}, (table) => ({
+    pk: primaryKey({ columns: [table.date, table.dimType, table.dimValue] }),
+    dateTypeIdx: index("analytics_dim_daily_date_type_idx").on(table.date, table.dimType),
+}));
 
 export const info = sqliteTable("info", {
     key: text("key").notNull().unique(),

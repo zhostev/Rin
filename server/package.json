@@ -11,7 +11,6 @@
     "cf-typegen": "bun x wrangler types",
     "db:gen": "bun drizzle-kit generate",
     "preview": "wrangler pages dev dist --compatibility-date=2023-12-20",
-    "migrate:visits": "bun run scripts/migrate-visits.ts",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
     "check": "tsc --noEmit"
