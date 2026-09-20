@@ -31,6 +31,22 @@ describe("buildServerConfigResponse", () => {
         expect(response["webhook.body_template"]).toBe('{"content":"{{message}}"}');
     });
 
+    it("masks the analytics salt seed, which pseudonymizes visitor fingerprints", async () => {
+        const response = await buildServerConfigResponse({
+            async all() {
+                return new Map<string, unknown>([
+                    ["analytics.salt_seed", "8f14e45fceea167a5a36dedd4bea2543"],
+                    ["ai_summary.api_key", "sk-secret"],
+                ]);
+            },
+            async set() {},
+            async save() {},
+        });
+
+        expect(response["analytics.salt_seed"]).toBe("••••••••");
+        expect(response["ai_summary.api_key"]).toBe("••••••••");
+    });
+
     it("uses WEBHOOK_URL env as fallback when webhook_url is not stored", async () => {
         const response = await buildServerConfigResponse({
             async all() {

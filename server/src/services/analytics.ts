@@ -1,4 +1,5 @@
 import type {
+    AnalyticsDailyPoint,
     AnalyticsDimensionItem,
     AnalyticsDimensionType,
     AnalyticsDimensionsResponse,
@@ -50,6 +51,23 @@ export function parseDimensionType(value: string | undefined): AnalyticsDimensio
         : "referrer";
 }
 
+/**
+ * analytics_daily 只为有访问的日期建行，而折线图按下标等距排点：
+ * 30 天区间里只有首尾两天有数据时会画成一条匀速上升的斜线。
+ * 这里在服务端把区间补齐，缺失的日期填 0。
+ */
+export function zeroFillSeries(points: AnalyticsDailyPoint[], from: string, days: number): AnalyticsDailyPoint[] {
+    const byDate = new Map(points.map((point) => [point.date, point]));
+    const filled: AnalyticsDailyPoint[] = [];
+
+    for (let offset = 0; offset < days; offset++) {
+        const date = addDays(from, offset);
+        filled.push(byDate.get(date) ?? { date, pv: 0, uv: 0 });
+    }
+
+    return filled;
+}
+
 export function AnalyticsService() {
     const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -72,11 +90,15 @@ export function AnalyticsService() {
             .groupBy(analyticsDaily.date)
             .orderBy(analyticsDaily.date);
 
-        const series = rows.map((row) => ({
-            date: row.date,
-            pv: Number(row.pv) || 0,
-            uv: Number(row.uv) || 0,
-        }));
+        const series = zeroFillSeries(
+            rows.map((row) => ({
+                date: row.date,
+                pv: Number(row.pv) || 0,
+                uv: Number(row.uv) || 0,
+            })),
+            from,
+            days,
+        );
 
         const empty = { pv: 0, uv: 0 };
         const overview: AnalyticsOverview = {

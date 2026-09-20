@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Hono } from "hono";
 import type { Variables } from "../../core/hono-types";
-import { AnalyticsService, parseDays, parseDimensionType, parseHours, parseLimit } from "../analytics";
+import { AnalyticsService, parseDays, parseDimensionType, parseHours, parseLimit, zeroFillSeries } from "../analytics";
 
 describe("parseDays", () => {
     it("accepts only the three supported ranges", () => {
@@ -56,6 +56,34 @@ describe("parseDimensionType", () => {
     it("falls back to referrer", () => {
         expect(parseDimensionType("browser")).toBe("referrer");
         expect(parseDimensionType(undefined)).toBe("referrer");
+    });
+});
+
+describe("zeroFillSeries", () => {
+    it("fills every day of the range, so the chart cannot imply traffic on silent days", () => {
+        const series = zeroFillSeries(
+            [
+                { date: "2026-09-01", pv: 10, uv: 4 },
+                { date: "2026-09-05", pv: 3, uv: 1 },
+            ],
+            "2026-09-01",
+            5,
+        );
+
+        expect(series).toEqual([
+            { date: "2026-09-01", pv: 10, uv: 4 },
+            { date: "2026-09-02", pv: 0, uv: 0 },
+            { date: "2026-09-03", pv: 0, uv: 0 },
+            { date: "2026-09-04", pv: 0, uv: 0 },
+            { date: "2026-09-05", pv: 3, uv: 1 },
+        ]);
+    });
+
+    it("returns one point per requested day even with no data at all", () => {
+        const series = zeroFillSeries([], "2026-09-01", 7);
+        expect(series).toHaveLength(7);
+        expect(series.every((point) => point.pv === 0 && point.uv === 0)).toBe(true);
+        expect(series.at(-1)?.date).toBe("2026-09-07");
     });
 });
 

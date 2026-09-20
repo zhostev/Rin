@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildPlaceholderToml, buildWranglerTomlFromEnv, buildWranglerAnalyticsConfig } from "../ensure-wrangler-toml";
+import { buildPlaceholderToml, buildWranglerAnalyticsConfig, buildWranglerTomlFromEnv } from "../ensure-wrangler-toml";
 
 describe("buildPlaceholderToml", () => {
   it("keeps dry-run placeholder shape without r2_buckets", () => {

@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import {
   assertR2BucketConfiguredForDeploy,
+  buildWranglerAnalyticsConfig,
   buildWranglerObservabilityConfig,
   buildWranglerQueueConfig,
   buildWranglerR2BucketConfig,
   buildWranglerStreamConfig,
-  buildWranglerAnalyticsConfig,
   buildWranglerTriggersConfig,
   collectWorkerSecrets,
   shouldEnableStreamBinding,

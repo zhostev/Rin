@@ -50,7 +50,13 @@ export const AI_CONFIG_KEYS = [
   `${AI_CONFIG_PREFIX}api_url`,
 ] as const;
 
-export const SENSITIVE_SERVER_CONFIG_FIELDS = [`${AI_CONFIG_PREFIX}api_key`] as const;
+/** 访客指纹的伪名化种子；泄露即可反推每日盐，不得出现在设置面板的响应里。 */
+export const ANALYTICS_SALT_SEED_KEY = "analytics.salt_seed";
+
+export const SENSITIVE_SERVER_CONFIG_FIELDS = [
+  `${AI_CONFIG_PREFIX}api_key`,
+  ANALYTICS_SALT_SEED_KEY,
+] as const;
 
 export const DEFAULT_AI_CONFIG: AIConfig = {
   enabled: false,

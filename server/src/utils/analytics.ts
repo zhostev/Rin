@@ -1,9 +1,11 @@
+import { ANALYTICS_SALT_SEED_KEY } from "@rin/config";
 import type { AppContext } from "../core/hono-types";
 import { getClientIp } from "./geo";
 
 export type DeviceType = "mobile" | "desktop";
 
-export const ANALYTICS_SALT_SEED_KEY = "analytics.salt_seed";
+// 单一来源在 @rin/config：该键同时出现在 SENSITIVE_SERVER_CONFIG_FIELDS 里。
+export { ANALYTICS_SALT_SEED_KEY };
 
 /** blob 总量上限 16 KB；标题是唯一可能超长的字段，单独截断。 */
 const MAX_TITLE_BYTES = 256;
