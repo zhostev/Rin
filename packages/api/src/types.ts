@@ -414,3 +414,19 @@ export const API_PATHS = {
 } as const;
 
 export type APIEndpoint = typeof API_PATHS;
+
+// Analytics
+export type AnalyticsDimensionType = "referrer" | "country" | "device";
+export interface AnalyticsDailyPoint { date: string; pv: number; uv: number; }
+export interface AnalyticsOverview {
+    range: { days: number; from: string; to: string };
+    totals: { pv: number; uv: number; uvApproximate: boolean };
+    today: AnalyticsDailyPoint;
+    yesterday: AnalyticsDailyPoint;
+    series: AnalyticsDailyPoint[];
+}
+export interface AnalyticsTopFeed { feedId: number; title: string | null; pv: number; uv: number; }
+export interface AnalyticsTopFeedsResponse { items: AnalyticsTopFeed[]; }
+export interface AnalyticsDimensionItem { value: string; count: number; }
+export interface AnalyticsDimensionsResponse { type: AnalyticsDimensionType; items: AnalyticsDimensionItem[]; }
+export interface AnalyticsLiveResponse { available: boolean; hours: number; items: AnalyticsTopFeed[]; }
