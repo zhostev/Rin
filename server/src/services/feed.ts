@@ -18,7 +18,7 @@ import {
     searchFeedPage,
     updateFeedById,
 } from "../features/feed/repository";
-import { HyperLogLog } from "../utils/hyperloglog";
+import { recordPageView } from "../utils/analytics";
 import { extractImageWithMetadata } from "../utils/image";
 import { stripMarkdown } from "../utils/markdown";
 import { syncFeedAISummaryQueueState } from "./feed-ai-summary";
@@ -258,48 +258,30 @@ export function FeedService(): Hono<{
         const { hashtags, ...other } = feed;
         const hashtags_flatten = hashtags.map((f: any) => f.hashtag);
 
-        // update visits using HyperLogLog for efficient UV estimation
+        // Page views are recorded into Analytics Engine off the response path.
+        // visit_stats stays as the durable per-feed counter, refreshed by the
+        // daily rollup cron — this handler only reads it.
         const enableVisit = await profileAsync(c, 'feed_detail_counter_flag', () => clientConfig.getOrDefault('counter.enabled', true));
         let pv = 0;
         let uv = 0;
 
         if (enableVisit) {
-            const ip = c.req.header('cf-connecting-ip') || c.req.header('x-real-ip') || "UNK";
-            const visitorKey = `${ip}`;
-
-            // Get or create visit stats for this feed
-            let stats = await profileAsync(c, 'feed_detail_stats_lookup', () => db.query.visitStats.findFirst({
+            const stats = await profileAsync(c, 'feed_detail_stats_lookup', () => db.query.visitStats.findFirst({
                 where: eq(visitStats.feedId, feed.id)
             }));
 
-            if (!stats) {
-                // Create new stats record
-                await profileAsync(c, 'feed_detail_stats_insert', () => db.insert(visitStats).values({
-                    feedId: feed.id,
-                    pv: 1,
-                    hllData: new HyperLogLog().serialize()
-                }));
-                pv = 1;
-                uv = 1;
-            } else {
-                // Update existing stats
-                const hll = new HyperLogLog(stats.hllData);
-                hll.add(visitorKey);
-                const newHllData = hll.serialize();
-                const newPv = stats.pv + 1;
+            pv = stats?.pv ?? 0;
+            uv = stats?.uv ?? 0;
 
-                await profileAsync(c, 'feed_detail_stats_update', () => db.update(visitStats)
-                    .set({
-                        pv: newPv,
-                        hllData: newHllData,
-                        updatedAt: new Date()
-                    })
-                    .where(eq(visitStats.feedId, feed.id)));
-
-                pv = newPv;
-                uv = Math.round(hll.count());
+            // c.executionCtx is unavailable outside a real Workers request (e.g.
+            // Hono's app.request() in tests), which throws on access rather than
+            // returning undefined. Recording a page view must never break the
+            // response path, so this degrades to a fire-and-forget call.
+            try {
+                c.executionCtx.waitUntil(recordPageView(c, { feedId: feed.id, title: feed.title }));
+            } catch {
+                void recordPageView(c, { feedId: feed.id, title: feed.title });
             }
-
         }
 
         return c.json({ ...other, hashtags: hashtags_flatten, pv, uv });
