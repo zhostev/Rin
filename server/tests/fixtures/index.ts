@@ -17,7 +17,10 @@ import { users } from '../../src/db/schema';
  */
 export function createMockDB() {
     const sqlite = new Database(':memory:');
-    
+
+    // Match D1: foreign keys are enforced there, so tests must see the same failures.
+    sqlite.exec('PRAGMA foreign_keys = ON;');
+
     // Initialize Drizzle with the database
     const db = drizzle(sqlite, { schema });
     

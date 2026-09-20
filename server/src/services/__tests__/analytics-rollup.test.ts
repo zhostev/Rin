@@ -5,6 +5,7 @@ import { createMockDB, createMockEnv, cleanupTestDB } from "../../../tests/fixtu
 import { analyticsDaily, analyticsDimDaily, visitStats } from "../../db/schema";
 import {
     ANALYTICS_CURSOR_KEY,
+    MAX_ROLLUP_DATES_PER_RUN,
     addDays,
     analyticsCrontab,
     analyticsWindowStart,
@@ -246,6 +247,65 @@ describe("analyticsCrontab (D1/cursor integration)", () => {
         expect(byType.referrer).toMatchObject({ dimValue: "example.com", count: 5 });
         expect(byType.country).toMatchObject({ dimValue: "US", count: 9 });
         expect(byType.device).toMatchObject({ dimValue: "desktop", count: 3 });
+    });
+
+    it("enforces the visit_stats -> feeds foreign key, like D1 does", () => {
+        // Guards the fixture pragma: without it this insert silently succeeds and
+        // the deleted-feed hazard below becomes invisible to every test in the repo.
+        expect(() =>
+            sqlite.exec(
+                `INSERT INTO visit_stats (feed_id, pv, uv, pv_baseline, uv_baseline, hll_data) VALUES (404, 0, 0, 0, 0, '')`,
+            ),
+        ).toThrow();
+    });
+
+    it("skips rows whose feed was deleted instead of stalling the cursor", async () => {
+        insertFeed(1);
+
+        const serverConfig = createTestServerConfig({ [ANALYTICS_CURSOR_KEY]: "2026-09-18" });
+        stubAnalyticsFetch({
+            // feed 999 was deleted; the cascade already removed its visit_stats row,
+            // but Analytics Engine still holds three months of its page views.
+            feed: [
+                { feed_id: "1", pv: 7, uv: 3 },
+                { feed_id: "999", pv: 5, uv: 2 },
+            ],
+            dim: [{ dim_type: "country", dim_value: "US", count: 9 }],
+        });
+
+        await analyticsCrontab(env, db, serverConfig);
+
+        const daily = await db.select().from(analyticsDaily);
+        expect(daily).toEqual([{ date: "2026-09-19", feedId: 1, pv: 7, uv: 3 }]);
+
+        const stats = await db.select().from(visitStats);
+        expect(stats).toHaveLength(1);
+        expect(stats[0].feedId).toBe(1);
+        expect(stats[0].pv).toBe(7);
+
+        // The dimension pass runs after the feed pass; a throw there would lose it.
+        const dims = await db.select().from(analyticsDimDaily).where(eq(analyticsDimDaily.date, "2026-09-19"));
+        expect(dims).toHaveLength(1);
+
+        expect(serverConfig.store.get(ANALYTICS_CURSOR_KEY)).toBe("2026-09-19");
+    });
+
+    it("caps the number of dates rolled up in a single invocation", async () => {
+        let fetchCount = 0;
+        const serverConfig = createTestServerConfig();
+        stubAnalyticsFetch({ feed: [], dim: [] });
+        const stubbed = globalThis.fetch;
+        globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
+            fetchCount += 1;
+            return stubbed(...args);
+        }) as unknown as typeof fetch;
+
+        await analyticsCrontab(env, db, serverConfig);
+
+        const windowStart = analyticsWindowStart("2026-09-20");
+        expect(serverConfig.store.get(ANALYTICS_CURSOR_KEY)).toBe(addDays(windowStart, MAX_ROLLUP_DATES_PER_RUN));
+        // 2 Analytics Engine subrequests per date.
+        expect(fetchCount).toBe(MAX_ROLLUP_DATES_PER_RUN * 2);
     });
 
     it("creates a visit_stats row with zero baselines for a feed with no prior row", async () => {
