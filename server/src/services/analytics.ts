@@ -3,6 +3,7 @@ import type {
     AnalyticsDimensionItem,
     AnalyticsDimensionType,
     AnalyticsDimensionsResponse,
+    AnalyticsLiveTotals,
     AnalyticsLiveResponse,
     AnalyticsOverview,
     AnalyticsTopFeed,
@@ -22,7 +23,6 @@ import {
 import { addDays } from "./analytics-rollup";
 
 const SUPPORTED_DAYS = [7, 30, 90] as const;
-const SUPPORTED_HOURS = [1, 24] as const;
 const DIMENSION_TYPES: AnalyticsDimensionType[] = ["referrer", "country", "device"];
 
 const guard = { status: 403, format: "json" } as const;
@@ -30,11 +30,6 @@ const guard = { status: 403, format: "json" } as const;
 export function parseDays(value: string | undefined): 7 | 30 | 90 {
     const parsed = Number.parseInt(value ?? "", 10);
     return (SUPPORTED_DAYS as readonly number[]).includes(parsed) ? (parsed as 7 | 30 | 90) : 30;
-}
-
-export function parseHours(value: string | undefined): 1 | 24 {
-    const parsed = Number.parseInt(value ?? "", 10);
-    return (SUPPORTED_HOURS as readonly number[]).includes(parsed) ? (parsed as 1 | 24) : 24;
 }
 
 export function parseLimit(value: string | undefined): number {
@@ -66,6 +61,38 @@ export function zeroFillSeries(points: AnalyticsDailyPoint[], from: string, days
     }
 
     return filled;
+}
+
+/**
+ * /live 的两个查询窗口。做成纯函数是为了能离线断言 SQL 形状
+ * （AE 的方言本身无法离线执行，见计划 Ruling E）。
+ *
+ * 站点级、UTC 当日、不做任何分组或截断：
+ * 昨日窗口刻意加 `toHour(timestamp) <= toHour(now())`，让分子分母的
+ * 「已过小时数」一致 —— 否则拿今天 3 小时去比昨天一整天。
+ */
+export function buildLiveTotalsSql(dataset: string = ANALYTICS_DATASET): string {
+    return [
+        "SELECT SUM(_sample_interval) AS pv, COUNT(DISTINCT blob6) AS uv",
+        `FROM ${dataset}`,
+        "WHERE toDate(timestamp) = toDate(now())",
+        "FORMAT JSON",
+    ].join(" ");
+}
+
+export function buildLiveYesterdaySql(dataset: string = ANALYTICS_DATASET): string {
+    return [
+        "SELECT SUM(_sample_interval) AS pv, COUNT(DISTINCT blob6) AS uv",
+        `FROM ${dataset}`,
+        "WHERE toDate(timestamp) = toDate(now() - INTERVAL '1' DAY)",
+        "AND toHour(timestamp) <= toHour(now())",
+        "FORMAT JSON",
+    ].join(" ");
+}
+
+function pickLiveTotals(rows: Array<{ pv?: unknown; uv?: unknown }>): AnalyticsLiveTotals {
+    const row = rows[0];
+    return { pv: Number(row?.pv) || 0, uv: Number(row?.uv) || 0 };
 }
 
 export function AnalyticsService() {
@@ -179,36 +206,25 @@ export function AnalyticsService() {
         return c.json(response);
     }, guard));
 
-    // GET /analytics/live?hours=24 — the only endpoint that reaches Analytics Engine.
+    // GET /analytics/live — 站点级「UTC 当日」累计；唯一直接查 Analytics Engine 的端点。
     app.get("/live", adminOnly(async (c) => {
-        const hours = parseHours(c.req.query("hours"));
+        const now = new Date();
+        const date = utcDateString(now);
+        const elapsedHours = now.getUTCHours();
 
         try {
-            const rows = await queryAnalyticsEngine<{ feed_id: string; title: string; pv: number; uv: number }>(
-                c.env,
-                `
-                    SELECT index1 AS feed_id,
-                           any(blob7) AS title,
-                           SUM(_sample_interval) AS pv,
-                           COUNT(DISTINCT blob6) AS uv
-                    FROM ${ANALYTICS_DATASET}
-                    WHERE timestamp > NOW() - INTERVAL '${hours}' HOUR
-                    GROUP BY index1
-                    ORDER BY pv DESC
-                    LIMIT 20
-                    FORMAT JSON
-                `.trim(),
-            );
+            const [todayRows, yesterdayRows] = await Promise.all([
+                queryAnalyticsEngine<{ pv: unknown; uv: unknown }>(c.env, buildLiveTotalsSql()),
+                queryAnalyticsEngine<{ pv: unknown; uv: unknown }>(c.env, buildLiveYesterdaySql()),
+            ]);
 
             const response: AnalyticsLiveResponse = {
                 available: true,
-                hours,
-                items: rows.map<AnalyticsTopFeed>((row) => ({
-                    feedId: Number(row.feed_id),
-                    title: row.title || null,
-                    pv: Number(row.pv) || 0,
-                    uv: Number(row.uv) || 0,
-                })),
+                date,
+                totals: pickLiveTotals(todayRows),
+                yesterday: pickLiveTotals(yesterdayRows),
+                uvApproximate: true,
+                elapsedHours,
             };
 
             return c.json(response);
@@ -216,7 +232,14 @@ export function AnalyticsService() {
             if (error instanceof AnalyticsUnavailableError) {
                 // 未配置 token 或 token 缺少 Account Analytics Read 权限 → 降级，不是 500。
                 console.warn("analytics: live query unavailable", error.reason, error.message);
-                return c.json<AnalyticsLiveResponse>({ available: false, hours, items: [] });
+                return c.json<AnalyticsLiveResponse>({
+                    available: false,
+                    date,
+                    totals: { pv: 0, uv: 0 },
+                    yesterday: { pv: 0, uv: 0 },
+                    uvApproximate: true,
+                    elapsedHours,
+                });
             }
             throw error;
         }

@@ -1,7 +1,15 @@
 import { describe, expect, it } from "bun:test";
 import { Hono } from "hono";
 import type { Variables } from "../../core/hono-types";
-import { AnalyticsService, parseDays, parseDimensionType, parseHours, parseLimit, zeroFillSeries } from "../analytics";
+import {
+    AnalyticsService,
+    buildLiveTotalsSql,
+    buildLiveYesterdaySql,
+    parseDays,
+    parseDimensionType,
+    parseLimit,
+    zeroFillSeries,
+} from "../analytics";
 
 describe("parseDays", () => {
     it("accepts only the three supported ranges", () => {
@@ -16,18 +24,6 @@ describe("parseDays", () => {
         expect(parseDays("365")).toBe(30);
         expect(parseDays("-1")).toBe(30);
         expect(parseDays("abc")).toBe(30);
-    });
-});
-
-describe("parseHours", () => {
-    it("accepts 1 and 24", () => {
-        expect(parseHours("1")).toBe(1);
-        expect(parseHours("24")).toBe(24);
-    });
-
-    it("falls back to 24", () => {
-        expect(parseHours("720")).toBe(24);
-        expect(parseHours(undefined)).toBe(24);
     });
 });
 
@@ -116,5 +112,23 @@ describe("AnalyticsService admin guard", () => {
         const app = mount(true);
         const response = await Promise.resolve(app.request("/analytics/overview")).catch(() => null);
         expect(response?.status).not.toBe(403);
+    });
+});
+
+describe("live totals SQL", () => {
+    it("aggregates the whole site for the current UTC day — no per-feed grouping, no row limit", () => {
+        const text = buildLiveTotalsSql("ds");
+        expect(text).toContain("toDate(timestamp) = toDate(now())");
+        expect(text).toContain("COUNT(DISTINCT blob6)");
+        expect(text).not.toContain("GROUP BY");
+        expect(text).not.toContain("LIMIT");
+        expect(text).not.toContain("index1");
+    });
+
+    it("cuts yesterday off at the same elapsed hour so the comparison windows match", () => {
+        const text = buildLiveYesterdaySql("ds");
+        expect(text).toContain("toDate(now() - INTERVAL '1' DAY)");
+        expect(text).toContain("toHour(timestamp) <= toHour(now())");
+        expect(text).not.toContain("GROUP BY");
     });
 });
