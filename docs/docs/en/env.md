@@ -43,12 +43,18 @@ Site configuration can be modified via the **Settings Page** after deployment. E
 
 ### Cloudflare Stream (optional)
 
-Videos larger than 100 MB are uploaded through Cloudflare Stream; the current direct-upload path supports files up to 200 MB. To enable it, add this to the end of the Worker's `wrangler.toml`:
+Videos larger than 100 MB are uploaded through Cloudflare Stream; the current direct-upload path supports files up to 200 MB.
+
+To enable it, set `ENABLE_STREAM=true` (or any other Stream variable). The deploy then writes this into the generated `wrangler.toml`:
 
 ```toml
 [stream]
 binding = "STREAM"
 ```
+
+::: warning
+Do not hand-edit the repository's `wrangler.toml` — deploys regenerate the whole file, so manual bindings are lost. For the same reason, Stream bindings and vars configured only in the Cloudflare dashboard are overwritten on the next deploy.
+:::
 
 Stream playback uses Cloudflare's iframe player by default. Set `STREAM_PUBLIC_HOST` (for example, `https://customer-xxx.cloudflarestream.com`) if you use a custom Stream playback hostname. Without Stream, regular audio/video and videos up to 100 MB continue to use R2/S3.
 
@@ -100,6 +106,7 @@ You must configure either **GitHub OAuth** or **Username/Password** authenticati
 |----------|---------|---------------|
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API access token | Cloudflare Dashboard → My Profile → API Tokens |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID | Right sidebar in Cloudflare Dashboard |
+| `STREAM_API_TOKEN` | Stream-only token (optional) for TUS direct uploads of videos over 100MB. Falls back to `CLOUDFLARE_API_TOKEN` when unset | Create a token scoped to Account → Stream → Edit |
 
 ---
 
@@ -119,6 +126,8 @@ CACHE_STORAGE_MODE      # Cache mode (recommended: database)
 R2_BUCKET_NAME          # Required for production Workers Builds/deploy when using R2. Missing this omits [[r2_buckets]] and drops the remote R2_BUCKET binding on redeploy (blob 500s). Set ALLOW_DEPLOY_WITHOUT_R2=true only for intentional S3-only deploys.
 WORKER_NAME             # Worker name (optional)
 DB_NAME                 # D1 database name (optional)
+ENABLE_STREAM           # Set to true to emit the [stream] binding (optional)
+STREAM_PUBLIC_HOST      # Custom Stream playback hostname (optional; empty uses Cloudflare's default iframe host)
 ```
 
 ### Repository Secrets (Settings → Secrets and variables → Secrets)
@@ -126,6 +135,8 @@ DB_NAME                 # D1 database name (optional)
 ```
 CLOUDFLARE_API_TOKEN          # Cloudflare API token
 CLOUDFLARE_ACCOUNT_ID         # Cloudflare account ID
+STREAM_API_TOKEN              # Stream-only token (optional, Stream:Edit only)
+STREAM_WEBHOOK_SECRET         # Stream webhook signing secret (optional)
 S3_ENDPOINT                   # S3/R2 endpoint URL
 S3_ACCESS_HOST                # S3/R2 access domain
 S3_BUCKET                     # S3 bucket name

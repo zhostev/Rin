@@ -40,6 +40,8 @@ declare global {
     CLOUDFLARE_ACCOUNT_ID?: string;
     /** API token with Stream Write — Worker secret for TUS direct_user uploads. */
     CLOUDFLARE_API_TOKEN?: string;
+    /** Stream-only API token (Stream:Edit). Preferred over CLOUDFLARE_API_TOKEN. */
+    STREAM_API_TOKEN?: string;
     /** 站点公开访问地址（可选）。未设置时 sitemap/robots 回退到请求来源 origin */
     FRONTEND_URL?: string;
     /** Optional site identity vars written by deploy into wrangler [vars] */

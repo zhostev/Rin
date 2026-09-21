@@ -191,6 +191,10 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          STREAM_API_TOKEN: ${{ secrets.STREAM_API_TOKEN || '' }}
+          STREAM_WEBHOOK_SECRET: ${{ secrets.STREAM_WEBHOOK_SECRET || '' }}
+          STREAM_PUBLIC_HOST: ${{ vars.STREAM_PUBLIC_HOST || '' }}
+          ENABLE_STREAM: ${{ vars.ENABLE_STREAM || '' }}
           WORKER_NAME: ${{ steps.config.outputs.worker_name }}
           DB_NAME: ${{ steps.config.outputs.db_name }}
           NAME: ${{ steps.config.outputs.name }}

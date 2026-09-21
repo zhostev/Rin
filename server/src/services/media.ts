@@ -56,6 +56,48 @@ export function buildStreamTusMetadata(options: {
     return parts.join(",");
 }
 
+/**
+ * Stream REST credential. Prefers STREAM_API_TOKEN, a token that only needs
+ * Stream:Edit, and falls back to the deploy token for existing installs.
+ * Keeping them separate means rotating the deploy token cannot silently break
+ * video uploads, and the deploy token no longer has to carry Stream:Edit.
+ */
+export function resolveStreamApiToken(env: Env): string {
+    return (env.STREAM_API_TOKEN || "").trim() || (env.CLOUDFLARE_API_TOKEN || "").trim();
+}
+
+/**
+ * Caller-facing text for a failed Stream provision. Cloudflare's own body is
+ * deliberately dropped: it is operator-grade detail (token ids, doc links) that
+ * would otherwise surface verbatim in the browser. Keep it on the error's
+ * `detail` for the server log instead.
+ */
+export function describeStreamProvisionFailure(status: number, _detail: string): string {
+    if (status === 401 || status === 403) {
+        return `Cloudflare rejected the Stream API token (HTTP ${status}). Grant STREAM_API_TOKEN (or CLOUDFLARE_API_TOKEN) the account-level Stream:Edit permission, then redeploy.`;
+    }
+    if (status === 404) {
+        return `Cloudflare Stream endpoint not found (HTTP 404). Check that CLOUDFLARE_ACCOUNT_ID points at the account that owns Stream.`;
+    }
+    if (status === 429) {
+        return "Cloudflare Stream rate limit reached (HTTP 429). Try the upload again shortly.";
+    }
+    return `Cloudflare could not provision the Stream upload (HTTP ${status}).`;
+}
+
+/** Carries the upstream status and body for logging, without leaking them to the client. */
+export class StreamProvisionError extends Error {
+    readonly status: number;
+    readonly detail: string;
+
+    constructor(status: number, detail: string) {
+        super(describeStreamProvisionFailure(status, detail));
+        this.name = "StreamProvisionError";
+        this.status = status;
+        this.detail = detail;
+    }
+}
+
 export type StreamTusProvisionResult = {
     uploadUrl: string;
     streamUid: string;
@@ -83,9 +125,7 @@ export async function provisionStreamTusUpload(options: {
     });
     if (!response.ok) {
         const body = await response.text().catch(() => "");
-        throw new Error(
-            `Stream TUS provision failed (${response.status}): ${body.slice(0, 300) || response.statusText}`,
-        );
+        throw new StreamProvisionError(response.status, body.slice(0, 300) || response.statusText);
     }
     const uploadUrl = response.headers.get("Location");
     const streamUid =
@@ -418,10 +458,10 @@ export function MediaService(): Hono<{
         // Workers binding createDirectUpload does not support >200MB; always use TUS
         // for the editor Stream path (100MB–1GB). Requires account id + API token.
         const accountId = (env.CLOUDFLARE_ACCOUNT_ID || "").trim();
-        const apiToken = (env.CLOUDFLARE_API_TOKEN || "").trim();
+        const apiToken = resolveStreamApiToken(env);
         if (!accountId || !apiToken) {
             return c.text(
-                "Stream TUS upload requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN",
+                "Stream TUS upload requires CLOUDFLARE_ACCOUNT_ID and STREAM_API_TOKEN (or CLOUDFLARE_API_TOKEN)",
                 503,
             );
         }
@@ -441,7 +481,11 @@ export function MediaService(): Hono<{
                 }),
             });
         } catch (error) {
-            console.error("Stream TUS provision failed:", error);
+            if (error instanceof StreamProvisionError) {
+                console.error(`Stream TUS provision failed (${error.status}):`, error.detail);
+            } else {
+                console.error("Stream TUS provision failed:", error);
+            }
             return c.text(error instanceof Error ? error.message : "Stream TUS provision failed", 502);
         }
 
