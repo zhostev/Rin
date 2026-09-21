@@ -337,7 +337,7 @@ export function WritingPage({ id }: { id?: number }) {
         {MetaInput({ className: "p-4 sm:p-5 md:p-6" })}
 
         <FlatPanel className="overflow-hidden p-0">
-          <MarkdownEditor content={content} setContent={setContent} height='680px' />
+          <MarkdownEditor content={content} setContent={setContent} height='680px' imageTarget="library" />
         </FlatPanel>
       </div>
       <AlertUI />

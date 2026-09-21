@@ -231,6 +231,8 @@
   "media": {
     "audio": "音訊",
     "delete_confirm": "確定要刪除這個未關聯的媒體嗎？",
+    "attached_moment": "已關聯動態",
+    "delete_referenced_moment": "此媒體仍被動態使用，無法刪除。",
     "delete_referenced": "此媒體仍被文章使用，無法刪除。",
     "delete_stream": "Cloudflare Stream 媒體需要在 Stream 控制台中管理。",
     "delete_success": "媒體已刪除",

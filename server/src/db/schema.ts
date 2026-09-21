@@ -205,6 +205,7 @@ export const mediaAssets = sqliteTable("media_assets", {
     id: text("id").primaryKey(),
     uid: integer("uid").references(() => users.id, { onDelete: 'cascade' }).notNull(),
     feedId: integer("feed_id").references(() => feeds.id, { onDelete: 'set null' }),
+    momentId: integer("moment_id").references(() => moments.id, { onDelete: 'set null' }),
     provider: text("provider").default("r2").notNull(),
     streamUid: text("stream_uid"),
     playbackUrl: text("playback_url"),
@@ -218,6 +219,7 @@ export const mediaAssets = sqliteTable("media_assets", {
 }, (table) => ({
     uidIdx: index("media_assets_uid_idx").on(table.uid),
     feedIdx: index("media_assets_feed_idx").on(table.feedId),
+    momentIdx: index("media_assets_moment_idx").on(table.momentId),
     statusIdx: index("media_assets_status_idx").on(table.status),
 }));
 
@@ -271,6 +273,10 @@ export const mediaAssetsRelations = relations(mediaAssets, ({ one }) => ({
     feed: one(feeds, {
         fields: [mediaAssets.feedId],
         references: [feeds.id],
+    }),
+    moment: one(moments, {
+        fields: [mediaAssets.momentId],
+        references: [moments.id],
     }),
 }));
 

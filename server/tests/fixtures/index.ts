@@ -43,6 +43,7 @@ export function createMockDB() {
             id TEXT PRIMARY KEY,
             uid INTEGER NOT NULL,
             feed_id INTEGER,
+            moment_id INTEGER,
             provider TEXT DEFAULT 'r2' NOT NULL,
             type TEXT NOT NULL,
             object_key TEXT NOT NULL UNIQUE,
@@ -52,7 +53,8 @@ export function createMockDB() {
             created_at INTEGER DEFAULT (unixepoch()) NOT NULL,
             updated_at INTEGER DEFAULT (unixepoch()) NOT NULL,
             FOREIGN KEY (uid) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE SET NULL
+            FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE SET NULL,
+            FOREIGN KEY (moment_id) REFERENCES moments(id) ON DELETE SET NULL
         );
 
         -- Feeds table

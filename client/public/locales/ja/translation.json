@@ -231,6 +231,8 @@
   "media": {
     "audio": "音声",
     "delete_confirm": "この未関連付けのメディアを削除しますか？",
+    "attached_moment": "モーメントで使用中",
+    "delete_referenced_moment": "このメディアはモーメントで使用中のため削除できません。",
     "delete_referenced": "このメディアは記事で使用中のため削除できません。",
     "delete_stream": "Cloudflare Stream のメディアは Stream ダッシュボードで管理してください。",
     "delete_success": "メディアを削除しました",

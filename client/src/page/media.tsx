@@ -93,7 +93,11 @@ export function MediaPage() {
   function deleteAsset(asset: MediaAsset) {
     showConfirm(
       t("media.delete_title"),
-      asset.feedId ? t("media.delete_referenced") : t("media.delete_confirm"),
+      asset.feedId
+        ? t("media.delete_referenced")
+        : asset.momentId
+          ? t("media.delete_referenced_moment")
+          : t("media.delete_confirm"),
       async () => {
         setDeleting(asset.id);
         const { error } = await client.media.delete(asset.id);
@@ -178,7 +182,9 @@ export function MediaPage() {
                   <MediaEmbed id={asset.id} type={asset.type} provider={asset.provider} title={asset.feedTitle || undefined} className="my-0 rounded-none border-0 shadow-none" />
                   <div className="flex items-center justify-between gap-3 px-4 py-3">
                     <div className="min-w-0 text-sm">
-                      <p className="truncate font-medium t-primary">{asset.feedTitle || t("media.unattached")}</p>
+                      <p className="truncate font-medium t-primary">
+                        {asset.feedTitle || (asset.momentId ? t("media.attached_moment") : t("media.unattached"))}
+                      </p>
                       <p className="mt-1 text-xs t-secondary">
                         {t(`media.${asset.type}`)} · {asset.status === "processing" ? t("media.processing") : formatSize(asset.fileSize)}
                       </p>
@@ -196,9 +202,15 @@ export function MediaPage() {
                       <button
                         type="button"
                         className="shrink-0 rounded-xl border border-black/10 px-3 py-2 text-sm t-secondary transition-colors hover:border-red-300 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10"
-                        disabled={Boolean(asset.feedId) || asset.provider === "stream" || deleting === asset.id}
+                        disabled={Boolean(asset.feedId) || Boolean(asset.momentId) || asset.provider === "stream" || deleting === asset.id}
                         onClick={() => deleteAsset(asset)}
-                        title={asset.feedId ? t("media.delete_referenced") : asset.provider === "stream" ? t("media.delete_stream") : t("media.delete_title")}
+                        title={asset.feedId
+                          ? t("media.delete_referenced")
+                          : asset.momentId
+                            ? t("media.delete_referenced_moment")
+                            : asset.provider === "stream"
+                              ? t("media.delete_stream")
+                              : t("media.delete_title")}
                       >
                         <i className="ri-delete-bin-6-line" aria-hidden="true" />
                         <span className="sr-only">{t("media.delete_title")}</span>
