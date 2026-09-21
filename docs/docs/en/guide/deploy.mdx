@@ -61,6 +61,59 @@ If you want to use your GitHub account to log in, please refer to the [Advanced 
 
 > **Tip**: Username/password login and GitHub OAuth login can be enabled simultaneously. Users can freely choose their preferred login method on the login page.
 
+#### Full Configuration Reference
+
+The tables above are the minimum working set. Below is **every** variable the deploy reads. Note that `Variables` and `Secrets` are **two separate tabs** on the same settings page — putting a value in the wrong tab is the same as not setting it.
+
+:::warning `R2_BUCKET_NAME` is mandatory when using R2
+It is a **Variable**, not a Secret. Without it a production deploy exits before writing `wrangler.toml`: the generated config would omit `[[r2_buckets]]`, and since `wrangler deploy` replaces the remote Worker configuration wholesale, that drops the existing R2 binding and makes every `/api/blob/*` request return 500.
+
+The `ALLOW_DEPLOY_WITHOUT_R2=true` escape hatch mentioned in the error message **only works for local deploys** — the GitHub Actions workflow does not pass that variable through, so setting it in repository settings has no effect.
+:::
+
+**Repository Variables** (Settings → Secrets and variables → Actions → Variables)
+
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|---------|
+| `R2_BUCKET_NAME` | Yes, when using R2 | empty | R2 bucket name — see the warning above |
+| `S3_ENDPOINT` | Yes, when using S3 | empty | S3/R2 endpoint; derived automatically when left empty and `R2_BUCKET_NAME` is set |
+| `S3_BUCKET` | Yes, when using S3 | empty | Bucket name |
+| `S3_ACCESS_HOST` | No | empty | Public hostname for images |
+| `S3_FOLDER` | No | `images/` | Image folder |
+| `S3_CACHE_FOLDER` | No | `cache/` | Cache folder |
+| `S3_REGION` | No | `auto` | Region |
+| `S3_FORCE_PATH_STYLE` | No | `false` | Some non-R2 S3-compatible services need `true` |
+| `CACHE_STORAGE_MODE` | No | `s3` | `database` is recommended and works out of the box |
+| `FRONTEND_URL` | No | empty | Public site URL; used for absolute sitemap/robots links and for Stream allowedOrigins |
+| `WEBHOOK_URL` | No | empty | Publish notification webhook |
+| `RSS_TITLE` | No | empty | RSS title |
+| `RSS_DESCRIPTION` | No | empty | RSS description |
+| `RSS_ENABLE` | No | `false` | Enable RSS |
+| `NAME` | No | `Rin` | Site name |
+| `DESCRIPTION` | No | `A lightweight personal blogging system` | Site description |
+| `AVATAR` | No | empty | Avatar URL |
+| `PAGE_SIZE` | No | `5` | Page size |
+| `WORKER_NAME` | No | `rin-server` | Worker name |
+| `DB_NAME` | No | `rin` | D1 database name |
+| `ENABLE_STREAM` | No | empty | Set to `true` to emit the `[stream]` binding into the generated `wrangler.toml` |
+| `STREAM_PUBLIC_HOST` | No | empty | Custom Stream playback hostname; empty uses Cloudflare's default iframe host |
+
+**Repository Secrets** (the Secrets tab on the same page)
+
+| Secret | Required | Purpose |
+|--------|----------|---------|
+| `CLOUDFLARE_API_TOKEN` | Yes | Deploy token |
+| `CLOUDFLARE_ACCOUNT_ID` | Yes | Account ID. Not really sensitive, but the workflow reads it as a secret, so it must live in the Secrets tab |
+| `JWT_SECRET` | Yes | JWT signing key |
+| `ADMIN_USERNAME` | Yes, for password login | Login username |
+| `ADMIN_PASSWORD` | Yes, for password login | Login password |
+| `S3_ACCESS_KEY_ID` | Yes, when using R2/S3 | Storage access key id |
+| `S3_SECRET_ACCESS_KEY` | Yes, when using R2/S3 | Storage secret key |
+| `RIN_GITHUB_CLIENT_ID` | No | GitHub OAuth login |
+| `RIN_GITHUB_CLIENT_SECRET` | No | GitHub OAuth login |
+| `STREAM_API_TOKEN` | No | Stream-only token needing just Account → Stream → Edit. Falls back to `CLOUDFLARE_API_TOKEN` when empty (that token must then carry Stream:Edit itself) |
+| `STREAM_WEBHOOK_SECRET` | No | Stream webhook signing secret; empty leaves `/api/media/stream/webhook` disabled and video status refreshes by polling only |
+
 ### Step 3: Trigger Deployment
 
 1. Go to the **"Actions"** tab in your repository
