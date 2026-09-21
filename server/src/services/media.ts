@@ -4,7 +4,7 @@ import type { MediaAsset as MediaAssetContract, MediaType } from "@rin/api";
 import type { AppContext, DB, Variables } from "../core/hono-types";
 import { adminOnly } from "../core/route-boundaries";
 import { profileAsync } from "../core/server-timing";
-import { feeds, mediaAssets } from "../db/schema";
+import { feeds, mediaAssets, moments } from "../db/schema";
 import { deleteStorageObject, getStorageObject, putStorageObject } from "../utils/storage";
 
 const MAX_MEDIA_SIZE = 100 * 1024 * 1024;
@@ -129,6 +129,7 @@ function toContract(asset: typeof mediaAssets.$inferSelect, feed?: { id: number;
         createdAt: asset.createdAt.toISOString(),
         feedId: asset.feedId,
         feedTitle: feed?.title ?? null,
+        momentId: asset.momentId,
         streamUid: asset.streamUid,
     };
 }
@@ -193,6 +194,7 @@ export async function cleanupMediaAssets(db: DB, env: Env, now = new Date()) {
     const stale = await db.query.mediaAssets.findMany({
         where: and(
             isNull(mediaAssets.feedId),
+            isNull(mediaAssets.momentId),
             lt(mediaAssets.updatedAt, cutoff),
             or(eq(mediaAssets.status, "failed"), eq(mediaAssets.status, "processing")),
         ),
@@ -243,17 +245,40 @@ export async function syncMediaForFeed(db: DB, feedId: number, uid: number, cont
     }
 }
 
+export async function syncMediaForMoment(db: DB, momentId: number, uid: number, content: string) {
+    const ids = extractMediaIds(content);
+    await db.update(mediaAssets).set({ momentId: null, updatedAt: new Date() }).where(eq(mediaAssets.momentId, momentId));
+
+    for (const id of ids) {
+        await db.update(mediaAssets)
+            .set({ momentId, updatedAt: new Date() })
+            .where(and(eq(mediaAssets.id, id), eq(mediaAssets.uid, uid)));
+    }
+}
+
 async function canReadAsset(c: AppContext, asset: typeof mediaAssets.$inferSelect) {
     const uid = c.get("uid");
     const admin = c.get("admin");
     if (admin || asset.uid === uid) return true;
 
-    if (!asset.feedId) return false;
-    const feed = await c.get("db").query.feeds.findFirst({
-        where: eq(feeds.id, asset.feedId),
-        columns: { uid: true, draft: true },
-    });
-    return Boolean(feed && feed.draft === 0);
+    if (asset.feedId) {
+        const feed = await c.get("db").query.feeds.findFirst({
+            where: eq(feeds.id, asset.feedId),
+            columns: { uid: true, draft: true },
+        });
+        if (feed && feed.draft === 0) return true;
+    }
+
+    if (asset.momentId) {
+        // Moments have no draft state: once posted they are public.
+        const moment = await c.get("db").query.moments.findFirst({
+            where: eq(moments.id, asset.momentId),
+            columns: { id: true },
+        });
+        if (moment) return true;
+    }
+
+    return false;
 }
 
 export function MediaService(): Hono<{
@@ -497,6 +522,7 @@ export function MediaService(): Hono<{
         const asset = await db.query.mediaAssets.findFirst({ where: eq(mediaAssets.id, id) });
         if (!asset) return c.text("Not found", 404);
         if (asset.feedId) return c.text("Media is still used by an article", 409);
+        if (asset.momentId) return c.text("Media is still used by a moment", 409);
 
         try {
             if (asset.provider === "stream") {

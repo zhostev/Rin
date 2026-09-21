@@ -243,6 +243,7 @@ export function MomentsPage() {
                             content={content}
                             setContent={setContent}
                             height="300px"
+                            imageTarget="library"
                         />
                     </div>
                     

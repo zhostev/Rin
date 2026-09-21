@@ -158,6 +158,27 @@ describe('MomentsService', () => {
 
             expect(res.status).toBe(400);
         });
+
+        it('should attach referenced media to the new moment', async () => {
+            sqlite.exec(`
+                INSERT INTO media_assets (id, uid, type, object_key, mime_type, file_size, status)
+                VALUES ('image-1', 1, 'image', 'media/1/image-1.png', 'image/png', 1024, 'ready')
+            `);
+
+            const res = await app.request('/', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer mock_token_1',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ content: '![cover](https://example.com/api/media/image-1/playback)' }),
+            }, env);
+
+            expect(res.status).toBe(200);
+            const { insertedId } = await res.json() as any;
+            const asset = sqlite.query('SELECT moment_id FROM media_assets WHERE id = ?').get('image-1') as any;
+            expect(asset.moment_id).toBe(insertedId);
+        });
     });
 
     describe('POST /:id - Update moment', () => {
@@ -189,6 +210,26 @@ describe('MomentsService', () => {
             }, env);
 
             expect(res.status).toBe(200);
+        });
+
+        it('should release media that the edited moment no longer references', async () => {
+            sqlite.exec(`
+                INSERT INTO media_assets (id, uid, moment_id, type, object_key, mime_type, file_size, status)
+                VALUES ('image-1', 1, 1, 'image', 'media/1/image-1.png', 'image/png', 1024, 'ready')
+            `);
+
+            const res = await app.request('/1', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer mock_token_1',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ content: 'No media here anymore' }),
+            }, env);
+
+            expect(res.status).toBe(200);
+            const asset = sqlite.query('SELECT moment_id FROM media_assets WHERE id = ?').get('image-1') as any;
+            expect(asset.moment_id).toBeNull();
         });
 
         it('should return 404 for non-existent moment', async () => {
@@ -243,6 +284,42 @@ describe('MomentsService', () => {
             // Verify deletion
             const moment = sqlite.prepare('SELECT * FROM moments WHERE id = 1').get();
             expect(moment).toBeNull();
+        });
+
+        it('should release media that the edited moment no longer references', async () => {
+            sqlite.exec(`
+                INSERT INTO media_assets (id, uid, moment_id, type, object_key, mime_type, file_size, status)
+                VALUES ('image-1', 1, 1, 'image', 'media/1/image-1.png', 'image/png', 1024, 'ready')
+            `);
+
+            const res = await app.request('/1', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer mock_token_1',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ content: 'No media here anymore' }),
+            }, env);
+
+            expect(res.status).toBe(200);
+            const asset = sqlite.query('SELECT moment_id FROM media_assets WHERE id = ?').get('image-1') as any;
+            expect(asset.moment_id).toBeNull();
+        });
+
+        it('should release media used by the deleted moment', async () => {
+            sqlite.exec(`
+                INSERT INTO media_assets (id, uid, moment_id, type, object_key, mime_type, file_size, status)
+                VALUES ('image-1', 1, 1, 'image', 'media/1/image-1.png', 'image/png', 1024, 'ready')
+            `);
+
+            const res = await app.request('/1', {
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer mock_token_1' },
+            }, env);
+
+            expect(res.status).toBe(200);
+            const asset = sqlite.query('SELECT moment_id FROM media_assets WHERE id = ?').get('image-1') as any;
+            expect(asset.moment_id).toBeNull();
         });
 
         it('should return 404 for non-existent moment', async () => {

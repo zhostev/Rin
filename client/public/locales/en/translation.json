@@ -231,6 +231,8 @@
   "media": {
     "audio": "Audio",
     "delete_confirm": "Delete this unattached media?",
+    "attached_moment": "Used by a moment",
+    "delete_referenced_moment": "This media is still used by a moment and cannot be deleted.",
     "delete_referenced": "This media is still used by an article and cannot be deleted.",
     "delete_stream": "Cloudflare Stream media must be managed from the Stream dashboard.",
     "delete_success": "Media deleted",

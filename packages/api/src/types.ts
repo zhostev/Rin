@@ -278,6 +278,7 @@ export interface MediaAsset {
   createdAt: string;
   feedId?: number | null;
   feedTitle?: string | null;
+  momentId?: number | null;
   streamUid?: string | null;
 }
 

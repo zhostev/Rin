@@ -7,7 +7,7 @@ import Loading from 'react-loading';
 import { FlatInset, FlatTabButton } from "@rin/ui";
 import { useAlert } from "./dialog";
 import { useColorMode } from "../utils/darkModeUtils";
-import { buildMarkdownImage } from "../utils/image-upload";
+import { buildMarkdownImage, uploadImageFile } from "../utils/image-upload";
 import { detectMediaType, uploadImageToLibrary, uploadMediaFile } from "../utils/media-upload";
 import { Markdown } from "./markdown";
 import { buildMediaMarkup } from "./media-embed";
@@ -17,6 +17,13 @@ interface MarkdownEditorProps {
   setContent: (content: string) => void;
   placeholder?: string;
   height?: string;
+  /**
+   * Where uploaded images go. "library" keeps them in the media library, which only
+   * serves them publicly once the content referencing them is published — articles do
+   * that on save. "storage" writes to public object storage, for content that has no
+   * such reference sync (moments).
+   */
+  imageTarget?: "library" | "storage";
 }
 
 type EditorPosition = {
@@ -67,7 +74,7 @@ function MarkdownToolButton({
   );
 }
 
-export function MarkdownEditor({ content, setContent, placeholder = "> Write your content here...", height = "400px" }: MarkdownEditorProps) {
+export function MarkdownEditor({ content, setContent, placeholder = "> Write your content here...", height = "400px", imageTarget = "storage" }: MarkdownEditorProps) {
   const { t } = useTranslation();
   const colorMode = useColorMode();
   const editorRef = useRef<editor.IStandaloneCodeEditor>();
@@ -83,7 +90,9 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
     showAlert: (msg: string) => void,
   ) {
     try {
-      const result = await uploadImageToLibrary(file, { t });
+      const result = imageTarget === "library"
+        ? await uploadImageToLibrary(file, { t })
+        : await uploadImageFile(file);
       const editorInstance = editorRef.current;
       if (!editorInstance) return;
       editorInstance.executeEdits(undefined, [{
