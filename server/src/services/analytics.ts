@@ -74,9 +74,15 @@ export function normalizeAeTimestamp(raw: string): string {
     return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
+/**
+ * 刻意不加时间谓词:这是「最近 N 条」查询,不是「窗口内最近 N 条」——
+ * 加了 `WHERE timestamp > ...` 会在低流量博客上把语义悄悄改成
+ * 「窗口内最近 N 条」,访问稀疏时能把结果整表清空。AE 保留期只有 3 个月,
+ * 一个 90 天谓词本来就是空操作,不值得为了那点性能去冒改语义的风险。
+ */
 export function buildVisitDetailSql(limit: number, dataset: string = ANALYTICS_DATASET): string {
     if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
-        throw new Error(`Refusing to build SQL with a non-integer limit: ${limit}`);
+        throw new Error(`Refusing to build SQL with an invalid limit (must be an integer between 1 and 500): ${limit}`);
     }
 
     return [
@@ -279,7 +285,7 @@ export function AnalyticsService() {
         return c.json(response);
     }, guard));
 
-    // GET /analytics/live — 站点级「UTC 当日」累计；唯一直接查 Analytics Engine 的端点。
+    // GET /analytics/live — 站点级「UTC 当日」累计；直接查 Analytics Engine 的端点之一（另一个是 /visits）。
     app.get("/live", adminOnly(async (c) => {
         const now = new Date();
         const date = utcDateString(now);

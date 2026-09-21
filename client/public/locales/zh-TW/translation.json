@@ -80,7 +80,22 @@
     "country": "國家和地區",
     "device": "裝置",
     "empty": "暫無資料。統計會在每日彙總任務首次執行後顯示。",
-    "load_failed": "載入訪問統計失敗。"
+    "load_failed": "載入訪問統計失敗。",
+    "visits": {
+      "title": "訪問明細",
+      "retention": "僅保留最近 3 個月",
+      "time": "時間",
+      "article": "文章",
+      "referrer": "來源",
+      "location": "地區",
+      "device": "裝置",
+      "visitor": "訪客",
+      "ip": "IP",
+      "sampled": "資料已取樣，列表不完整",
+      "empty": "暫無訪問記錄。",
+      "unavailable": "即時資料不可用 —— 請檢查 API token 的 Analytics Read 權限。",
+      "load_failed": "載入訪問明細失敗。"
+    }
   },
   "reports": {
     "title": "階段報告",

@@ -1,5 +1,7 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Hono } from "hono";
+import type { AnalyticsVisitsResponse } from "@rin/api";
+import { createMockEnv } from "../../../tests/fixtures";
 import type { Variables } from "../../core/hono-types";
 import {
     AnalyticsService,
@@ -130,6 +132,80 @@ describe("AnalyticsService admin guard", () => {
         expect(response.status).toBe(403);
         const body = await response.text();
         expect(body).not.toContain("ip");
+    });
+});
+
+describe("AnalyticsService IP exposure (admin routes)", () => {
+    // 上面「never leaks an ip to a non-admin」测的是 403 守卫拦截，guard body 本身
+    // 就是 `{"error":"Unauthorized"}`，不可能包含 ip —— 断言恒真，测不出「/visits
+    // 真的把 ip 吐出来」这件事。这里补一个正向用例：真正挂路由、真正跑一遍
+    // queryAnalyticsEngine，断言 /visits 对 admin 吐出 ip，而 /live 不吐。
+    const originalFetch = globalThis.fetch;
+    let env: Env;
+
+    beforeEach(() => {
+        env = createMockEnv({
+            CLOUDFLARE_ACCOUNT_ID: "acct-123",
+            CLOUDFLARE_API_TOKEN: "token-abc",
+        } as Partial<Env>);
+    });
+
+    afterEach(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    function mountAdmin() {
+        const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+        app.use("*", async (c, next) => {
+            c.set("admin", true);
+            await next();
+        });
+        app.route("/analytics", AnalyticsService());
+        return app;
+    }
+
+    /** One raw AE row for a single visit, with a real client IP in blob8. */
+    function stubAnalyticsFetchWithOneVisit(ip: string) {
+        globalThis.fetch = (async () => {
+            const row = {
+                timestamp: "2026-09-21 02:31:07",
+                index1: "1",
+                blob1: "/feed/1",
+                blob2: "https://example.com/",
+                blob3: "US",
+                blob4: "New York",
+                blob5: "desktop",
+                blob6: "visitor-hash",
+                blob7: "Feed Title",
+                blob8: ip,
+                _sample_interval: 1,
+            };
+            return new Response(JSON.stringify({ data: [row] }), { status: 200 });
+        }) as unknown as typeof fetch;
+    }
+
+    it("returns the raw ip to an admin on /analytics/visits", async () => {
+        stubAnalyticsFetchWithOneVisit("203.0.113.7");
+        const app = mountAdmin();
+
+        const response = await app.request("/analytics/visits", { method: "GET" }, env);
+
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as AnalyticsVisitsResponse;
+        expect(body.available).toBe(true);
+        expect(body.items[0].ip).toBe("203.0.113.7");
+    });
+
+    it("does not include an ip field anywhere in the /analytics/live response for an admin", async () => {
+        stubAnalyticsFetchWithOneVisit("203.0.113.7");
+        const app = mountAdmin();
+
+        const response = await app.request("/analytics/live", { method: "GET" }, env);
+
+        expect(response.status).toBe(200);
+        const text = await response.text();
+        expect(text).not.toContain("203.0.113.7");
+        expect(text).not.toContain('"ip"');
     });
 });
 
