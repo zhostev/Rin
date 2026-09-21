@@ -65,8 +65,8 @@ If you want to use your GitHub account to log in, please refer to the [Advanced 
 
 The tables above are the minimum working set. Below is **every** variable the deploy reads. Note that `Variables` and `Secrets` are **two separate tabs** on the same settings page — putting a value in the wrong tab is the same as not setting it.
 
-:::warning `R2_BUCKET_NAME` is mandatory when using R2
-It is a **Variable**, not a Secret. Without it a production deploy exits before writing `wrangler.toml`: the generated config would omit `[[r2_buckets]]`, and since `wrangler deploy` replaces the remote Worker configuration wholesale, that drops the existing R2 binding and makes every `/api/blob/*` request return 500.
+:::warning This one is mandatory when using R2
+`R2_BUCKET_NAME` is a **Variable**, not a Secret. Without it a production deploy exits before writing `wrangler.toml`: the generated config would omit `[[r2_buckets]]`, and since `wrangler deploy` replaces the remote Worker configuration wholesale, that drops the existing R2 binding and makes every `/api/blob/*` request return 500.
 
 The `ALLOW_DEPLOY_WITHOUT_R2=true` escape hatch mentioned in the error message **only works for local deploys** — the GitHub Actions workflow does not pass that variable through, so setting it in repository settings has no effect.
 :::

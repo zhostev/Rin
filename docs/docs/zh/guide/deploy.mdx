@@ -66,8 +66,8 @@ Rin 目前支持账号密码登录与 Github OAuth 登录，可二选一或同�
 
 上面两张表是最小可用集。下面是部署流程实际读取的**全部**变量。注意 `Variables` 和 `Secrets` 是同一页面下的**两个不同标签页**，填错地方等于没填。
 
-:::warning 使用 R2 时 `R2_BUCKET_NAME` 是硬性必填
-它是 **Variable** 而不是 Secret。缺失时生产部署会直接失败退出：生成的 `wrangler.toml` 会丢掉 `[[r2_buckets]]`，而 `wrangler deploy` 是整份覆盖远端 Worker 配置的，那会抹掉已有的 R2 绑定，导致 `/api/blob/*` 全部 500。
+:::warning 使用 R2 时这一项是硬性必填
+`R2_BUCKET_NAME` 是 **Variable** 而不是 Secret。缺失时生产部署会直接失败退出：生成的 `wrangler.toml` 会丢掉 `[[r2_buckets]]`，而 `wrangler deploy` 是整份覆盖远端 Worker 配置的，那会抹掉已有的 R2 绑定，导致 `/api/blob/*` 全部 500。
 
 报错信息里提示的 `ALLOW_DEPLOY_WITHOUT_R2=true` **只对本地部署有效**——GitHub Actions 的 workflow 没有透传这个变量，在仓库设置里配置它不会生效。
 :::
