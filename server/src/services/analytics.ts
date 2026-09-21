@@ -9,7 +9,7 @@ import type {
     AnalyticsTopFeed,
     AnalyticsTopFeedsResponse,
 } from "@rin/api";
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Variables } from "../core/hono-types";
 import { adminOnly } from "../core/route-boundaries";
@@ -51,6 +51,21 @@ export function parseDimensionType(value: string | undefined): AnalyticsDimensio
  * 30 天区间里只有首尾两天有数据时会画成一条匀速上升的斜线。
  * 这里在服务端把区间补齐，缺失的日期填 0。
  */
+/**
+ * 紧邻当前区间之前的等长窗口，用于区间卡环比。
+ *
+ * 长度取当前区间里**已完结**的天数（days - 1），不是 days：当前区间的最后一天
+ * 是今天，而 cron 从不聚合未完结的当天，所以它在 analytics_daily 里恒为 0。
+ * 若 previous 取满 days 天，就是拿 days 天的历史去比 days-1 天的当前值，
+ * 箭头会系统性地永远指向下降。
+ *
+ * 返回的窗口两端闭合，且整体早于今天，因此数据必然完整。
+ */
+export function previousWindow(from: string, days: number): { from: string; to: string } {
+    const completeDays = Math.max(days - 1, 1);
+    return { from: addDays(from, -completeDays), to: addDays(from, -1) };
+}
+
 export function zeroFillSeries(points: AnalyticsDailyPoint[], from: string, days: number): AnalyticsDailyPoint[] {
     const byDate = new Map(points.map((point) => [point.date, point]));
     const filled: AnalyticsDailyPoint[] = [];
@@ -127,6 +142,16 @@ export function AnalyticsService() {
             days,
         );
 
+        const { from: previousFrom, to: previousTo } = previousWindow(from, days);
+
+        const previousRows = await db
+            .select({
+                pv: sql<number>`COALESCE(SUM(${analyticsDaily.pv}), 0)`,
+                uv: sql<number>`COALESCE(SUM(${analyticsDaily.uv}), 0)`,
+            })
+            .from(analyticsDaily)
+            .where(and(gte(analyticsDaily.date, previousFrom), lte(analyticsDaily.date, previousTo)));
+
         const empty = { pv: 0, uv: 0 };
         const overview: AnalyticsOverview = {
             range: { days, from, to: today },
@@ -139,6 +164,12 @@ export function AnalyticsService() {
             today: series.find((point) => point.date === today) ?? { date: today, ...empty },
             yesterday: series.find((point) => point.date === yesterday) ?? { date: yesterday, ...empty },
             series,
+            previous: {
+                from: previousFrom,
+                to: previousTo,
+                pv: Number(previousRows[0]?.pv) || 0,
+                uv: Number(previousRows[0]?.uv) || 0,
+            },
         };
 
         return c.json(overview);

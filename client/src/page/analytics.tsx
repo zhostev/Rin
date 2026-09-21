@@ -23,9 +23,18 @@ const RANGE_OPTIONS: AnalyticsRangeDays[] = [7, 30, 90];
  * 环比指示器（设计文档 §8.1）。
  * 昨日为 0 时不渲染：没有可比基数，百分比不成立。
  */
-function ChangeIndicator({ current, previous }: { current: number; previous: number }) {
+function ChangeIndicator({
+  current,
+  previous,
+  label,
+}: {
+  current: number;
+  previous: number;
+  label?: string;
+}) {
   const { t } = useTranslation();
 
+  // 基数为 0 时不渲染：既避免除以零，也避免「从 0 涨到 5」这种无意义的百分比。
   if (previous <= 0) {
     return null;
   }
@@ -43,7 +52,7 @@ function ChangeIndicator({ current, previous }: { current: number; previous: num
     <span className={`inline-flex items-center gap-1 text-xs font-medium ${tone}`}>
       <i className={icon} aria-hidden="true" />
       <span className="tabular-nums">{`${Math.abs(percent)}%`}</span>
-      <span className="text-neutral-500 dark:text-neutral-400">{t("analytics.vs_yesterday")}</span>
+      <span className="text-neutral-500 dark:text-neutral-400">{label ?? t("analytics.vs_yesterday")}</span>
     </span>
   );
 }
@@ -198,16 +207,33 @@ export function AnalyticsPage() {
               />
             </SettingsCard>
             <SettingsCard>
-              <SettingsCardHeader title={String(overview.totals.pv)} description={t("analytics.range_pv")} />
+              <SettingsCardHeader
+                title={String(overview.totals.pv)}
+                description={t("analytics.range_pv")}
+                badge={
+                  <ChangeIndicator
+                    current={overview.totals.pv}
+                    previous={overview.previous.pv}
+                    label={t("analytics.vs_previous")}
+                  />
+                }
+              />
             </SettingsCard>
             <SettingsCard>
               <SettingsCardHeader
                 title={String(overview.totals.uv)}
                 description={t("analytics.range_uv")}
                 badge={
-                  overview.totals.uvApproximate ? (
-                    <SettingsBadge tone="warning">{t("analytics.uv_approximate")}</SettingsBadge>
-                  ) : undefined
+                  <span className="inline-flex flex-wrap items-center gap-2">
+                    <ChangeIndicator
+                      current={overview.totals.uv}
+                      previous={overview.previous.uv}
+                      label={t("analytics.vs_previous")}
+                    />
+                    {overview.totals.uvApproximate ? (
+                      <SettingsBadge tone="warning">{t("analytics.uv_approximate")}</SettingsBadge>
+                    ) : null}
+                  </span>
                 }
               />
             </SettingsCard>

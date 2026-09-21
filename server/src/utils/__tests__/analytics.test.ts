@@ -7,6 +7,7 @@ import {
     normalizeReferrer,
     recordPageView,
     resolveDailySalt,
+    truncateToBytes,
     utcDateString,
     visitorFingerprint,
 } from "../analytics";
@@ -258,5 +259,90 @@ describe("recordPageView", () => {
         const c = fakeContext({ analytics: dataset });
 
         await expect(recordPageView(c, { feedId: 42, title: "Hello" })).resolves.toBeUndefined();
+    });
+});
+
+describe("truncateToBytes", () => {
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+
+    function byteLength(value: string) {
+        return encoder.encode(value).length;
+    }
+
+    /** Re-decoding with fatal:true throws if truncation produced invalid UTF-8. */
+    function isValidUtf8(value: string) {
+        try {
+            decoder.decode(encoder.encode(value));
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    it("returns the input untouched when it already fits", () => {
+        expect(truncateToBytes("hello", 256)).toBe("hello");
+        expect(truncateToBytes("", 256)).toBe("");
+    });
+
+    it("truncates pure ASCII at the byte budget", () => {
+        expect(truncateToBytes("abcdefghij", 4)).toBe("abcd");
+        expect(byteLength(truncateToBytes("abcdefghij", 4))).toBe(4);
+    });
+
+    it("keeps whole 3-byte CJK characters", () => {
+        // 你好世界 is 4 chars / 12 bytes.
+        expect(truncateToBytes("你好世界", 12)).toBe("你好世界");
+        expect(truncateToBytes("你好世界", 11)).toBe("你好世");
+        expect(truncateToBytes("你好世界", 6)).toBe("你好");
+        expect(byteLength(truncateToBytes("你好世界", 11))).toBeLessThanOrEqual(11);
+    });
+
+    it("never splits a 4-byte emoji surrogate pair", () => {
+        // Each emoji is one code point, two UTF-16 units, four UTF-8 bytes.
+        expect(truncateToBytes("😀😀😀", 12)).toBe("😀😀😀");
+        expect(truncateToBytes("😀😀😀", 11)).toBe("😀😀");
+        expect(truncateToBytes("😀😀😀", 7)).toBe("😀");
+        for (const limit of [1, 2, 3, 4, 5, 6, 7, 8, 11, 12]) {
+            const result = truncateToBytes("😀😀😀", limit);
+            expect(byteLength(result)).toBeLessThanOrEqual(limit);
+            expect(isValidUtf8(result)).toBe(true);
+            // A split surrogate would survive as a lone half.
+            expect(result.length % 2).toBe(0);
+        }
+    });
+
+    it("handles a budget exactly equal to the input", () => {
+        expect(truncateToBytes("abcd", 4)).toBe("abcd");
+        expect(truncateToBytes("你", 3)).toBe("你");
+        expect(truncateToBytes("😀", 4)).toBe("😀");
+    });
+
+    it("returns empty when the budget is smaller than the first character", () => {
+        expect(truncateToBytes("你好", 2)).toBe("");
+        expect(truncateToBytes("😀", 3)).toBe("");
+        expect(truncateToBytes("abc", 0)).toBe("");
+        expect(truncateToBytes("abc", -1)).toBe("");
+    });
+
+    it("handles mixed-width input", () => {
+        const mixed = "a你😀b";
+        expect(byteLength(mixed)).toBe(9);
+        expect(truncateToBytes(mixed, 9)).toBe(mixed);
+        expect(truncateToBytes(mixed, 8)).toBe("a你😀");
+        expect(truncateToBytes(mixed, 7)).toBe("a你");
+        // 4 bytes is exactly "a" + "你"; "a" alone needs the budget to stop at 3.
+        expect(truncateToBytes(mixed, 4)).toBe("a你");
+        expect(truncateToBytes(mixed, 3)).toBe("a");
+    });
+
+    it("stays within budget for every prefix of a long mixed string", () => {
+        const long = "国際化テスト😀".repeat(80);
+        for (let limit = 0; limit <= 64; limit++) {
+            const result = truncateToBytes(long, limit);
+            expect(byteLength(result)).toBeLessThanOrEqual(limit);
+            expect(isValidUtf8(result)).toBe(true);
+            expect(long.startsWith(result)).toBe(true);
+        }
     });
 });

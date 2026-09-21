@@ -70,6 +70,7 @@
     "range_pv": "区间浏览量",
     "range_uv": "区间访客数",
     "uv_approximate": "近似值（各日之和）",
+    "vs_previous": "较上一周期",
     "vs_yesterday": "较昨日",
     "live_unavailable": "实时数据不可用",
     "trend": "访问趋势",

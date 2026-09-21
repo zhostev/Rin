@@ -58,17 +58,34 @@ export function utcDateString(now: Date): string {
     return now.toISOString().slice(0, 10);
 }
 
-function truncateToBytes(value: string, maxBytes: number): string {
-    const encoder = new TextEncoder();
-    if (encoder.encode(value).length <= maxBytes) {
-        return value;
+/**
+ * Truncate to a UTF-8 byte budget in a single pass.
+ *
+ * Iterating with `for...of` walks code points, so a surrogate pair is seen as
+ * one unit and can never be cut in half; the byte width is derived from the
+ * code point rather than re-encoding the candidate string on every step.
+ */
+export function truncateToBytes(value: string, maxBytes: number): string {
+    if (maxBytes <= 0) {
+        return "";
     }
 
-    let result = value;
-    while (result.length > 0 && encoder.encode(result).length > maxBytes) {
-        result = result.slice(0, -1);
+    let bytes = 0;
+    let end = 0;
+
+    for (const char of value) {
+        const codePoint = char.codePointAt(0) ?? 0;
+        const size = codePoint < 0x80 ? 1 : codePoint < 0x800 ? 2 : codePoint < 0x10000 ? 3 : 4;
+
+        if (bytes + size > maxBytes) {
+            return value.slice(0, end);
+        }
+
+        bytes += size;
+        end += char.length;
     }
-    return result;
+
+    return value;
 }
 
 async function sha256Hex(value: string): Promise<string> {
