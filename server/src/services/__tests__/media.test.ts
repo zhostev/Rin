@@ -15,6 +15,16 @@ describe("media content references", () => {
   it("ignores arbitrary attribute values", () => {
     expect(extractMediaIds('<audio data-rin-media-id="../private" />')).toEqual([]);
   });
+
+  it("extracts ids from playback links pasted into the content", () => {
+    const content = [
+      '![cover](/api/media/image-1/playback)',
+      '<img src="https://example.com/api/media/image-2/playback" />',
+      '<video data-rin-media-id="video-1" controls></video>',
+    ].join("\n");
+
+    expect(extractMediaIds(content)).toEqual(["video-1", "image-1", "image-2"]);
+  });
 });
 
 describe("stream webhook signatures", () => {

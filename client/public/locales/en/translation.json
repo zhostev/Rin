@@ -12,7 +12,8 @@
     "settings_description": "Manage site behavior, integrations, and publishing rules in one place.",
     "title": "Admin",
     "writing_description": "Write, edit, and publish content from the private management workspace.",
-    "media_description": "Manage audio and video used by your articles without deleting media that is still referenced."
+    "media_description": "Manage audio and video used by your articles without deleting media that is still referenced.",
+    "reports_description": "Create stage reports for shared images, including donations, expenses, and project results."
   },
   "compat_tasks": {
     "title": "Compatibility Tasks",
@@ -80,6 +81,38 @@
     "device": "Devices",
     "empty": "No data yet. Stats appear after the daily rollup job runs for the first time.",
     "load_failed": "Failed to load analytics."
+  },
+  "reports": {
+    "title": "Stage Reports",
+    "create_title": "Create a report",
+    "create_description": "A published report keeps a snapshot of project and finance data for this period.",
+    "title_field": "Report title",
+    "goals": "Goals",
+    "summary": "Summary",
+    "create": "Create report",
+    "loading": "Loading reports...",
+    "list": "Reports",
+    "select": "Select a report",
+    "donations": "Donations",
+    "expenses": "Expenses",
+    "balance": "Balance",
+    "images": "Image references",
+    "no_goals": "No goals added.",
+    "refresh_snapshot": "Refresh snapshot",
+    "publish": "Publish",
+    "unpublish": "Unpublish",
+    "transaction_title": "Income and expenses",
+    "amount_hint": "Amounts are entered in major currency units and stored as cents.",
+    "expense": "Expense",
+    "donation": "Donation",
+    "category": "Category",
+    "add_transaction": "Add transaction",
+    "open_public": "Open public report",
+    "results": "Results",
+    "published_articles": "Published articles",
+    "page_views": "Page views",
+    "categories": "Expense categories",
+    "expense_breakdown": "Expense breakdown"
   },
   "article": {
     "delete": {
@@ -202,14 +235,22 @@
     "delete_stream": "Cloudflare Stream media must be managed from the Stream dashboard.",
     "delete_success": "Media deleted",
     "delete_title": "Delete media",
-    "empty": "No audio or video has been uploaded yet. Upload media from the writing page.",
+    "drop_now": "Drop to upload the media",
+    "empty": "Nothing has been uploaded yet. Upload an image, audio or video here, or from the writing page.",
     "processing": "Processing",
+    "title": "Media library",
+    "total": "Showing {{count}} media assets",
     "unattached": "Unattached media",
     "unavailable": "This media is currently unavailable",
-    "total": "Showing {{count}} media assets",
-    "upload_hint": "Upload media from the writing toolbar",
+    "upload": "Upload media",
+    "upload_hint": "Images up to 10 MB, audio and video up to 1 GB",
+    "upload_success": "Media uploaded",
+    "uploading": "Uploading…",
+    "uploading_percent": "Uploading {{percent}}%",
     "video": "Video",
-    "title": "Media library"
+    "image": "Image",
+    "copy_link": "Copy link",
+    "link_copied": "Link copied"
   },
   "error": {
     "api_url": "API_URL in Pages environment variables should be the Worker address. Please check if API_URL in Pages environment variables is correct.",
@@ -606,6 +647,7 @@
     },
     "media": {
       "invalid_type": "Please upload an audio or video file",
+      "invalid_type_library": "Please upload an image, audio or video file",
       "stream_unavailable": "Cloudflare Stream is not configured, so large videos cannot be uploaded yet.",
       "too_large": "Videos larger than 1 GB (1024 MB) are not supported yet. Compress the file and try again."
     },

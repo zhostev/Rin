@@ -12,7 +12,8 @@
     "settings_description": "在统一的后台空间中管理站点行为、集成配置和发布规则。",
     "title": "后台管理",
     "writing_description": "在独立的管理工作区中编写、编辑和发布内容。",
-    "media_description": "管理文章中使用的音频和视频资源，避免误删仍在使用的媒体。"
+    "media_description": "管理文章中使用的音频和视频资源，避免误删仍在使用的媒体。",
+    "reports_description": "生成共享图片项目的阶段报告，汇总捐献、支出和项目成果。"
   },
   "compat_tasks": {
     "title": "兼容任务",
@@ -80,6 +81,38 @@
     "device": "设备",
     "empty": "暂无数据。统计在每日聚合任务首次运行后显示。",
     "load_failed": "加载访问统计失败。"
+  },
+  "reports": {
+    "title": "阶段报告",
+    "create_title": "创建报告",
+    "create_description": "发布报告时会保存该阶段的项目和财务数据快照。",
+    "title_field": "报告标题",
+    "goals": "阶段目标",
+    "summary": "阶段总结",
+    "create": "创建报告",
+    "loading": "正在加载报告……",
+    "list": "报告列表",
+    "select": "请选择一份报告",
+    "donations": "捐献收入",
+    "expenses": "支出金额",
+    "balance": "资金结余",
+    "images": "图片引用数",
+    "no_goals": "尚未填写阶段目标。",
+    "refresh_snapshot": "刷新数据快照",
+    "publish": "发布",
+    "unpublish": "取消发布",
+    "transaction_title": "收入与支出",
+    "amount_hint": "金额按主单位输入，系统按分存储。",
+    "expense": "支出",
+    "donation": "捐献",
+    "category": "分类",
+    "add_transaction": "添加流水",
+    "open_public": "打开公开报告",
+    "results": "阶段成果",
+    "published_articles": "已发布文章",
+    "page_views": "页面访问量",
+    "categories": "支出分类",
+    "expense_breakdown": "支出分类明细"
   },
   "article": {
     "delete": {
@@ -202,14 +235,22 @@
     "delete_stream": "Cloudflare Stream 媒体需要在 Stream 控制台中管理。",
     "delete_success": "媒体已删除",
     "delete_title": "删除媒体",
-    "empty": "还没有上传音频或视频。可以在写作页中上传。",
+    "drop_now": "松开以上传媒体",
+    "empty": "还没有上传任何素材。可以在此处上传图片、音频或视频，也可以在写作页中上传。",
     "processing": "处理中",
+    "title": "媒体库",
+    "total": "当前显示 {{count}} 个媒体资源",
     "unattached": "未关联文章",
     "unavailable": "媒体暂时不可用",
-    "total": "当前显示 {{count}} 个媒体资源",
-    "upload_hint": "上传入口位于写作页工具栏",
+    "upload": "上传媒体",
+    "upload_hint": "图片最大 10 MB，音视频最大 1 GB",
+    "upload_success": "媒体已上传",
+    "uploading": "上传中…",
+    "uploading_percent": "上传中 {{percent}}%",
     "video": "视频",
-    "title": "媒体库"
+    "image": "图片",
+    "copy_link": "复制链接",
+    "link_copied": "链接已复制"
   },
   "error": {
     "api_url": "Pages 环境变量中 API_URL 应为 Worker 地址，请检查 Pages 环境变量中 API_URL 是否正确",
@@ -606,6 +647,7 @@
     },
     "media": {
       "invalid_type": "请上传音频或视频文件",
+      "invalid_type_library": "请上传图片、音频或视频文件",
       "stream_unavailable": "Cloudflare Stream 未配置，暂时无法上传大视频",
       "too_large": "视频超过 1 GB（1024 MB），请先压缩后再上传。"
     },

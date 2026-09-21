@@ -9,6 +9,7 @@ import { FriendService } from "../services/friends";
 import { MomentsService } from "../services/moments";
 import { MediaService } from "../services/media";
 import { RSSService } from "../services/rss";
+import { SharingReportService } from "../services/sharing-reports";
 import { SitemapService } from "../services/sitemap";
 import { BlobService, StorageService } from "../services/storage";
 import { TagService } from "../services/tag";
@@ -18,6 +19,7 @@ export function registerRoutes(app: RinApp) {
   app.get("/", (c) => c.text("Hi"));
 
   app.route("/analytics", AnalyticsService());
+  app.route("/reports", SharingReportService());
   app.route("/feed", FeedService());
   app.route("/search", SearchService());
   app.route("/wp", WordPressService());

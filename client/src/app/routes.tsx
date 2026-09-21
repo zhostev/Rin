@@ -25,6 +25,8 @@ import { MediaPage } from "../page/media";
 import { MomentsPage } from "../page/moments";
 import { ProfilePage } from "../page/profile";
 import { QueueStatusPage } from "../page/queue-status";
+import { ReportsPage } from "../page/reports";
+import { PublicReportPage } from "../page/public-report";
 import { SearchPage } from "../page/search";
 import { Settings } from "../page/settings";
 import { TimelinePage } from "../page/timeline";
@@ -82,6 +84,10 @@ export function AppRoutes() {
         <AnalyticsPage />
       </AdminRoute>
 
+      <AdminRoute path="/admin/reports" requirePermission title={t("reports.title")} description={t("admin.reports_description")}>
+        <ReportsPage />
+      </AdminRoute>
+
       <AdminRoute path="/admin/compat-tasks" requirePermission title={t("compat_tasks.title")} description={t("admin.compat_tasks_description")}>
         <CompatTasksPage />
       </AdminRoute>
@@ -100,6 +106,10 @@ export function AppRoutes() {
 
       <AppRoute path="/callback">
         <CallbackPage />
+      </AppRoute>
+
+      <AppRoute path="/reports/:slug">
+        {(params) => <PublicReportPage slug={params.slug || ""} />}
       </AppRoute>
 
       <AppRoute path="/login">

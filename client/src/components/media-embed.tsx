@@ -24,7 +24,7 @@ export function MediaEmbed({ id, type, provider = "r2", title, className }: Medi
     );
   }
 
-  const label = title || t(type === "audio" ? "media.audio" : "media.video");
+  const label = title || t(type === "audio" ? "media.audio" : type === "image" ? "media.image" : "media.video");
   const source = playbackUrl(id);
 
   return (
@@ -37,6 +37,13 @@ export function MediaEmbed({ id, type, provider = "r2", title, className }: Medi
           loading="lazy"
           allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen
+        />
+      ) : type === "image" ? (
+        <img
+          className="block max-h-[28rem] w-full bg-secondary object-contain"
+          src={source}
+          alt={label}
+          loading="lazy"
         />
       ) : type === "video" ? (
         <video
@@ -58,7 +65,7 @@ export function MediaEmbed({ id, type, provider = "r2", title, className }: Medi
           </div>
         </div>
       )}
-      {title && type === "video" ? <figcaption className="px-4 py-3 text-sm t-secondary sm:px-5">{title}</figcaption> : null}
+      {title && type !== "audio" ? <figcaption className="px-4 py-3 text-sm t-secondary sm:px-5">{title}</figcaption> : null}
     </figure>
   );
 }

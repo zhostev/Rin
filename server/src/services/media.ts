@@ -8,10 +8,18 @@ import { feeds, mediaAssets } from "../db/schema";
 import { deleteStorageObject, getStorageObject, putStorageObject } from "../utils/storage";
 
 const MAX_MEDIA_SIZE = 100 * 1024 * 1024;
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 const MIME_TYPES: Record<MediaType, Set<string>> = {
     audio: new Set(["audio/mpeg", "audio/mp4", "audio/ogg", "audio/wav", "audio/webm"]),
     video: new Set(["video/mp4", "video/webm", "video/ogg", "video/quicktime"]),
+    // SVG is intentionally excluded: it is served inline and can carry scripts.
+    image: new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/avif"]),
 };
+
+/** Per-type upload ceiling for the R2/S3 path (Stream videos use MAX_STREAM_VIDEO_SIZE). */
+function maxSizeForType(type: MediaType) {
+    return type === "image" ? MAX_IMAGE_SIZE : MAX_MEDIA_SIZE;
+}
 
 
 export const MAX_STREAM_VIDEO_SIZE = 1024 * 1024 * 1024;
@@ -93,12 +101,16 @@ export async function provisionStreamTusUpload(options: {
 function mediaTypeForMime(mimeType: string): MediaType | null {
     if (MIME_TYPES.audio.has(mimeType)) return "audio";
     if (MIME_TYPES.video.has(mimeType)) return "video";
+    if (MIME_TYPES.image.has(mimeType)) return "image";
     return null;
 }
 
 function extensionForMime(mimeType: string) {
     const extension = mimeType.split("/")[1]?.split(";")[0]?.toLowerCase() || "bin";
-    return extension === "mpeg" ? "mp3" : extension === "quicktime" ? "mov" : extension;
+    if (extension === "mpeg") return "mp3";
+    if (extension === "quicktime") return "mov";
+    if (extension === "jpeg") return "jpg";
+    return extension;
 }
 
 function playbackUrl(id: string) {
@@ -123,8 +135,14 @@ function toContract(asset: typeof mediaAssets.$inferSelect, feed?: { id: number;
 
 function extractMediaIds(content: string) {
     const ids = new Set<string>();
-    const pattern = /data-rin-media-id=["']([a-zA-Z0-9-]+)["']/g;
-    for (const match of content.matchAll(pattern)) {
+    // <audio>/<video> markup inserted by the editor toolbar.
+    const attributePattern = /data-rin-media-id=["']([a-zA-Z0-9-]+)["']/g;
+    for (const match of content.matchAll(attributePattern)) {
+        if (match[1]) ids.add(match[1]);
+    }
+    // Playback links pasted by hand, e.g. images copied from the media library.
+    const urlPattern = /\/api\/media\/([a-zA-Z0-9-]+)\/playback/g;
+    for (const match of content.matchAll(urlPattern)) {
         if (match[1]) ids.add(match[1]);
     }
     return [...ids];
@@ -303,9 +321,9 @@ export function MediaService(): Hono<{
         const mimeType = file.type.toLowerCase();
         const type = mediaTypeForMime(mimeType);
         if (!type) {
-            return c.text("Unsupported audio or video type", 400);
+            return c.text("Unsupported image, audio or video type", 400);
         }
-        if (file.size <= 0 || file.size > MAX_MEDIA_SIZE) {
+        if (file.size <= 0 || file.size > maxSizeForType(type)) {
             return c.text("Media file is empty or too large", 400);
         }
 

@@ -265,7 +265,7 @@ export interface CreateMomentRequest {
 // Media Types
 // ============================================================================
 
-export type MediaType = "audio" | "video";
+export type MediaType = "audio" | "video" | "image";
 
 export interface MediaAsset {
   id: string;

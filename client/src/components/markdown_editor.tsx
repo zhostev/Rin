@@ -1,5 +1,5 @@
 import Editor from '@monaco-editor/react';
-import type { MediaAsset, MediaType } from '@rin/api';
+import type { MediaType } from '@rin/api';
 import { editor, Range, Selection } from 'monaco-editor';
 import React, { useRef, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -7,14 +7,10 @@ import Loading from 'react-loading';
 import { FlatInset, FlatTabButton } from "@rin/ui";
 import { useAlert } from "./dialog";
 import { useColorMode } from "../utils/darkModeUtils";
-import { buildMarkdownImage, uploadImageFile } from "../utils/image-upload";
-import * as tus from "tus-js-client";
+import { buildMarkdownImage } from "../utils/image-upload";
+import { detectMediaType, uploadImageToLibrary, uploadMediaFile } from "../utils/media-upload";
 import { Markdown } from "./markdown";
 import { buildMediaMarkup } from "./media-embed";
-import { client } from "../app/runtime";
-
-const R2_MEDIA_MAX_BYTES = 100 * 1024 * 1024;
-const MAX_STREAM_VIDEO_BYTES = 1024 * 1024 * 1024;
 
 interface MarkdownEditorProps {
   content: string;
@@ -87,7 +83,7 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
     showAlert: (msg: string) => void,
   ) {
     try {
-      const result = await uploadImageFile(file);
+      const result = await uploadImageToLibrary(file, { t });
       const editorInstance = editorRef.current;
       if (!editorInstance) return;
       editorInstance.executeEdits(undefined, [{
@@ -111,73 +107,35 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
     showAlert: (msg: string) => void,
   ) {
     try {
-      let data: MediaAsset | undefined;
-      let error: { value: string } | undefined;
-      let provider: "r2" | "stream" = "r2";
-
-      if (type === "video" && file.size > R2_MEDIA_MAX_BYTES) {
-        if (file.size > MAX_STREAM_VIDEO_BYTES) {
-          throw new Error(t("upload.media.too_large"));
-        }
-        let uploadedAsset: MediaAsset | undefined;
-        let lastUploadError: Error | undefined;
-        for (let attempt = 1; attempt <= 3 && !uploadedAsset; attempt += 1) {
-          // createDirectUpload (FormData POST) is capped at 200MB; use TUS for 100MB–1GB.
-          const streamUpload = await client.media.createStreamUpload(file.name, file.size);
-          if (streamUpload.error || !streamUpload.data) {
-            throw new Error(streamUpload.error?.value || t("upload.media.stream_unavailable"));
-          }
-          try {
-            await new Promise<void>((resolve, reject) => {
-              const upload = new tus.Upload(file, {
-                // Pre-provisioned one-time URL from /api/media/stream/upload (direct_user TUS).
-                uploadUrl: streamUpload.data!.uploadUrl,
-                // CF Stream: min 5MiB chunk unless whole file is smaller; prefer ~50MiB.
-                chunkSize: 52_428_800,
-                retryDelays: [0, 3000, 5000, 10000, 20000],
-                metadata: {
-                  filename: file.name,
-                  filetype: file.type || "video/mp4",
-                },
-                onError: (error) => reject(error instanceof Error ? error : new Error(t("upload.failed"))),
-                onProgress: (bytesUploaded, bytesTotal) => {
-                  if (bytesTotal > 0) {
-                    setUploadProgress(Math.round((bytesUploaded / bytesTotal) * 100));
-                  }
-                },
-                onSuccess: () => resolve(),
-              });
-              upload.start();
-            });
-            uploadedAsset = streamUpload.data.asset;
-          } catch (error) {
-            lastUploadError = error instanceof Error ? error : new Error(t("upload.failed"));
-          }
-          if (!uploadedAsset) await client.media.delete(streamUpload.data.asset.id);
-          if (!uploadedAsset && attempt < 3) setUploadProgress(0);
-        }
-        if (!uploadedAsset) throw lastUploadError || new Error(t("upload.failed"));
-        data = uploadedAsset;
-        provider = "stream";
-      } else {
-        const uploadResult = await client.media.upload(file);
-        data = uploadResult.data;
-        error = uploadResult.error;
-      }
-      if (error || !data) {
-        throw new Error(error?.value || t("upload.failed"));
-      }
+      const { asset, provider } = await uploadMediaFile(file, type, {
+        t,
+        onProgress: setUploadProgress,
+      });
       const editorInstance = editorRef.current;
       if (!editorInstance) return;
       editorInstance.executeEdits(undefined, [{
         range,
-        text: buildMediaMarkup(type, data.id, file.name, provider),
+        text: buildMediaMarkup(type, asset.id, file.name, provider),
       }]);
       setContent(editorInstance.getValue());
     } catch (error) {
       console.error(error);
       showAlert(error instanceof Error ? error.message : t("upload.failed"));
     }
+  }
+
+  /** Paste and drop accept anything: send images to insertImage, audio/video to insertMedia. */
+  async function insertUpload(
+    file: File,
+    range: NonNullable<ReturnType<editor.IStandaloneCodeEditor["getSelection"]>>,
+    showAlert: (msg: string) => void,
+  ) {
+    const type = detectMediaType(file);
+    if (type === "audio" || type === "video") {
+      await insertMedia(file, type, range, showAlert);
+      return;
+    }
+    await insertImage(file, range, showAlert);
   }
 
   const getEditorAndSelection = () => {
@@ -384,8 +342,9 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
         setUploading(false);
         return;
       }
-      void insertImage(myfile, selection, showAlert).finally(() => {
+      void insertUpload(myfile, selection, showAlert).finally(() => {
         setUploading(false);
+        setUploadProgress(null);
       });
     }
   };
@@ -400,19 +359,15 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        if (file.size > 5 * 1024000) {
-          showAlert(t("upload.failed$size", { size: 5 }));
-          uploadRef.current!.value = "";
-        } else {
-          const editor = editorRef.current;
-          if (!editor) return;
-          const selection = editor.getSelection();
-          if (!selection) return;
-          setUploading(true);
-          void insertImage(file, selection, showAlert).finally(() => {
-            setUploading(false);
-          });
-        }
+        const editor = editorRef.current;
+        if (!editor) return;
+        const selection = editor.getSelection();
+        if (!selection) return;
+        setUploading(true);
+        void insertImage(file, selection, showAlert).finally(() => {
+          setUploading(false);
+          if (uploadRef.current) uploadRef.current.value = "";
+        });
       }
     };
     
@@ -445,11 +400,7 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
       const selection = editor?.getSelection();
       if (!file || !editor || !selection) return;
 
-      const type: MediaType | null = file.type.startsWith("audio/")
-        ? "audio"
-        : file.type.startsWith("video/")
-          ? "video"
-          : null;
+      const type = detectMediaType(file);
       if (!type) {
         showAlert(t("upload.media.invalid_type"));
         return;
@@ -574,8 +525,9 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
                 if (!selection) return;
                 const file = e.dataTransfer.files[i];
                 setUploading(true);
-                void insertImage(file, selection, showAlert).finally(() => {
+                void insertUpload(file, selection, showAlert).finally(() => {
                   setUploading(false);
+                  setUploadProgress(null);
                 });
               }
             }}
