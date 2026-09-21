@@ -1,7 +1,7 @@
 import "../../test/setup";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import type { AnalyticsLiveResponse, AnalyticsOverview } from "@rin/api";
+import type { AnalyticsLiveResponse, AnalyticsOverview, AnalyticsVisit, AnalyticsVisitsResponse } from "@rin/api";
 
 const overview: AnalyticsOverview = {
   range: { days: 7, from: "2026-09-14", to: "2026-09-20" },
@@ -37,6 +37,21 @@ function liveUnavailable(): AnalyticsLiveResponse {
 
 let liveResponse: AnalyticsLiveResponse = live({ pv: 0, uv: 0 });
 
+const visit: AnalyticsVisit = {
+  timestamp: "2026-09-21T02:31:07.000Z",
+  feedId: 42,
+  title: "Hello",
+  path: "/feed/42",
+  referrer: "www.google.com",
+  country: "JP",
+  city: "Tokyo",
+  device: "mobile",
+  visitor: "abcdef0123456789",
+  ip: "203.0.113.7",
+};
+
+let visitsResponse: AnalyticsVisitsResponse = { available: true, items: [visit], sampled: false };
+
 mock.module("../../app/runtime", () => ({
   client: {
     analytics: {
@@ -44,6 +59,7 @@ mock.module("../../app/runtime", () => ({
       getTopFeeds: async () => ({ data: { items: [] } }),
       getDimensions: async () => ({ data: { type: "referrer", items: [] } }),
       getLive: async () => ({ data: liveResponse }),
+      getVisits: async () => ({ data: visitsResponse }),
     },
   },
 }));
@@ -62,6 +78,7 @@ describe("AnalyticsPage today cards", () => {
   beforeEach(() => {
     liveResponse = live({ pv: 0, uv: 0 });
     overviewResponse = overview;
+    visitsResponse = { available: true, items: [visit], sampled: false };
   });
 
   afterEach(() => {
@@ -107,6 +124,7 @@ describe("AnalyticsPage range cards", () => {
   beforeEach(() => {
     liveResponse = live({ pv: 0, uv: 0 });
     overviewResponse = overview;
+    visitsResponse = { available: true, items: [visit], sampled: false };
   });
 
   afterEach(() => {
@@ -140,5 +158,76 @@ describe("AnalyticsPage range cards", () => {
     // Two badges: the today UV card (live is available here) and the range UV card.
     // The new arrow must not have displaced either of them.
     expect(getAllByText("analytics.uv_approximate").length).toBe(2);
+  });
+});
+
+describe("AnalyticsPage visit detail", () => {
+  beforeEach(() => {
+    liveResponse = live({ pv: 0, uv: 0 });
+    overviewResponse = overview;
+    visitsResponse = { available: true, items: [visit], sampled: false };
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("renders a row per visit, including the ip", async () => {
+    const { getByText } = render(<AnalyticsPage />);
+
+    await waitFor(() => expect(getByText("203.0.113.7")).toBeDefined());
+    expect(getByText("www.google.com")).toBeDefined();
+    expect(getByText("JP / Tokyo")).toBeDefined();
+    // 访客列只显示指纹前 8 位。
+    expect(getByText("abcdef01")).toBeDefined();
+  });
+
+  it("shows an em dash for a visit recorded before ip capture existed", async () => {
+    visitsResponse = { available: true, items: [{ ...visit, ip: "" }], sampled: false };
+
+    const { getAllByText, queryByText } = render(<AnalyticsPage />);
+
+    await waitFor(() => expect(getAllByText("—").length).toBeGreaterThan(0));
+    expect(queryByText("203.0.113.7")).toBeNull();
+  });
+
+  it("warns when the listing is sampled", async () => {
+    visitsResponse = { available: true, items: [visit], sampled: true };
+
+    const { getByText } = render(<AnalyticsPage />);
+
+    await waitFor(() => expect(getByText("analytics.visits.sampled")).toBeDefined());
+  });
+
+  it("shows the empty state rather than an error when there are no visits", async () => {
+    visitsResponse = { available: true, items: [], sampled: false };
+
+    const { getByText, queryByText } = render(<AnalyticsPage />);
+
+    await waitFor(() => expect(getByText("analytics.visits.empty")).toBeDefined());
+    expect(queryByText("analytics.visits.load_failed")).toBeNull();
+  });
+
+  it("degrades gracefully when the visits query is unavailable, without treating it as an error", async () => {
+    // liveResponse stays available (set in beforeEach), so any "analytics.live_unavailable"
+    // text can only come from the visits section's own badge, not the today-card badges
+    // (those only render that key when live itself is unavailable, which is a different
+    // fixture — see the "AnalyticsPage today cards" describe block).
+    visitsResponse = { available: false, items: [], sampled: false };
+
+    const { getAllByText, getByText, queryByText } = render(<AnalyticsPage />);
+
+    // Exactly one occurrence: if the badge were dropped, this fails at 0; if the today
+    // cards' badge were somehow also showing, this would fail by being >1, so it can't
+    // pass by accidentally matching the wrong badge.
+    await waitFor(() => expect(getAllByText("analytics.live_unavailable").length).toBe(1));
+    // Degradation is not an error: the visits-specific failure copy must not render.
+    expect(queryByText("analytics.visits.load_failed")).toBeNull();
+    // Degradation must not read as "there have been no visits": the empty-state copy
+    // is for a genuinely empty history, not a token that lost Analytics Read.
+    await waitFor(() => expect(getByText("analytics.visits.unavailable")).toBeDefined());
+    expect(queryByText("analytics.visits.empty")).toBeNull();
+    // The rest of the dashboard keeps rendering.
+    expect(getByText("analytics.trend")).toBeDefined();
   });
 });

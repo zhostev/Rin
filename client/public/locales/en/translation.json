@@ -80,7 +80,22 @@
     "country": "Countries",
     "device": "Devices",
     "empty": "No data yet. Stats appear after the daily rollup job runs for the first time.",
-    "load_failed": "Failed to load analytics."
+    "load_failed": "Failed to load analytics.",
+    "visits": {
+      "title": "Recent visits",
+      "retention": "Last 3 months only",
+      "time": "Time",
+      "article": "Article",
+      "referrer": "Referrer",
+      "location": "Location",
+      "device": "Device",
+      "visitor": "Visitor",
+      "ip": "IP",
+      "sampled": "Sampled — this list is incomplete",
+      "empty": "No visits recorded yet.",
+      "unavailable": "Live data unavailable — check the API token's Analytics Read permission.",
+      "load_failed": "Failed to load recent visits."
+    }
   },
   "reports": {
     "title": "Stage Reports",

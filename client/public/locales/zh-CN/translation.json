@@ -80,7 +80,22 @@
     "country": "国家和地区",
     "device": "设备",
     "empty": "暂无数据。统计在每日聚合任务首次运行后显示。",
-    "load_failed": "加载访问统计失败。"
+    "load_failed": "加载访问统计失败。",
+    "visits": {
+      "title": "访问明细",
+      "retention": "仅保留最近 3 个月",
+      "time": "时间",
+      "article": "文章",
+      "referrer": "来源",
+      "location": "地区",
+      "device": "设备",
+      "visitor": "访客",
+      "ip": "IP",
+      "sampled": "数据已采样，列表不完整",
+      "empty": "暂无访问记录。",
+      "unavailable": "实时数据不可用 —— 请检查 API token 的 Analytics Read 权限。",
+      "load_failed": "加载访问明细失败。"
+    }
   },
   "reports": {
     "title": "阶段报告",

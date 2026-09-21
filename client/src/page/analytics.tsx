@@ -9,9 +9,11 @@ import type {
   AnalyticsLiveResponse,
   AnalyticsOverview,
   AnalyticsTopFeedsResponse,
+  AnalyticsVisitsResponse,
 } from "../api/client";
 import { client } from "../app/runtime";
 import { BarList, LineChart } from "../components/analytics-charts";
+import { VisitTable } from "../components/analytics-visit-table";
 import { useApiResource } from "../hooks/use-api-resource";
 import { useSiteConfig } from "../hooks/useSiteConfig";
 
@@ -85,6 +87,45 @@ function DimensionSection({
           <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("analytics.empty")}</p>
         ) : (
           <BarList items={items.map((item) => ({ label: item.value, value: item.count }))} />
+        )}
+      </SettingsCardBody>
+    </SettingsCard>
+  );
+}
+
+function VisitSection() {
+  const { t } = useTranslation();
+  const loadVisits = useCallback(() => client.analytics.getVisits(100), []);
+  const { data, loading, error } = useApiResource<AnalyticsVisitsResponse>(loadVisits);
+  const items = Array.isArray(data?.items) ? data.items : [];
+  const unavailable = !loading && !error && data?.available === false;
+
+  return (
+    <SettingsCard>
+      <SettingsCardHeader
+        title={t("analytics.visits.title")}
+        description={t("analytics.visits.retention")}
+        badge={
+          unavailable ? (
+            <SettingsBadge tone="warning">{t("analytics.live_unavailable")}</SettingsBadge>
+          ) : data?.sampled ? (
+            <SettingsBadge tone="warning">{t("analytics.visits.sampled")}</SettingsBadge>
+          ) : undefined
+        }
+      />
+      <SettingsCardBody>
+        {loading ? (
+          <div className="flex items-center justify-center py-4">
+            <Spinner label={t("analytics.visits.title")} />
+          </div>
+        ) : error ? (
+          <p className="text-sm text-rose-600 dark:text-rose-300">{t("analytics.visits.load_failed")}</p>
+        ) : unavailable ? (
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("analytics.visits.unavailable")}</p>
+        ) : items.length === 0 ? (
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("analytics.visits.empty")}</p>
+        ) : (
+          <VisitTable items={items} />
         )}
       </SettingsCardBody>
     </SettingsCard>
@@ -277,6 +318,8 @@ export function AnalyticsPage() {
             <DimensionSection title={t("analytics.country")} type="country" days={days} />
             <DimensionSection title={t("analytics.device")} type="device" days={days} />
           </div>
+
+          <VisitSection />
         </>
       ) : null}
     </div>
