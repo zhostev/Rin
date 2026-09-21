@@ -69,6 +69,46 @@ export const analyticsDimDaily = sqliteTable("analytics_dim_daily", {
     dateTypeIdx: index("analytics_dim_daily_date_type_idx").on(table.date, table.dimType),
 }));
 
+export const sharingReports = sqliteTable("sharing_reports", {
+    id: integer("id").primaryKey(),
+    slug: text("slug").notNull().unique(),
+    title: text("title").notNull(),
+    periodStart: text("period_start").notNull(),
+    periodEnd: text("period_end").notNull(),
+    goals: text("goals").default("").notNull(),
+    summary: text("summary").default("").notNull(),
+    status: text("status").default("draft").notNull(),
+    metricsJson: text("metrics_json").default("{}").notNull(),
+    financeJson: text("finance_json").default("{}").notNull(),
+    publishedAt: integer("published_at", { mode: "timestamp" }),
+    createdAt: created_at,
+    updatedAt: updated_at,
+}, (table) => ({
+    statusIdx: index("sharing_reports_status_idx").on(table.status),
+    periodIdx: index("sharing_reports_period_idx").on(table.periodStart, table.periodEnd),
+}));
+
+export const financeTransactions = sqliteTable("finance_transactions", {
+    id: integer("id").primaryKey(),
+    reportId: integer("report_id").references(() => sharingReports.id, { onDelete: "set null" }),
+    type: text("type").notNull(),
+    category: text("category").notNull(),
+    title: text("title").notNull(),
+    description: text("description").default("").notNull(),
+    amount: integer("amount").notNull(),
+    currency: text("currency").default("CNY").notNull(),
+    occurredAt: text("occurred_at").notNull(),
+    receiptUrl: text("receipt_url").default("").notNull(),
+    isAnonymous: integer("is_anonymous").default(1).notNull(),
+    status: text("status").default("confirmed").notNull(),
+    createdAt: created_at,
+    updatedAt: updated_at,
+}, (table) => ({
+    reportIdx: index("finance_transactions_report_idx").on(table.reportId),
+    typeDateIdx: index("finance_transactions_type_date_idx").on(table.type, table.occurredAt),
+    statusIdx: index("finance_transactions_status_idx").on(table.status),
+}));
+
 export const info = sqliteTable("info", {
     key: text("key").notNull().unique(),
     value: text("value").notNull(),
@@ -231,5 +271,16 @@ export const mediaAssetsRelations = relations(mediaAssets, ({ one }) => ({
     feed: one(feeds, {
         fields: [mediaAssets.feedId],
         references: [feeds.id],
+    }),
+}));
+
+export const sharingReportsRelations = relations(sharingReports, ({ many }) => ({
+    transactions: many(financeTransactions),
+}));
+
+export const financeTransactionsRelations = relations(financeTransactions, ({ one }) => ({
+    report: one(sharingReports, {
+        fields: [financeTransactions.reportId],
+        references: [sharingReports.id],
     }),
 }));

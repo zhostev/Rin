@@ -8,6 +8,8 @@ import type {
     AnalyticsOverview,
     AnalyticsTopFeed,
     AnalyticsTopFeedsResponse,
+    AnalyticsVisit,
+    AnalyticsVisitsResponse,
 } from "@rin/api";
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { Hono } from "hono";
@@ -44,6 +46,46 @@ export function parseDimensionType(value: string | undefined): AnalyticsDimensio
     return DIMENSION_TYPES.includes(value as AnalyticsDimensionType)
         ? (value as AnalyticsDimensionType)
         : "referrer";
+}
+
+export function parseVisitLimit(value: string | undefined): number {
+    const parsed = Number.parseInt(value ?? "", 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 100;
+    }
+    return Math.min(parsed, 500);
+}
+
+/**
+ * AE SQL API 的时间戳格式不保证是 ISO(可能是 `YYYY-MM-DD HH:MM:SS`)。
+ * 客户端要 `new Date(ts)` 解析,而 Safari 与 Chrome 对非 ISO 字符串的行为不一致,
+ * 透传会变成只在部分浏览器出现的空白时间列 —— 所以在服务端归一化。
+ */
+export function normalizeAeTimestamp(raw: string): string {
+    const trimmed = (raw ?? "").trim();
+    if (!trimmed) {
+        return "";
+    }
+
+    const hasZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(trimmed);
+    const candidate = hasZone ? trimmed : `${trimmed.replace(" ", "T")}Z`;
+    const date = new Date(candidate);
+
+    return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+export function buildVisitDetailSql(limit: number, dataset: string = ANALYTICS_DATASET): string {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+        throw new Error(`Refusing to build SQL with a non-integer limit: ${limit}`);
+    }
+
+    return [
+        "SELECT timestamp, index1, blob1, blob2, blob3, blob4, blob5, blob6, blob7, blob8, _sample_interval",
+        `FROM ${dataset}`,
+        "ORDER BY timestamp DESC",
+        `LIMIT ${limit}`,
+        "FORMAT JSON",
+    ].join(" ");
 }
 
 /**
@@ -271,6 +313,47 @@ export function AnalyticsService() {
                     uvApproximate: true,
                     elapsedHours,
                 });
+            }
+            throw error;
+        }
+    }, guard));
+
+    // GET /analytics/visits?limit=100 — 唯一返回原始 IP 的路径。
+    app.get("/visits", adminOnly(async (c) => {
+        const limit = parseVisitLimit(c.req.query("limit"));
+
+        try {
+            const rows = await queryAnalyticsEngine<Record<string, unknown>>(
+                c.env,
+                buildVisitDetailSql(limit),
+            );
+
+            const items = rows.map<AnalyticsVisit>((row) => ({
+                timestamp: normalizeAeTimestamp(String(row.timestamp ?? "")),
+                feedId: Number(row.index1) || 0,
+                title: String(row.blob7 ?? "") || null,
+                path: String(row.blob1 ?? ""),
+                referrer: String(row.blob2 ?? ""),
+                country: String(row.blob3 ?? ""),
+                city: String(row.blob4 ?? ""),
+                device: String(row.blob5 ?? ""),
+                visitor: String(row.blob6 ?? ""),
+                // Task 1 之前写入的数据点没有 blob8，查出来是空字符串。
+                ip: String(row.blob8 ?? ""),
+            }));
+
+            const response: AnalyticsVisitsResponse = {
+                available: true,
+                items,
+                // 采样后列表不完整；UI 据此提示，避免流量涨上来后悄悄误导人。
+                sampled: rows.some((row) => (Number(row._sample_interval) || 1) > 1),
+            };
+
+            return c.json(response);
+        } catch (error) {
+            if (error instanceof AnalyticsUnavailableError) {
+                console.warn("analytics: visit detail unavailable", error.reason, error.message);
+                return c.json<AnalyticsVisitsResponse>({ available: false, items: [], sampled: false });
             }
             throw error;
         }

@@ -134,6 +134,7 @@ export function buildPageViewDataPoint(input: {
     city: string;
     device: DeviceType;
     fingerprint: string;
+    ip: string;
 }): PageViewDataPoint {
     return {
         indexes: [String(input.feedId)],
@@ -145,6 +146,7 @@ export function buildPageViewDataPoint(input: {
             input.device,
             input.fingerprint,
             truncateToBytes(input.title ?? "", MAX_TITLE_BYTES),
+            input.ip,
         ],
         doubles: [1],
     };
@@ -184,6 +186,7 @@ export async function recordPageView(
             city: typeof cf.city === "string" ? cf.city : "",
             device: detectDevice(userAgent),
             fingerprint: await visitorFingerprint({ ip, userAgent, feedId: options.feedId, salt }),
+            ip,
         });
 
         dataset.writeDataPoint(point);

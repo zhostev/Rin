@@ -132,6 +132,7 @@ describe("buildPageViewDataPoint", () => {
         city: "Tokyo",
         device: "mobile" as const,
         fingerprint: "abcdef0123456789",
+        ip: "203.0.113.7",
     };
 
     it("uses feed id as the single index", () => {
@@ -170,6 +171,37 @@ describe("buildPageViewDataPoint", () => {
         const point = buildPageViewDataPoint({ ...input, title: null });
         expect(point.blobs[6]).toBe("");
     });
+
+    it("puts the raw ip in blob8", () => {
+        expect(buildPageViewDataPoint(input).blobs[7]).toBe("203.0.113.7");
+    });
+
+    it("handles an IPv6 address without truncating it", () => {
+        const v6 = "2001:0db8:85a3:0000:0000:8a2e:0370:7334";
+        expect(buildPageViewDataPoint({ ...input, ip: v6 }).blobs[7]).toBe(v6);
+    });
+
+    it("tolerates a missing ip", () => {
+        expect(buildPageViewDataPoint({ ...input, ip: "" }).blobs[7]).toBe("");
+    });
+
+    // 位置锁：rollup 与 /live 的 SQL 按下标读 blob2/3/5/6，
+    // 任何位移都不会报错，只会静默产出错误数字。
+    it("keeps blob1..blob7 at their contracted positions", () => {
+        const point = buildPageViewDataPoint(input);
+        expect(point.blobs.slice(0, 7)).toEqual([
+            "/feed/42",
+            "www.google.com",
+            "JP",
+            "Tokyo",
+            "mobile",
+            "abcdef0123456789",
+            "Hello",
+        ]);
+        expect(point.blobs).toHaveLength(8);
+        expect(point.indexes).toEqual(["42"]);
+        expect(point.doubles).toEqual([1]);
+    });
 });
 
 describe("recordPageView", () => {
@@ -202,16 +234,24 @@ describe("recordPageView", () => {
         analytics?: ReturnType<typeof fakeAnalyticsDataset>;
         userAgent?: string;
         url?: string;
+        headers?: Record<string, string>;
     }): AppContext {
         const userAgent = options.userAgent ?? "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120";
         const url = options.url ?? "https://blog.example.com/feed/42";
+        const headers = options.headers;
 
         const req = {
             header(name: string) {
                 return name.toLowerCase() === "user-agent" ? userAgent : undefined;
             },
             raw: {
-                headers: { get: () => null },
+                headers: {
+                    get: (name: string) => {
+                        if (!headers) return null;
+                        const key = Object.keys(headers).find((k) => k.toLowerCase() === name.toLowerCase());
+                        return key ? headers[key] : null;
+                    },
+                },
                 cf: {},
             },
             url,
@@ -237,6 +277,15 @@ describe("recordPageView", () => {
         expect(dataset.points).toHaveLength(1);
         expect(dataset.points[0].indexes[0]).toBe("42");
         expect(dataset.points[0].blobs[6]).toBe("Hello");
+    });
+
+    it("records the client ip in blob8", async () => {
+        const dataset = fakeAnalyticsDataset();
+        const c = fakeContext({ analytics: dataset, headers: { "cf-connecting-ip": "198.51.100.9" } });
+
+        await recordPageView(c, { feedId: 42, title: "Hello" });
+
+        expect(dataset.points[0].blobs[7]).toBe("198.51.100.9");
     });
 
     it("writes nothing for a bot user agent", async () => {

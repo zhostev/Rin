@@ -5,9 +5,12 @@ import {
     AnalyticsService,
     buildLiveTotalsSql,
     buildLiveYesterdaySql,
+    buildVisitDetailSql,
+    normalizeAeTimestamp,
     parseDays,
     parseDimensionType,
     parseLimit,
+    parseVisitLimit,
     previousWindow,
     zeroFillSeries,
 } from "../analytics";
@@ -97,7 +100,13 @@ describe("AnalyticsService admin guard", () => {
         return app;
     }
 
-    const paths = ["/analytics/overview", "/analytics/top-feeds", "/analytics/dimensions", "/analytics/live"];
+    const paths = [
+        "/analytics/overview",
+        "/analytics/top-feeds",
+        "/analytics/dimensions",
+        "/analytics/live",
+        "/analytics/visits",
+    ];
 
     it("rejects every endpoint for non-admins with 403", async () => {
         const app = mount(false);
@@ -113,6 +122,14 @@ describe("AnalyticsService admin guard", () => {
         const app = mount(true);
         const response = await Promise.resolve(app.request("/analytics/overview")).catch(() => null);
         expect(response?.status).not.toBe(403);
+    });
+
+    it("never leaks an ip to a non-admin", async () => {
+        const app = mount(false);
+        const response = await app.request("/analytics/visits");
+        expect(response.status).toBe(403);
+        const body = await response.text();
+        expect(body).not.toContain("ip");
     });
 });
 
@@ -181,5 +198,76 @@ describe("previousWindow", () => {
         const { from, to } = previousWindow("2026-09-20", 1);
         expect(from).toBe("2026-09-19");
         expect(to).toBe("2026-09-19");
+    });
+});
+
+describe("parseVisitLimit", () => {
+    it("defaults to 100", () => {
+        expect(parseVisitLimit(undefined)).toBe(100);
+        expect(parseVisitLimit("")).toBe(100);
+        expect(parseVisitLimit("abc")).toBe(100);
+    });
+
+    it("caps at 500", () => {
+        expect(parseVisitLimit("5000")).toBe(500);
+        expect(parseVisitLimit("501")).toBe(500);
+    });
+
+    it("rejects non-positive values", () => {
+        expect(parseVisitLimit("0")).toBe(100);
+        expect(parseVisitLimit("-7")).toBe(100);
+    });
+
+    it("accepts a value inside the range", () => {
+        expect(parseVisitLimit("250")).toBe(250);
+    });
+
+    // /top-feeds 的 parseLimit 是默认 20 / 上限 100，两者不可混用。
+    it("is not the same bounds as parseLimit", () => {
+        expect(parseVisitLimit(undefined)).not.toBe(parseLimit(undefined));
+    });
+});
+
+describe("normalizeAeTimestamp", () => {
+    it("converts a space-separated AE timestamp to ISO, treating it as UTC", () => {
+        expect(normalizeAeTimestamp("2026-09-21 02:31:07")).toBe("2026-09-21T02:31:07.000Z");
+    });
+
+    it("passes an already-ISO timestamp through unchanged in value", () => {
+        expect(normalizeAeTimestamp("2026-09-21T02:31:07Z")).toBe("2026-09-21T02:31:07.000Z");
+    });
+
+    it("returns an empty string for unparseable input", () => {
+        expect(normalizeAeTimestamp("")).toBe("");
+        expect(normalizeAeTimestamp("not a date")).toBe("");
+    });
+});
+
+describe("buildVisitDetailSql", () => {
+    it("selects every blob including blob8 and the sample interval", () => {
+        const sql = buildVisitDetailSql(100);
+        for (const column of ["timestamp", "index1", "blob1", "blob6", "blob7", "blob8", "_sample_interval"]) {
+            expect(sql).toContain(column);
+        }
+        expect(sql).toContain("rin_analytics");
+    });
+
+    it("orders newest first and applies the limit", () => {
+        const sql = buildVisitDetailSql(250);
+        expect(sql).toContain("ORDER BY timestamp DESC");
+        expect(sql).toContain("LIMIT 250");
+    });
+
+    it("does not group or aggregate — it is a raw row listing", () => {
+        const sql = buildVisitDetailSql(100);
+        expect(sql).not.toContain("GROUP BY");
+        expect(sql).not.toContain("SUM(");
+    });
+
+    it("refuses a non-integer limit instead of interpolating it", () => {
+        expect(() => buildVisitDetailSql(Number.NaN)).toThrow();
+        expect(() => buildVisitDetailSql(1.5)).toThrow();
+        expect(() => buildVisitDetailSql(-1)).toThrow();
+        expect(() => buildVisitDetailSql("100; DROP TABLE x--" as unknown as number)).toThrow();
     });
 });

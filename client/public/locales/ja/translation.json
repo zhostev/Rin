@@ -12,7 +12,8 @@
     "settings_description": "サイトの挙動、連携設定、公開ルールを一か所で管理します。",
     "title": "管理画面",
     "writing_description": "非公開の管理ワークスペースから記事を作成、編集、公開します。",
-    "media_description": "記事で使用している音声と動画を管理し、参照中のメディアを誤って削除しないようにします。"
+    "media_description": "記事で使用している音声と動画を管理し、参照中のメディアを誤って削除しないようにします。",
+    "reports_description": "共有画像プロジェクトの寄付、支出、成果をまとめた期間レポートを作成します。"
   },
   "compat_tasks": {
     "title": "互換タスク",
@@ -80,6 +81,38 @@
     "device": "デバイス",
     "empty": "データがまだありません。日次集計ジョブの初回実行後に表示されます。",
     "load_failed": "アクセス解析の読み込みに失敗しました。"
+  },
+  "reports": {
+    "title": "期間レポート",
+    "create_title": "レポートを作成",
+    "create_description": "公開時に、この期間のプロジェクトと財務データをスナップショットとして保存します。",
+    "title_field": "レポートタイトル",
+    "goals": "目標",
+    "summary": "まとめ",
+    "create": "作成",
+    "loading": "レポートを読み込んでいます…",
+    "list": "レポート一覧",
+    "select": "レポートを選択してください",
+    "donations": "寄付",
+    "expenses": "支出",
+    "balance": "残高",
+    "images": "画像参照数",
+    "no_goals": "目標はまだありません。",
+    "refresh_snapshot": "スナップショットを更新",
+    "publish": "公開",
+    "unpublish": "公開を取り消す",
+    "transaction_title": "収入と支出",
+    "amount_hint": "金額は主要通貨単位で入力し、最小単位で保存します。",
+    "expense": "支出",
+    "donation": "寄付",
+    "category": "カテゴリ",
+    "add_transaction": "取引を追加",
+    "open_public": "公開レポートを開く",
+    "results": "成果",
+    "published_articles": "公開記事",
+    "page_views": "ページビュー",
+    "categories": "支出カテゴリ",
+    "expense_breakdown": "支出内訳"
   },
   "article": {
     "delete": {
@@ -202,14 +235,22 @@
     "delete_stream": "Cloudflare Stream のメディアは Stream ダッシュボードで管理してください。",
     "delete_success": "メディアを削除しました",
     "delete_title": "メディアを削除",
-    "empty": "音声または動画はまだありません。執筆ページからアップロードできます。",
+    "drop_now": "ドロップしてメディアをアップロード",
+    "empty": "まだ何もアップロードされていません。ここから、または執筆ページから画像・音声・動画をアップロードできます。",
     "processing": "処理中",
+    "title": "メディアライブラリ",
+    "total": "{{count}} 件のメディアを表示",
     "unattached": "未関連付けのメディア",
     "unavailable": "このメディアは現在利用できません",
-    "total": "{{count}} 件のメディアを表示",
-    "upload_hint": "アップロードは執筆ツールバーから行えます",
+    "upload": "メディアをアップロード",
+    "upload_hint": "画像は最大 10 MB、音声と動画は最大 1 GB",
+    "upload_success": "メディアをアップロードしました",
+    "uploading": "アップロード中…",
+    "uploading_percent": "アップロード中 {{percent}}%",
     "video": "動画",
-    "title": "メディアライブラリ"
+    "image": "画像",
+    "copy_link": "リンクをコピー",
+    "link_copied": "リンクをコピーしました"
   },
   "error": {
     "api_url": "Pages 環境変数のAPI_URLはWorkerアドレスである必要があります。Pages環境変数のAPI_URLが正しいか確認してください。",
@@ -606,6 +647,7 @@
     },
     "media": {
       "invalid_type": "音声または動画ファイルをアップロードしてください",
+      "invalid_type_library": "画像・音声・動画ファイルをアップロードしてください",
       "stream_unavailable": "Cloudflare Stream が設定されていないため、大きな動画をアップロードできません。",
       "too_large": "1 GB（1024 MB）を超える動画には対応していません。圧縮してから再試行してください。"
     },
