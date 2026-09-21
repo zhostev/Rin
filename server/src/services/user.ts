@@ -12,6 +12,26 @@ import {
     NotFoundError
 } from "../errors";
 
+function frontendOrigin(c: AppContext): string {
+    const configured = c.env.FRONTEND_URL?.trim();
+    if (!configured) {
+        return new URL(c.req.url).origin;
+    }
+
+    let url: URL;
+    try {
+        url = new URL(configured);
+    } catch {
+        throw new BadRequestError('FRONTEND_URL must be a valid URL');
+    }
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new BadRequestError('FRONTEND_URL must use http or https');
+    }
+
+    return url.origin;
+}
+
 export function UserService(): Hono {
     const app = new Hono();
 
@@ -23,23 +43,12 @@ export function UserService(): Hono {
             throw new BadRequestError('GitHub OAuth is not configured');
         }
 
-        const referer = c.req.header('referer');
-
-        if (!referer) {
-            throw new BadRequestError('Referer header is required');
-        }
-
-        // Build callback URL from referer
-        const refererUrl = new URL(referer);
-        const callbackUrl = new URL('/callback', refererUrl.origin);
-
-        setCookie(c, 'redirect_to', callbackUrl.toString(), {
-            path: '/',
-        });
-
         const genState = await profileAsync(c, 'user_oauth_state', () => Promise.resolve(oauth2.generateState()));
         setCookie(c, 'state', genState, {
             path: '/',
+            httpOnly: true,
+            secure: true,
+            sameSite: 'Lax',
         });
 
         return c.redirect(oauth2.createRedirectUrl(genState, "GitHub"), 302);
@@ -109,12 +118,6 @@ export function UserService(): Hono {
             await profileAsync(c, 'user_existing_update', () => db.update(users).set(profile).where(eq(users.id, existingUser.id)));
             authToken = await profileAsync(c, 'user_existing_token', () => jwt.sign({ id: existingUser.id }));
             setJWTCookie(c, authToken);
-            // Store token in cookie for frontend to read (not HttpOnly)
-            setCookie(c, 'auth_token', authToken, {
-                expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),
-                path: '/',
-                sameSite: 'Lax',
-            });
         } else {
             // If no user exists, check if this is the first user
             const anyUserCheck = await profileAsync(c, 'user_first_lookup', () => db.query.users.findMany({ limit: 1 }));
@@ -129,21 +132,11 @@ export function UserService(): Hono {
 
             authToken = await profileAsync(c, 'user_insert_token', () => jwt.sign({ id: result[0].insertedId }));
             setJWTCookie(c, authToken);
-            // Store token in cookie for frontend to read (not HttpOnly)
-            setCookie(c, 'auth_token', authToken, {
-                expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),
-                path: '/',
-                sameSite: 'Lax',
-            });
         }
 
-        const redirectTo = getCookie(c, 'redirect_to');
-        const redirect_url = new URL(redirectTo || '/');
-        // Add token to URL for frontend to store (for cross-domain auth)
-        if (authToken) {
-            redirect_url.searchParams.set('token', authToken);
-        }
-        return c.redirect(redirect_url.toString(), 302);
+        // Authentication is carried by the HttpOnly cookie. Never expose the JWT
+        // in a query string, where it can leak through history, logs, or Referer.
+        return c.redirect(new URL('/callback', frontendOrigin(c)).toString(), 302);
     });
 
     // GET /user/profile - Get user profile

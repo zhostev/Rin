@@ -70,12 +70,11 @@ describe('UserService', () => {
             expect(location).toContain('state=');
         });
 
-        it('should require referer header', async () => {
+        it('should work without trusting a referer header', async () => {
             const res = await app.request('/github', { method: 'GET' }, env);
             
-            expect(res.status).toBe(400);
-            const data = await res.json() as { error: { message: string } };
-            expect(data.error.message).toBe('Referer header is required');
+            expect(res.status).toBe(302);
+            expect(res.headers.get('Set-Cookie')).toContain('state=');
         });
 
         it('should return 400 if OAuth not configured', async () => {
@@ -132,7 +131,7 @@ describe('UserService', () => {
             expect(data.error.message).toBe('GitHub OAuth is not configured');
         });
 
-        it('should set redirect_to cookie', async () => {
+        it('should not set a user-controlled redirect cookie', async () => {
             const res = await app.request('/github', {
                 method: 'GET',
                 headers: { 'Referer': 'http://localhost:5173/feed/123' }
@@ -140,7 +139,8 @@ describe('UserService', () => {
             
             expect(res.status).toBe(302);
             const setCookie = res.headers.get('Set-Cookie');
-            expect(setCookie).toContain('redirect_to');
+            expect(setCookie).not.toContain('redirect_to');
+            expect(setCookie).toContain('HttpOnly');
         });
     });
 
@@ -167,6 +167,7 @@ describe('UserService', () => {
                 expect(res.status).toBe(302);
                 const location = res.headers.get('Location');
                 expect(location).toContain('/callback');
+                expect(location).not.toContain('token=');
             } finally {
                 global.fetch = originalFetch;
             }

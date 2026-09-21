@@ -21,6 +21,7 @@
     "typescript": "^5.7.3"
   },
   "scripts": {
+    "check": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
   }
 }
