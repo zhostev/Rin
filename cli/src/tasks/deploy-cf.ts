@@ -29,6 +29,10 @@ const WORKER_SECRET_KEYS = [
   "S3_SECRET_ACCESS_KEY",
   // Runtime: provision TUS direct uploads (createDirectUpload does not support >200MB).
   "CLOUDFLARE_API_TOKEN",
+  // Stream-only token (Stream:Edit). Preferred at runtime over the deploy token.
+  "STREAM_API_TOKEN",
+  // Runtime: verifies Cloudflare Stream webhook signatures (/api/media/stream/webhook).
+  "STREAM_WEBHOOK_SECRET",
 ] as const;
 
 function isQueueAlreadyPresentError(stderr: string) {
@@ -157,6 +161,18 @@ export function buildWranglerStreamConfig() {
 }
 
 /**
+ * Stream-related `[vars]` entries. Emitted unconditionally (empty when unset) for
+ * the same reason as the [stream] binding: the generated wrangler.toml replaces
+ * the remote config wholesale, so an omitted key would leave a stale dashboard
+ * value in place and make deploys non-reproducible.
+ */
+export function buildWranglerStreamVars(
+  source: Record<string, string | undefined> = process.env,
+) {
+  return `STREAM_PUBLIC_HOST = "${(source.STREAM_PUBLIC_HOST || "").trim()}"`;
+}
+
+/**
  * Workers Analytics Engine binding, emitted unconditionally. See the [stream]
  * comment above for why an omitted block is a deploy-time hazard.
  */
@@ -180,6 +196,9 @@ export function shouldEnableStreamBinding(
     return true;
   }
   if ((source.STREAM_WEBHOOK_SECRET || "").trim()) {
+    return true;
+  }
+  if ((source.STREAM_API_TOKEN || "").trim()) {
     return true;
   }
   return false;
@@ -319,6 +338,7 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
       RSS_ENABLE = "${rssEnable}"
       FRONTEND_URL = "${frontendUrl}"
       CLOUDFLARE_ACCOUNT_ID = "${cloudflareAccountId}"
+      ${buildWranglerStreamVars()}
 
       [placement]
       mode = "smart"

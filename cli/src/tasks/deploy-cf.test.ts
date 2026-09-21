@@ -6,6 +6,7 @@ import {
   buildWranglerQueueConfig,
   buildWranglerR2BucketConfig,
   buildWranglerStreamConfig,
+  buildWranglerStreamVars,
   buildWranglerTriggersConfig,
   collectWorkerSecrets,
   shouldEnableStreamBinding,
@@ -22,6 +23,8 @@ describe("collectWorkerSecrets", () => {
       S3_ACCESS_KEY_ID: "access-key",
       S3_SECRET_ACCESS_KEY: "secret-key",
       CLOUDFLARE_API_TOKEN: "cf-token",
+      STREAM_API_TOKEN: "stream-token",
+      STREAM_WEBHOOK_SECRET: "webhook-secret",
       UNUSED: "ignored",
     });
 
@@ -34,6 +37,8 @@ describe("collectWorkerSecrets", () => {
       S3_ACCESS_KEY_ID: "access-key",
       S3_SECRET_ACCESS_KEY: "secret-key",
       CLOUDFLARE_API_TOKEN: "cf-token",
+      STREAM_API_TOKEN: "stream-token",
+      STREAM_WEBHOOK_SECRET: "webhook-secret",
     });
   });
 
@@ -161,6 +166,10 @@ describe("shouldEnableStreamBinding", () => {
     ).toBe(true);
   });
 
+  it("is true when STREAM_API_TOKEN is set", () => {
+    expect(shouldEnableStreamBinding({ STREAM_API_TOKEN: "stream-token" })).toBe(true);
+  });
+
   it("is true when STREAM_WEBHOOK_SECRET is set", () => {
     expect(shouldEnableStreamBinding({ STREAM_WEBHOOK_SECRET: "secret" })).toBe(true);
   });
@@ -177,5 +186,17 @@ describe("buildWranglerAnalyticsConfig", () => {
     expect(block).toContain("[[analytics_engine_datasets]]");
     expect(block).toContain('binding = "ANALYTICS"');
     expect(block).toContain('dataset = "rin_analytics"');
+  });
+});
+
+describe("buildWranglerStreamVars", () => {
+  it("writes the configured Stream playback host into [vars]", () => {
+    expect(
+      buildWranglerStreamVars({ STREAM_PUBLIC_HOST: "https://customer-abc.cloudflarestream.com" }),
+    ).toContain('STREAM_PUBLIC_HOST = "https://customer-abc.cloudflarestream.com"');
+  });
+
+  it("emits an explicit empty host so a stale dashboard value cannot survive a deploy", () => {
+    expect(buildWranglerStreamVars({})).toContain('STREAM_PUBLIC_HOST = ""');
   });
 });

@@ -43,12 +43,18 @@ Rin 部署需要配置两类环境变量：**Variables（明文变量）**和**S
 
 ### Cloudflare Stream（可选）
 
-大于 100 MB 的视频会通过 Cloudflare Stream 直传；当前直传接口支持最大 200 MB。启用时，在 Worker 的 `wrangler.toml` 末尾添加：
+大于 100 MB 的视频会通过 Cloudflare Stream 直传；当前直传接口支持最大 200 MB。
+
+启用方式：设置 `ENABLE_STREAM=true`（或任意一个 Stream 相关变量），部署时会自动向生成的 `wrangler.toml` 写入：
 
 ```toml
 [stream]
 binding = "STREAM"
 ```
+
+::: warning
+不要手动编辑仓库根目录的 `wrangler.toml`——部署时该文件会被整个重新生成，手改的绑定会丢失。同理，仅在 Cloudflare 面板上设置的 Stream 绑定和变量也会在下次部署时被覆盖。
+:::
 
 Stream 播放默认使用 Cloudflare 的 iframe 播放地址。如需使用自定义 Stream 播放域名，可配置 `STREAM_PUBLIC_HOST`（例如 `https://customer-xxx.cloudflarestream.com`）。未配置 Stream 时，普通音视频和 100 MB 以内的视频仍可通过 R2/S3 使用。
 
@@ -100,6 +106,7 @@ Stream 播放默认使用 Cloudflare 的 iframe 播放地址。如需使用自�
 |--------|------|----------|
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API 访问令牌 | Cloudflare 面板 → 我的个人资料 → API 令牌 |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户 ID | Cloudflare 面板右侧 sidebar |
+| `STREAM_API_TOKEN` | Cloudflare Stream 专用令牌（可选），用于 >100MB 视频的 TUS 直传。未设置时回退到 `CLOUDFLARE_API_TOKEN` | 新建令牌，权限只需 账户 → Stream → Edit |
 
 ---
 
@@ -119,6 +126,8 @@ CACHE_STORAGE_MODE # 缓存模式（推荐 database）
 R2_BUCKET_NAME    # 使用 R2 时生产部署必填。缺失会导致生成的 wrangler.toml 不含 [[r2_buckets]]，重新部署会覆盖掉远端 R2_BUCKET 绑定（/api/blob 500）。仅纯 S3 部署可设 ALLOW_DEPLOY_WITHOUT_R2=true。
 WORKER_NAME       # Worker 名称（可选）
 DB_NAME           # D1 数据库名称（可选）
+ENABLE_STREAM     # 设为 true 向生成的 wrangler.toml 写入 [stream] 绑定（可选）
+STREAM_PUBLIC_HOST # 自定义 Stream 播放域名（可选，留空用 Cloudflare 默认 iframe 地址）
 ```
 
 ### Repository Secrets（Settings → Secrets and variables → Secrets）
@@ -126,6 +135,8 @@ DB_NAME           # D1 数据库名称（可选）
 ```
 CLOUDFLARE_API_TOKEN      # Cloudflare API 令牌
 CLOUDFLARE_ACCOUNT_ID     # Cloudflare 账户 ID
+STREAM_API_TOKEN          # Stream 专用令牌（可选，仅需 Stream:Edit）
+STREAM_WEBHOOK_SECRET     # Stream Webhook 签名密钥（可选）
 S3_ENDPOINT               # S3/R2 接入点
 S3_ACCESS_HOST            # S3/R2 访问域名
 S3_BUCKET                 # S3 存储桶名称
