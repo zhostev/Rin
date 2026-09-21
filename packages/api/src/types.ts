@@ -462,3 +462,105 @@ export interface AnalyticsLiveResponse {
     /** 已过的 UTC 小时数（0–23），用于说明比较窗口。 */
     elapsedHours: number;
 }
+
+export interface AnalyticsVisit {
+    /**
+     * ISO 8601，UTC。
+     *
+     * Analytics Engine 的 SQL API 返回的时间戳格式不保证是 ISO（可能是
+     * `YYYY-MM-DD HH:MM:SS`），而客户端要用 `new Date(ts)` 解析。**服务端负责
+     * 归一化成 ISO 再返回**，不要把原始格式透传给前端 —— Safari 对非 ISO 字符串
+     * 的 Date 解析行为与 Chrome 不一致，透传会变成只在部分浏览器出现的空白时间列。
+     */
+    timestamp: string;
+    feedId: number;
+    title: string | null;
+    path: string;
+    /** referrer host，或 "direct"。 */
+    referrer: string;
+    country: string;
+    city: string;
+    device: string;
+    /** 访客指纹前缀，用于肉眼识别同一访客。 */
+    visitor: string;
+    /** 本次改动前写入的数据点为空字符串。 */
+    ip: string;
+}
+
+export interface AnalyticsVisitsResponse {
+    available: boolean;
+    items: AnalyticsVisit[];
+    /** 任意一行 _sample_interval > 1 即为 true：列表不完整。 */
+    sampled: boolean;
+}
+
+export type FinanceTransactionType = "donation" | "expense";
+export type ReportStatus = "draft" | "published";
+
+export interface FinanceTransaction {
+    id: number;
+    reportId: number | null;
+    type: FinanceTransactionType;
+    category: string;
+    title: string;
+    description: string;
+    amount: number;
+    currency: string;
+    occurredAt: string;
+    receiptUrl: string;
+    isAnonymous: boolean;
+    status: "confirmed" | "voided";
+}
+
+export interface FinanceSummary {
+    donationTotal: number;
+    expenseTotal: number;
+    balance: number;
+    donationCount: number;
+    expenseCount: number;
+    byCategory: Array<{ category: string; amount: number }>;
+}
+
+export interface SharingReportMetrics {
+    imageReferences: number;
+    publishedArticles: number;
+    pageViews: number;
+    storageBytes: number;
+}
+
+export interface SharingReport {
+    id: number;
+    slug: string;
+    title: string;
+    periodStart: string;
+    periodEnd: string;
+    goals: string;
+    summary: string;
+    status: ReportStatus;
+    metrics: SharingReportMetrics;
+    finance: FinanceSummary;
+    publishedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface CreateSharingReportRequest {
+    title: string;
+    periodStart: string;
+    periodEnd: string;
+    goals?: string;
+    summary?: string;
+}
+
+export interface CreateFinanceTransactionRequest {
+    type: FinanceTransactionType;
+    category: string;
+    title: string;
+    description?: string;
+    amount: number;
+    currency?: string;
+    occurredAt: string;
+    receiptUrl?: string;
+    isAnonymous?: boolean;
+    reportId?: number | null;
+}

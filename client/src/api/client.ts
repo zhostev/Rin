@@ -40,6 +40,11 @@ import type {
   AnalyticsLiveResponse,
   AnalyticsOverview,
   AnalyticsTopFeedsResponse,
+  AnalyticsVisitsResponse,
+  CreateFinanceTransactionRequest,
+  CreateSharingReportRequest,
+  FinanceTransaction,
+  SharingReport,
 } from "@rin/api";
 
 export interface SettingsConfigResponse {
@@ -172,6 +177,12 @@ export type {
   AnalyticsOverview,
   AnalyticsTopFeed,
   AnalyticsTopFeedsResponse,
+  AnalyticsVisit,
+  AnalyticsVisitsResponse,
+  CreateFinanceTransactionRequest,
+  CreateSharingReportRequest,
+  FinanceTransaction,
+  SharingReport,
 } from "@rin/api";
 
 
@@ -630,6 +641,43 @@ class AnalyticsAPI {
   async getLive(): Promise<ApiResponse<AnalyticsLiveResponse>> {
     return this.http.get<AnalyticsLiveResponse>("/api/analytics/live");
   }
+
+  // GET /api/analytics/visits
+  async getVisits(limit = 100): Promise<ApiResponse<AnalyticsVisitsResponse>> {
+    return this.http.get<AnalyticsVisitsResponse>(`/api/analytics/visits?limit=${limit}`);
+  }
+}
+
+class ReportsAPI {
+  constructor(private http: HttpClient) {}
+
+  async list(): Promise<ApiResponse<SharingReport[]>> {
+    return this.http.get<SharingReport[]>("/api/reports");
+  }
+
+  async create(body: CreateSharingReportRequest): Promise<ApiResponse<SharingReport>> {
+    return this.http.post<SharingReport>("/api/reports", body);
+  }
+
+  async detail(id: number): Promise<ApiResponse<{ report: SharingReport; transactions: FinanceTransaction[] }>> {
+    return this.http.get<{ report: SharingReport; transactions: FinanceTransaction[] }>(`/api/reports/${id}`);
+  }
+
+  async getPublished(slug: string): Promise<ApiResponse<SharingReport>> {
+    return this.http.get<SharingReport>(`/api/reports/published/${encodeURIComponent(slug)}`);
+  }
+
+  async snapshot(id: number): Promise<ApiResponse<SharingReport>> {
+    return this.http.post<SharingReport>(`/api/reports/${id}/snapshot`, {});
+  }
+
+  async update(id: number, body: Partial<CreateSharingReportRequest> & { status?: "draft" | "published" }): Promise<ApiResponse<SharingReport>> {
+    return this.http.patch<SharingReport>(`/api/reports/${id}`, body);
+  }
+
+  async createTransaction(body: CreateFinanceTransactionRequest): Promise<ApiResponse<FinanceTransaction>> {
+    return this.http.post<FinanceTransaction>("/api/reports/transactions", body);
+  }
 }
 
 /**
@@ -754,6 +802,7 @@ export class ApiClient {
   media: MediaAPI;
   config: ConfigAPI;
   analytics: AnalyticsAPI;
+  reports: ReportsAPI;
   aiConfig: AIConfigAPI;
   storage: StorageAPI;
   search: SearchAPI;
@@ -772,6 +821,7 @@ export class ApiClient {
     this.media = new MediaAPI(this.http);
     this.config = new ConfigAPI(this.http);
     this.analytics = new AnalyticsAPI(this.http);
+    this.reports = new ReportsAPI(this.http);
     this.aiConfig = new AIConfigAPI(this.http);
     this.storage = new StorageAPI(this.http);
     this.search = new SearchAPI(this.http);
