@@ -1287,11 +1287,21 @@ EOF
 
 **Files:**
 - Modify: `server/src/db/schema.ts:204`（`feeds` 表定义，`ai_summary_error` 之后）
-- Generate: `server/drizzle/`（由 `bun run db:generate` 产出，不要手写）
+- Create: `server/sql/0019.sql`
 
 **Interfaces:**
 - Consumes: 无
 - Produces: `feeds.ai_compose_status`、`feeds.ai_compose_error` 两列
+
+> **迁移机制说明（执行前已实证，不要按直觉改用 drizzle-kit）**
+>
+> 本仓库真正生效的迁移是 `server/sql/` 下的编号 SQL 文件：`cli/src/tasks/db-migrate-local.ts` 读取 `server/sql/*.sql`，用 `wrangler d1 execute` 逐个施加，并以数据库 `info` 表里的 `migration_version` 行记录进度。
+>
+> `bun run db:generate`（drizzle-kit）产出的 `server/drizzle/` 目录被 `server/.gitignore:6` 忽略，**不入库、也不被迁移器读取**，因此本任务不使用它。
+>
+> `bun run db:migrate` 在本 worktree 里跑不了（`wrangler.toml` 被 gitignore，由 `scripts/ensure-wrangler-toml.ts` 生成），且会触碰共享的本地 D1 状态。真实迁移由 Task 13 的端到端验证覆盖。
+>
+> 同形先例：`server/sql/0009.sql` 就是用这个方式给 `feeds` 加上三个 `ai_summary_*` 列的。
 
 - [ ] **Step 1: 修改 schema**
 
@@ -1302,30 +1312,49 @@ EOF
     ai_compose_error: text("ai_compose_error").default("").notNull(),
 ```
 
-- [ ] **Step 2: 生成迁移**
+- [ ] **Step 2: 确认下一个迁移编号**
 
-Run: `bun run db:generate`
-Expected: `server/drizzle/` 下新增一个迁移文件，内容为两条 `ALTER TABLE feeds ADD COLUMN`
+Run: `ls server/sql/ | sort -V | tail -1`
+Expected: `0018.sql` —— 因此新文件是 `0019.sql`，版本号是 `19`。若实际输出不是 `0018.sql`，以实际最大编号加一为准，并相应调整版本号。
 
-- [ ] **Step 3: 本地跑迁移确认可用**
+- [ ] **Step 3: 新建 `server/sql/0019.sql`**
 
-Run: `bun run db:migrate`
-Expected: 迁移成功，无报错
+内容逐字如下（格式对照 `server/sql/0018.sql` 与 `server/sql/0009.sql`）：
 
-- [ ] **Step 4: 类型检查**
+```sql
+ALTER TABLE `feeds` ADD COLUMN `ai_compose_status` text DEFAULT 'idle' NOT NULL;
+--> statement-breakpoint
+ALTER TABLE `feeds` ADD COLUMN `ai_compose_error` text DEFAULT '' NOT NULL;
+--> statement-breakpoint
+UPDATE `info` SET `value` = '19' WHERE `key` = 'migration_version';
+```
+
+三点必须照做：
+
+1. `--> statement-breakpoint` 是本仓库所有迁移文件的语句分隔符，一条都不能少。
+2. 最后那条 `UPDATE info` 是迁移器判断进度的唯一依据，漏掉会导致这个迁移被反复重放。
+3. 列定义必须与 Step 1 的 schema 逐字对应：`text DEFAULT 'idle' NOT NULL` 对 `text("ai_compose_status").default("idle").notNull()`，`text DEFAULT '' NOT NULL` 对 `.default("")`。
+
+- [ ] **Step 4: 核对与先例一致**
+
+Run: `cat server/sql/0009.sql`
+Expected: 你写的两条 `ALTER TABLE` 与其中 `ai_summary_status` / `ai_summary_error` 两行形状完全一致（只有列名不同）。不一致就改到一致。
+
+- [ ] **Step 5: 类型检查**
 
 Run: `bun run check`
-Expected: 通过
+Expected: 6/6 通过
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 6: 提交**
 
 ```bash
-git add server/src/db/schema.ts server/drizzle
+git add server/src/db/schema.ts server/sql/0019.sql
 git commit -m "$(cat <<'EOF'
 feat(db): track AI compose status on feeds
 
-Two columns mirroring the existing ai_summary_* trio. The composed
-article is the content column itself, so no third column is needed.
+Two columns mirroring the existing ai_summary_* trio, added the same way
+0009.sql added those. The composed article is the content column itself,
+so no third column is needed.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
 EOF
