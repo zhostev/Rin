@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/d1";
 import { CacheImpl } from "../utils/cache";
-import { isQueueTask, FEED_AI_SUMMARY_TASK } from "../queue";
+import { isQueueTask, FEED_AI_COMPOSE_TASK, FEED_AI_SUMMARY_TASK } from "../queue";
+import { processFeedAIComposeTask } from "../services/feed-ai-compose";
 import { processFeedAISummaryTask } from "../services/feed-ai-summary";
 import { clearFeedCache } from "../services/feed";
 
@@ -25,6 +26,17 @@ export async function handleQueue(
     switch (body.type) {
       case FEED_AI_SUMMARY_TASK:
         await processFeedAISummaryTask(
+          env,
+          db,
+          cache,
+          serverConfig,
+          body.payload,
+          clearFeedCache,
+        );
+        message.ack();
+        break;
+      case FEED_AI_COMPOSE_TASK:
+        await processFeedAIComposeTask(
           env,
           db,
           cache,
