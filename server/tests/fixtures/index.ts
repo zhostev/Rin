@@ -66,6 +66,8 @@ export function createMockDB() {
             ai_summary TEXT DEFAULT '' NOT NULL,
             ai_summary_status TEXT DEFAULT 'idle' NOT NULL,
             ai_summary_error TEXT DEFAULT '' NOT NULL,
+            ai_compose_status TEXT DEFAULT 'idle' NOT NULL,
+            ai_compose_error TEXT DEFAULT '' NOT NULL,
             content TEXT NOT NULL,
             listed INTEGER DEFAULT 1 NOT NULL,
             draft INTEGER DEFAULT 1 NOT NULL,
