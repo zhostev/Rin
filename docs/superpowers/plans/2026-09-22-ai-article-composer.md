@@ -2259,7 +2259,9 @@ import { registerFeedAIComposeRoutes } from "./feed-ai-compose";
     registerFeedAIComposeRoutes(app);
 ```
 
-> 必须在 `app.get('/:id', ...)` 之前注册，否则 `/ai-compose` 会被 `/:id` 先匹配走。
+> **必须在 `app.post('/:id', ...)`（`server/src/services/feed.ts:383`）之前注册**，否则 `POST /ai-compose` 会被那条路由当成「更新 id 为 ai-compose 的文章」吃掉。挂在 `FeedService()` 函数体最前面即可。
+>
+> （`GET /:id` 是另一个方法，捕不走 POST；`GET /:id/ai-compose-status` 是两段路径，与单段的 `GET /:id` 也不冲突。真正的风险只有 `app.post('/:id')` 一条。）
 
 然后把详情路由末尾（`server/src/services/feed.ts:287`）的：
 
@@ -2578,7 +2580,7 @@ export function MediaPicker({
 }
 ```
 
-> 若 `client.media.list` 的签名与上面不符，以 `client/src/api/client.ts:484` 的 `MediaAPI` 实际签名为准调整调用，**不要改动 `MediaAPI`**。
+> 上面的调用已对照 `client/src/api/client.ts:518` 核实无误：`list(params?: { page?: number; limit?: number }): Promise<ApiResponse<MediaLibraryResponse>>`，而 `MediaLibraryResponse.data` 是 `MediaAsset[]`。**照写即可，不要改动 `MediaAPI`。**
 
 - [ ] **Step 4: 运行测试确认通过**
 
