@@ -25,6 +25,14 @@ export const WORKER_AI_MODELS: Record<string, string> = {
     "qwen-7b": "@cf/qwen/qwen1.5-7b-chat-awq",
 };
 
+export type AIGenerationOptions = {
+    maxTokens?: number;
+    temperature?: number;
+};
+
+const DEFAULT_MAX_TOKENS = 500;
+const DEFAULT_TEMPERATURE = 0.3;
+
 export const AI_SUMMARY_SYSTEM_PROMPT =
     "你是一个中文内容摘要助手。请用简洁、准确、自然的中文总结用户提供的内容，不超过200字，不要添加原文没有的信息，不要输出标题或项目符号。";
 
@@ -89,15 +97,17 @@ function extractAIText(response: unknown): string | null {
 async function executeWorkerAI(
     env: Env,
     modelId: string,
-    messages: Array<{ role: "system" | "user" | "assistant"; content: string }>
+    messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+    options?: AIGenerationOptions,
 ): Promise<string | null> {
     if (!env.AI || typeof env.AI.run !== "function") {
         throw new Error("Workers AI binding is not configured");
     }
 
-    // Worker AI uses messages format for chat models
     const response = await env.AI.run(modelId as any, {
-        messages
+        messages,
+        max_tokens: options?.maxTokens ?? DEFAULT_MAX_TOKENS,
+        temperature: options?.temperature ?? DEFAULT_TEMPERATURE,
     } as any);
 
     return extractAIText(response);
@@ -113,7 +123,8 @@ async function executeExternalAI(
         api_key: string;
         api_url: string;
     },
-    messages: Array<{ role: "system" | "user" | "assistant"; content: string }>
+    messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+    options?: AIGenerationOptions,
 ): Promise<string | null> {
     const { provider, model, api_key, api_url } = config;
 
@@ -132,8 +143,8 @@ async function executeExternalAI(
         body: JSON.stringify({
             model: model,
             messages,
-            max_tokens: 500,
-            temperature: 0.3,
+            max_tokens: options?.maxTokens ?? DEFAULT_MAX_TOKENS,
+            temperature: options?.temperature ?? DEFAULT_TEMPERATURE,
         }),
     });
 
@@ -144,6 +155,28 @@ async function executeExternalAI(
 
     const data = await response.json() as any;
     return data.choices?.[0]?.message?.content?.trim() || null;
+}
+
+/**
+ * Single entry point for text generation, hiding the worker-ai vs external
+ * API split from callers.
+ */
+export async function generateAIText(
+    env: Env,
+    config: {
+        provider: string;
+        model: string;
+        api_key: string;
+        api_url: string;
+    },
+    messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+    options?: AIGenerationOptions,
+): Promise<string | null> {
+    if (config.provider === 'worker-ai') {
+        return executeWorkerAI(env, getWorkerAIModelId(config.model), messages, options);
+    }
+
+    return executeExternalAI(config, messages, options);
 }
 
 /**
