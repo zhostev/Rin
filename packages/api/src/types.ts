@@ -315,6 +315,49 @@ export interface AIConfig {
   api_url: string;
 }
 
+export type ComposeLength = "short" | "medium" | "long";
+
+export interface AIWriterConfig {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  api_key: string;
+  api_url: string;
+  temperature: number;
+  max_tokens: number;
+  system_prompt: string;
+}
+
+export interface ComposeAssetInput {
+  id: string;
+  note: string;
+}
+
+export interface CreateAIComposeRequest {
+  topic: string;
+  assets: ComposeAssetInput[];
+  length?: ComposeLength;
+  style?: string;
+  listed?: boolean;
+}
+
+export type AIComposeStatus =
+  | "idle"
+  | "pending"
+  | "processing"
+  | "completed"
+  | "failed";
+
+export interface AIComposeStatusResponse {
+  status: AIComposeStatus;
+  error: string;
+}
+
+export interface CreateAIComposeResponse {
+  id: number;
+  status: AIComposeStatus;
+}
+
 // ============================================================================
 // Storage Types
 // ============================================================================
