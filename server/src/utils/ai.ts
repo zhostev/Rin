@@ -193,34 +193,29 @@ export async function testAIModel(
     testPrompt: string
 ): Promise<{ success: boolean; response?: string; error?: string; details?: string }> {
     try {
-        let result: string | null;
-
         if (config.provider === 'worker-ai') {
             const fullModelName = getWorkerAIModelId(config.model);
             console.log(`[Test AI] Using Worker AI model: ${fullModelName}`);
-            result = await executeWorkerAI(env, fullModelName, [
-                { role: "user", content: testPrompt },
-            ]);
-        } else {
-            result = await executeExternalAI({
-                provider: config.provider,
-                model: config.model,
-                api_key: config.api_key || '',
-                api_url: config.api_url || '',
-            }, [
-                { role: "user", content: testPrompt },
-            ]);
         }
 
+        const result = await generateAIText(env, {
+            provider: config.provider,
+            model: config.model,
+            api_key: config.api_key || '',
+            api_url: config.api_url || '',
+        }, [
+            { role: "user", content: testPrompt },
+        ]);
+
         if (result) {
-            return { 
-                success: true, 
+            return {
+                success: true,
                 response: result,
             };
         } else {
-            return { 
-                success: false, 
-                error: 'Empty response from AI' 
+            return {
+                success: false,
+                error: 'Empty response from AI'
             };
         }
     } catch (error: any) {
@@ -262,18 +257,7 @@ export async function generateAISummaryResult(
     ];
 
     try {
-        let result: string | null;
-
-        if (provider === 'worker-ai') {
-            const fullModelName = getWorkerAIModelId(model);
-            result = await executeWorkerAI(
-                env,
-                fullModelName,
-                summaryMessages,
-            );
-        } else {
-            result = await executeExternalAI(config, summaryMessages);
-        }
+        const result = await generateAIText(env, config, summaryMessages);
 
         if (!result || !result.trim()) {
             return {
