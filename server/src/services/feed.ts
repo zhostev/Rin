@@ -21,6 +21,7 @@ import {
 import { recordPageView } from "../utils/analytics";
 import { extractImageWithMetadata } from "../utils/image";
 import { stripMarkdown } from "../utils/markdown";
+import { registerFeedAIComposeRoutes } from "./feed-ai-compose";
 import { syncFeedAISummaryQueueState } from "./feed-ai-summary";
 import { syncMediaForFeed } from "./media";
 import { bindTagToPost } from "./tag";
@@ -72,6 +73,11 @@ export function FeedService(): Hono<{
         Bindings: Env;
         Variables: Variables;
     }>();
+
+    // Must be registered before app.post('/:id', ...) below: that route would
+    // otherwise capture POST /ai-compose as an update to a feed with id
+    // "ai-compose", silently swallowing this endpoint.
+    registerFeedAIComposeRoutes(app);
 
     // GET /feed - List feeds
     app.get('/', async (c) => {
@@ -284,7 +290,12 @@ export function FeedService(): Hono<{
             }
         }
 
-        return c.json({ ...other, hashtags: hashtags_flatten, pv, uv });
+        // Provider error text can carry an API status line or a self-hosted
+        // api_url, so it stays admin-only.
+        const { ai_compose_error, ai_summary_error, ...publicFields } = other as Record<string, unknown>;
+        const visible = admin ? other : publicFields;
+
+        return c.json({ ...visible, hashtags: hashtags_flatten, pv, uv });
     });
 
     // GET /feed/adjacent/:id

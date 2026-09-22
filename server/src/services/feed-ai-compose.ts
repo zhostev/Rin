@@ -1,6 +1,9 @@
-import type { ComposeLength } from "@rin/api";
+import { feedAIComposeSchema } from "@rin/api";
+import type { ComposeLength, CreateAIComposeRequest } from "@rin/api";
 import { eq, inArray } from "drizzle-orm";
-import type { CacheImpl, DB } from "../core/hono-types";
+import type { Hono } from "hono";
+import type { CacheImpl, DB, Variables } from "../core/hono-types";
+import { adminOnly, withJsonBody } from "../core/route-boundaries";
 import { feeds, mediaAssets } from "../db/schema";
 import {
     createFeedAIComposeTask,
@@ -239,4 +242,109 @@ export async function processFeedAIComposeTask(
         resetSummary: true,
     });
     await clearFeedCache(cache, feed.id, feed.alias, feed.alias);
+}
+
+export function registerFeedAIComposeRoutes(app: Hono<{ Bindings: Env; Variables: Variables }>) {
+    app.post(
+        "/ai-compose",
+        adminOnly(
+            withJsonBody<CreateAIComposeRequest>(feedAIComposeSchema, async (c, body) => {
+                const db = c.get("db");
+                const env = c.get("env");
+                const uid = c.get("uid");
+                const serverConfig = c.get("serverConfig");
+
+                if (!uid) {
+                    return c.text("User ID is required", 400);
+                }
+
+                const writerConfig = await getAIWriterConfig(serverConfig);
+                if (!writerConfig.enabled) {
+                    return c.text("AI writer is not enabled", 400);
+                }
+
+                const assetResult = await loadComposeAssets(db, body.assets);
+                if (!assetResult.ok) {
+                    return c.text(`Unknown media asset: ${assetResult.missing.join(", ")}`, 400);
+                }
+
+                const now = new Date();
+                const listed = body.listed ?? true;
+
+                const rows = await db
+                    .insert(feeds)
+                    .values({
+                        title: body.topic,
+                        content: "",
+                        summary: "",
+                        ai_summary: "",
+                        ai_summary_status: "idle",
+                        ai_summary_error: "",
+                        ai_compose_status: "pending",
+                        ai_compose_error: "",
+                        uid,
+                        alias: null,
+                        listed: listed ? 1 : 0,
+                        draft: 1,
+                        createdAt: now,
+                        updatedAt: now,
+                    })
+                    .returning({ id: feeds.id, updatedAt: feeds.updatedAt });
+
+                const placeholder = rows[0];
+                if (!placeholder) {
+                    return c.text("Failed to create the placeholder article", 500);
+                }
+
+                const enqueued = await enqueueFeedAICompose(env, {
+                    feedId: placeholder.id,
+                    expectedUpdatedAtUnix: Math.floor(placeholder.updatedAt.getTime() / 1000),
+                    topic: body.topic,
+                    assets: body.assets,
+                    length: normalizeComposeLength(body.length),
+                    style: body.style,
+                    listed,
+                });
+
+                if (!enqueued.ok) {
+                    await db
+                        .update(feeds)
+                        .set(buildStatusUpdate("failed", { ai_compose_error: enqueued.error }))
+                        .where(eq(feeds.id, placeholder.id));
+                    return c.text(enqueued.error, 500);
+                }
+
+                return c.json({ id: placeholder.id, status: "pending" as const }, 202);
+            }),
+            { message: "Permission denied", status: 403 },
+        ),
+    );
+
+    // Deliberately not folded into GET /feed/:id: that route is cached, so a
+    // poller would keep reading a stale snapshot, and it returns the whole row
+    // to every visitor.
+    app.get(
+        "/:id/ai-compose-status",
+        adminOnly(
+            async (c) => {
+                const db = c.get("db");
+                const id = Number.parseInt(c.req.param("id"), 10);
+
+                if (!Number.isFinite(id)) {
+                    return c.text("Invalid id", 400);
+                }
+
+                const feed = await db.query.feeds.findFirst({ where: eq(feeds.id, id) });
+                if (!feed) {
+                    return c.text("Not found", 404);
+                }
+
+                return c.json({
+                    status: feed.ai_compose_status,
+                    error: feed.ai_compose_error,
+                });
+            },
+            { message: "Permission denied", status: 403 },
+        ),
+    );
 }
