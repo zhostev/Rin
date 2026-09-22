@@ -19,10 +19,12 @@ import { FEED_LAYOUT_OPTIONS, normalizeFeedLayout } from "../components/feed-lay
 import { useSiteConfig } from "../hooks/useSiteConfig";
 import { applyThemeColor, normalizeThemeColor } from "../utils/theme-color";
 import { AISummarySettings } from "./settings-ai";
+import { AIWriterSettings } from "./settings-ai-writer";
 import { ItemButton, ItemImageInput, ItemInput, ItemSwitch, ItemTitle, ItemWithUpload } from "./settings-items";
 import {
   areSettingsDraftsEqual,
   buildAIConfigDraftValue,
+  buildAIWriterConfigDraftValue,
   createSettingsConfigWrappers,
   importWordPressFile,
   loadSettingsConfigState,
@@ -61,6 +63,7 @@ export function Settings() {
   const [draft, setDraft] = useState<SettingsDraft>({ clientConfig: {}, serverConfig: {} });
   const [initialDraft, setInitialDraft] = useState<SettingsDraft>({ clientConfig: {}, serverConfig: {} });
   const [hasStoredAiApiKey, setHasStoredAiApiKey] = useState(false);
+  const [hasStoredAiWriterApiKey, setHasStoredAiWriterApiKey] = useState(false);
   const ref = useRef(false);
   const initialDraftRef = useRef<SettingsDraft>({ clientConfig: {}, serverConfig: {} });
   const { showAlert, AlertUI } = useAlert();
@@ -77,6 +80,7 @@ export function Settings() {
         setInitialDraft(state.draft);
         initialDraftRef.current = state.draft;
         setHasStoredAiApiKey(state.hasStoredAiApiKey);
+        setHasStoredAiWriterApiKey(state.hasStoredAiWriterApiKey);
         mergeSessionConfig(state.draft.clientConfig);
         applyThemeColor(getDraftThemeColor(state.draft));
       })
@@ -95,6 +99,10 @@ export function Settings() {
 
   const { clientConfig, serverConfig } = useMemo(() => createSettingsConfigWrappers(draft), [draft]);
   const aiValue = useMemo(() => buildAIConfigDraftValue(draft, hasStoredAiApiKey), [draft, hasStoredAiApiKey]);
+  const aiWriterValue = useMemo(
+    () => buildAIWriterConfigDraftValue(draft, hasStoredAiWriterApiKey),
+    [draft, hasStoredAiWriterApiKey],
+  );
   const hasUnsavedChanges = !areSettingsDraftsEqual(draft, initialDraft);
   const themeColorValue = normalizeThemeColor(String(clientConfig.get("theme.color") ?? "#fc466b"));
   const feedLayoutValue = normalizeFeedLayout(String(clientConfig.get("feed.layout") ?? "list"));
@@ -119,6 +127,7 @@ export function Settings() {
       setInitialDraft(state.draft);
       initialDraftRef.current = state.draft;
       setHasStoredAiApiKey(state.hasStoredAiApiKey || aiValue.apiKey.trim().length > 0);
+      setHasStoredAiWriterApiKey(state.hasStoredAiWriterApiKey || aiWriterValue.apiKey.trim().length > 0);
       mergeSessionConfig(state.draft.clientConfig);
       window.dispatchEvent(new Event("storage"));
       showAlert(t("settings.ai_summary.save_success"));
@@ -644,6 +653,36 @@ export function Settings() {
               }
               if (updates.apiKey !== undefined) {
                 setConfigValue("server", "ai_summary.api_key", updates.apiKey);
+              }
+            }}
+          />
+
+          <AIWriterSettings
+            value={aiWriterValue}
+            onChange={(updates) => {
+              if (updates.enabled !== undefined) {
+                setConfigValue("server", "ai_writer.enabled", updates.enabled);
+              }
+              if (updates.provider !== undefined) {
+                setConfigValue("server", "ai_writer.provider", updates.provider);
+              }
+              if (updates.model !== undefined) {
+                setConfigValue("server", "ai_writer.model", updates.model);
+              }
+              if (updates.apiUrl !== undefined) {
+                setConfigValue("server", "ai_writer.api_url", updates.apiUrl);
+              }
+              if (updates.apiKey !== undefined) {
+                setConfigValue("server", "ai_writer.api_key", updates.apiKey);
+              }
+              if (updates.temperature !== undefined) {
+                setConfigValue("server", "ai_writer.temperature", updates.temperature);
+              }
+              if (updates.maxTokens !== undefined) {
+                setConfigValue("server", "ai_writer.max_tokens", updates.maxTokens);
+              }
+              if (updates.systemPrompt !== undefined) {
+                setConfigValue("server", "ai_writer.system_prompt", updates.systemPrompt);
               }
             }}
           />

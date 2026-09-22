@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { wrapTime } from "hono/timing";
 import type { AppContext } from "../core/hono-types";
 import { adminOnly } from "../core/route-boundaries";
-import { setAIConfig, getAIConfig } from "../utils/db-config";
+import { setAIConfig, getAIConfig, setAIWriterConfig } from "../utils/db-config";
 import { testAIModel } from "../utils/ai";
 import { notify } from "../utils/webhook";
 import {
@@ -282,7 +282,7 @@ export function ConfigService(): Hono {
         const nextServerConfig = body.serverConfig ?? {};
 
         const { regularConfig: regularClientConfig } = splitConfigPayload(nextClientConfig);
-        const { regularConfig: regularServerConfig, aiConfigUpdates } = splitConfigPayload(nextServerConfig);
+        const { regularConfig: regularServerConfig, aiConfigUpdates, aiWriterConfigUpdates } = splitConfigPayload(nextServerConfig);
 
         await Promise.all([
             persistRegularConfig(clientConfig, regularClientConfig),
@@ -291,6 +291,10 @@ export function ConfigService(): Hono {
 
         if (Object.keys(aiConfigUpdates).length > 0) {
             await setAIConfig(serverConfig, aiConfigUpdates);
+        }
+
+        if (Object.keys(aiWriterConfigUpdates).length > 0) {
+            await setAIWriterConfig(serverConfig, aiWriterConfigUpdates);
         }
 
         return c.json(await buildCombinedConfigResponse(clientConfig, serverConfig, env));
@@ -307,15 +311,19 @@ export function ConfigService(): Hono {
         const serverConfig = c.get('serverConfig');
         const clientConfig = c.get('clientConfig');
         const body = await c.req.json();
-        const { regularConfig, aiConfigUpdates } = splitConfigPayload(body);
-        
+        const { regularConfig, aiConfigUpdates, aiWriterConfigUpdates } = splitConfigPayload(body);
+
         const config = type === 'server' ? serverConfig : clientConfig;
         await persistRegularConfig(config, regularConfig);
-        
+
         if (Object.keys(aiConfigUpdates).length > 0) {
             await setAIConfig(serverConfig, aiConfigUpdates);
         }
-        
+
+        if (Object.keys(aiWriterConfigUpdates).length > 0) {
+            await setAIWriterConfig(serverConfig, aiWriterConfigUpdates);
+        }
+
         return c.text('OK');
     }));
 

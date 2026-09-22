@@ -61,6 +61,26 @@
     },
     "title": "AI Summary"
   },
+  "ai_compose": {
+    "title": "AI Compose",
+    "desc": "Give a one-line topic and some material, then generate and publish a full article",
+    "topic_placeholder": "Describe what you want to write in one sentence",
+    "topic_empty": "Please enter a topic first",
+    "style_placeholder": "Style (optional), e.g. calm and restrained, conversational",
+    "submit": "Generate & Publish",
+    "publish_warning": "Once generated, the article is published publicly right away without manual review.",
+    "failed": "Generation failed",
+    "failed_draft_hint": "This draft has been kept so you can open and edit it manually.",
+    "status_failed": "Failed to check generation status",
+    "timeout": "Still generating, check the article list later.",
+    "length": { "short": "Short", "medium": "Medium", "long": "Long" },
+    "phase": { "pending": "Queued…", "processing": "Generating…" },
+    "assets": {
+      "empty": "No media in the library yet",
+      "note_hint": "Add a note to each asset so the model knows where to place it.",
+      "note_placeholder": "What is this asset"
+    }
+  },
   "alert": "Alert",
   "alias": "Alias",
   "analytics": {
@@ -518,6 +538,18 @@
         "testing": "Testing...",
         "http_error$status": "HTTP Error (Status: {{status}})"
       }
+    },
+    "ai_writer": {
+      "title": "AI Writer Settings",
+      "enable": { "title": "Enable AI Writer", "desc": "Allow generating full articles from a topic and material" },
+      "inherit_hint": "Leave provider, model, API key, and API URL blank to inherit them from the AI summary settings.",
+      "provider": { "title": "AI Provider", "desc": "Leave blank to inherit from the AI summary settings" },
+      "model": { "title": "Model", "desc": "Leave blank to inherit from the AI summary settings; a stronger model is recommended for writing" },
+      "api_key": { "title": "API Key", "desc": "Leave blank to inherit from the AI summary settings", "set": "Set", "placeholder_set": "Enter new key to update" },
+      "api_url": { "title": "API URL", "desc": "Leave blank to inherit from the AI summary settings" },
+      "temperature": { "title": "Temperature", "desc": "Higher is more creative, default 0.8" },
+      "max_tokens": { "title": "Max Tokens", "desc": "Upper limit per generation, default 4000" },
+      "system_prompt": { "title": "System Prompt", "desc": "Leave blank to use the built-in Chinese writing prompt" }
     },
     "get_config_failed$message": "Failed to get configuration, {{message}}",
     "import_failed$message": "Import failed, {{message}}",
