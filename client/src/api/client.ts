@@ -28,9 +28,12 @@ import type {
   CreateMomentRequest,
   ConfigType,
   ConfigResponse,
+  AIComposeStatusResponse,
   AIConfig,
   UploadResponse,
   AuthStatus,
+  CreateAIComposeRequest,
+  CreateAIComposeResponse,
   LoginRequest,
   LoginResponse,
   MediaAsset,
@@ -350,6 +353,16 @@ class FeedAPI {
   // POST /api/feed/top/:id
   async setTop(id: number, top: number): Promise<ApiResponse<void>> {
     return this.http.post<void>(`/api/feed/top/${id}`, { top });
+  }
+
+  // POST /api/feed/ai-compose
+  async aiCompose(body: CreateAIComposeRequest): Promise<ApiResponse<CreateAIComposeResponse>> {
+    return this.http.post<CreateAIComposeResponse>("/api/feed/ai-compose", body);
+  }
+
+  // GET /api/feed/:id/ai-compose-status
+  async aiComposeStatus(id: number): Promise<ApiResponse<AIComposeStatusResponse>> {
+    return this.http.get<AIComposeStatusResponse>(`/api/feed/${id}/ai-compose-status`);
   }
 }
 
