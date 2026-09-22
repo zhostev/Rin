@@ -38,6 +38,19 @@ export const feedSetTopSchema = t.Object({
   top: t.Numeric(),
 });
 
+export const feedAIComposeSchema = t.Object({
+  topic: t.String({ minLength: 1 }),
+  assets: t.Array(
+    t.Object({
+      id: t.String({ minLength: 1 }),
+      note: t.String(),
+    }),
+  ),
+  length: t.String({ optional: true }),
+  style: t.String({ optional: true }),
+  listed: t.Boolean({ optional: true }),
+});
+
 // ============================================================================
 // Auth Schemas
 // ============================================================================

@@ -14,6 +14,7 @@ export type SettingsDraft = {
 export type SettingsLoadState = {
   draft: SettingsDraft;
   hasStoredAiApiKey: boolean;
+  hasStoredAiWriterApiKey: boolean;
 };
 
 export const AI_PROVIDER_PRESETS = [
@@ -56,9 +57,14 @@ export function normalizeSettingsState(
   const clientConfig = { ...(data?.clientConfig ?? {}) };
   const serverConfig = { ...(data?.serverConfig ?? {}) };
   const hasStoredAiApiKey = serverConfig["ai_summary.api_key"] === MASKED_SECRET;
+  const hasStoredAiWriterApiKey = serverConfig["ai_writer.api_key"] === MASKED_SECRET;
 
   if (hasStoredAiApiKey) {
     serverConfig["ai_summary.api_key"] = "";
+  }
+
+  if (hasStoredAiWriterApiKey) {
+    serverConfig["ai_writer.api_key"] = "";
   }
 
   return {
@@ -67,6 +73,7 @@ export function normalizeSettingsState(
       serverConfig,
     },
     hasStoredAiApiKey,
+    hasStoredAiWriterApiKey,
   };
 }
 
@@ -196,6 +203,25 @@ export function buildAIConfigDraftValue(
     apiKey: String(serverConfig["ai_summary.api_key"] ?? ""),
     apiKeySet: hasStoredAiApiKey || String(serverConfig["ai_summary.api_key"] ?? "").trim().length > 0,
     apiUrl: String(serverConfig["ai_summary.api_url"] ?? ""),
+  };
+}
+
+export function buildAIWriterConfigDraftValue(
+  draft: SettingsDraft,
+  hasStoredAiWriterApiKey: boolean,
+) {
+  const serverConfig = draft.serverConfig;
+
+  return {
+    enabled: serverConfig["ai_writer.enabled"] === true || serverConfig["ai_writer.enabled"] === "true",
+    provider: String(serverConfig["ai_writer.provider"] ?? ""),
+    model: String(serverConfig["ai_writer.model"] ?? ""),
+    apiKey: String(serverConfig["ai_writer.api_key"] ?? ""),
+    apiKeySet: hasStoredAiWriterApiKey || String(serverConfig["ai_writer.api_key"] ?? "").trim().length > 0,
+    apiUrl: String(serverConfig["ai_writer.api_url"] ?? ""),
+    temperature: Number(serverConfig["ai_writer.temperature"] ?? 0.8),
+    maxTokens: Number(serverConfig["ai_writer.max_tokens"] ?? 4000),
+    systemPrompt: String(serverConfig["ai_writer.system_prompt"] ?? ""),
   };
 }
 

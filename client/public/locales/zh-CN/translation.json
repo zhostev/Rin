@@ -61,6 +61,26 @@
     },
     "title": "AI 总结"
   },
+  "ai_compose": {
+    "title": "AI 写文章",
+    "desc": "给一句话选题和素材，生成整篇文章并直接发布",
+    "topic_placeholder": "一句话说明想写什么",
+    "topic_empty": "请先填写选题",
+    "style_placeholder": "风格（可选），例如：冷静克制、口语化",
+    "submit": "生成并发布",
+    "publish_warning": "生成成功后会直接公开发布，不经人工审阅。",
+    "failed": "生成失败",
+    "failed_draft_hint": "这篇稿子已保留为草稿，可以进去手动修改。",
+    "status_failed": "查询生成状态失败",
+    "timeout": "仍在生成中，稍后到文章列表查看。",
+    "length": { "short": "短", "medium": "中", "long": "长" },
+    "phase": { "pending": "排队中…", "processing": "生成中…" },
+    "assets": {
+      "empty": "媒体库里还没有素材",
+      "note_hint": "给每个素材写一句说明，模型据此决定把它放在哪里。",
+      "note_placeholder": "这个素材是什么"
+    }
+  },
   "alert": "提示",
   "alias": "别名",
   "analytics": {
@@ -518,6 +538,18 @@
         "testing": "正在测试...",
         "http_error$status": "HTTP 错误 (状态码: {{status}})"
       }
+    },
+    "ai_writer": {
+      "title": "AI 写作设置",
+      "enable": { "title": "启用 AI 写作", "desc": "允许通过选题和素材生成整篇文章" },
+      "inherit_hint": "供应商、模型、API Key、API URL 留空则继承 AI 总结设置。",
+      "provider": { "title": "AI 供应商", "desc": "留空继承 AI 总结设置" },
+      "model": { "title": "模型", "desc": "留空继承 AI 总结设置；写文章建议用更强的模型" },
+      "api_key": { "title": "API Key", "desc": "留空继承 AI 总结设置", "set": "已设置", "placeholder_set": "输入新密钥以更新" },
+      "api_url": { "title": "API URL", "desc": "留空继承 AI 总结设置" },
+      "temperature": { "title": "Temperature", "desc": "越高越发散，默认 0.8" },
+      "max_tokens": { "title": "Max Tokens", "desc": "单次生成的上限，默认 4000" },
+      "system_prompt": { "title": "系统提示词", "desc": "留空则使用内置的中文写作提示词" }
     },
     "get_config_failed$message": "获取配置失败，{{message}}",
     "import_failed$message": "导入失败，{{message}}",

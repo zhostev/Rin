@@ -12,6 +12,8 @@ export const feeds = sqliteTable("feeds", {
     ai_summary: text("ai_summary").default("").notNull(),
     ai_summary_status: text("ai_summary_status").default("idle").notNull(),
     ai_summary_error: text("ai_summary_error").default("").notNull(),
+    ai_compose_status: text("ai_compose_status").default("idle").notNull(),
+    ai_compose_error: text("ai_compose_error").default("").notNull(),
     content: text("content").notNull(),
     listed: integer("listed").default(1).notNull(),
     draft: integer("draft").default(1).notNull(),

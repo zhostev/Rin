@@ -61,6 +61,26 @@
     },
     "title": "AI 要約"
   },
+  "ai_compose": {
+    "title": "AI 記事作成",
+    "desc": "一言のテーマと素材を渡すと、記事全体を生成してそのまま公開します",
+    "topic_placeholder": "書きたい内容を一言で説明してください",
+    "topic_empty": "先にテーマを入力してください",
+    "style_placeholder": "文体（任意）例：冷静で抑制的、口語的",
+    "submit": "生成して公開",
+    "publish_warning": "生成が成功すると、人の確認を経ずにそのまま公開されます。",
+    "failed": "生成に失敗しました",
+    "failed_draft_hint": "この原稿は下書きとして保存されています。手動で編集できます。",
+    "status_failed": "生成状態の取得に失敗しました",
+    "timeout": "まだ生成中です。しばらくしてから記事一覧をご確認ください。",
+    "length": { "short": "短い", "medium": "普通", "long": "長い" },
+    "phase": { "pending": "キュー中…", "processing": "生成中…" },
+    "assets": {
+      "empty": "メディアライブラリにまだ素材がありません",
+      "note_hint": "各素材に一言メモを書くと、モデルがそれを基に配置を決めます。",
+      "note_placeholder": "この素材は何ですか"
+    }
+  },
   "alert": "警告",
   "alias": "エイリアス",
   "analytics": {
@@ -518,6 +538,18 @@
         "testing": "テスト中...",
         "http_error$status": "HTTPエラー (ステータス: {{status}})"
       }
+    },
+    "ai_writer": {
+      "title": "AI 執筆設定",
+      "enable": { "title": "AI 執筆を有効にする", "desc": "テーマと素材から記事全体を生成できるようにします" },
+      "inherit_hint": "プロバイダー、モデル、API キー、API URL を空欄にすると AI 要約設定を継承します。",
+      "provider": { "title": "AI プロバイダー", "desc": "空欄にすると AI 要約設定を継承します" },
+      "model": { "title": "モデル", "desc": "空欄にすると AI 要約設定を継承します。執筆にはより高性能なモデルを推奨します" },
+      "api_key": { "title": "API キー", "desc": "空欄にすると AI 要約設定を継承します", "set": "設定済み", "placeholder_set": "新しいキーを入力して更新" },
+      "api_url": { "title": "API URL", "desc": "空欄にすると AI 要約設定を継承します" },
+      "temperature": { "title": "Temperature", "desc": "値が高いほど発散的になります。デフォルトは 0.8" },
+      "max_tokens": { "title": "Max Tokens", "desc": "1回の生成における上限。デフォルトは 4000" },
+      "system_prompt": { "title": "システムプロンプト", "desc": "空欄の場合は組み込みの中国語執筆プロンプトを使用します" }
     },
     "get_config_failed$message": "設定の取得に失敗しました: {{message}}",
     "import_failed$message": "インポートに失敗しました: {{message}}",

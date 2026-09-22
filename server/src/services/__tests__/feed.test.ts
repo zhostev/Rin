@@ -263,7 +263,7 @@ describe('FeedService', () => {
             expect(getRes.status).toBe(200);
             const data = await getRes.json() as any;
             expect(data.ai_summary_status).toBe('pending');
-            expect(data.ai_summary_error).toBe('');
+            expect(data.ai_summary_error).toBeUndefined();
         });
 
         it('should return 404 for non-existent feed', async () => {

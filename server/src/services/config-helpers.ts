@@ -1,5 +1,6 @@
 import {
   AI_CONFIG_KEYS,
+  AI_WRITER_CONFIG_KEYS,
   CLIENT_CONFIG_ENV_DEFAULTS,
   SENSITIVE_SERVER_CONFIG_FIELDS,
   WEBHOOK_URL_KEY,
@@ -86,6 +87,10 @@ export function isAIConfigKey(key: string): boolean {
   return AI_CONFIG_KEYS.some((candidate) => candidate === key) || key.startsWith("ai_summary.");
 }
 
+export function isAIWriterConfigKey(key: string): boolean {
+  return AI_WRITER_CONFIG_KEYS.some((candidate) => candidate === key) || key.startsWith("ai_writer.");
+}
+
 function normalizeOptionalString(value: unknown) {
   if (typeof value !== "string") {
     return undefined;
@@ -149,16 +154,19 @@ export async function resolveWebhookConfig(
 export function splitConfigPayload(body: Record<string, unknown>) {
   const regularConfig: Record<string, unknown> = {};
   const aiConfigUpdates: Record<string, unknown> = {};
+  const aiWriterConfigUpdates: Record<string, unknown> = {};
 
   for (const key in body) {
-    if (isAIConfigKey(key)) {
+    if (isAIWriterConfigKey(key)) {
+      aiWriterConfigUpdates[key.replace("ai_writer.", "")] = body[key];
+    } else if (isAIConfigKey(key)) {
       aiConfigUpdates[key.replace("ai_summary.", "")] = body[key];
     } else {
       regularConfig[key] = body[key];
     }
   }
 
-  return { regularConfig, aiConfigUpdates };
+  return { regularConfig, aiConfigUpdates, aiWriterConfigUpdates };
 }
 
 export async function persistRegularConfig(

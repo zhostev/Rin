@@ -13,6 +13,7 @@ import {useSiteConfig} from "../hooks/useSiteConfig";
 import {siteName} from "../utils/constants";
 import mermaid from 'mermaid';
 import { MarkdownEditor } from '../components/markdown_editor';
+import { AIComposePanel } from './writing-ai-compose';
 
 async function publish({
   title,
@@ -334,6 +335,7 @@ export function WritingPage({ id }: { id?: number }) {
         <meta property="og:url" content={document.URL} />
       </Helmet>
       <div className="mt-2 flex flex-col gap-4 t-primary sm:gap-6">
+        {id === undefined && <AIComposePanel />}
         {MetaInput({ className: "p-4 sm:p-5 md:p-6" })}
 
         <FlatPanel className="overflow-hidden p-0">
