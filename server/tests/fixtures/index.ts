@@ -45,6 +45,8 @@ export function createMockDB() {
             feed_id INTEGER,
             moment_id INTEGER,
             provider TEXT DEFAULT 'r2' NOT NULL,
+            stream_uid TEXT,
+            playback_url TEXT,
             type TEXT NOT NULL,
             object_key TEXT NOT NULL UNIQUE,
             mime_type TEXT NOT NULL,

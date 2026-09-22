@@ -118,6 +118,21 @@ describe("POST /ai-compose", () => {
     expect(res.status).toBe(202);
     expect(sent[0].payload.length).toBe("medium");
   });
+
+  it("marks the placeholder failed and returns 500 when enqueueing fails", async () => {
+    const res = await buildApp({
+      admin: true,
+      onSend: () => {
+        throw new Error("queue unavailable");
+      },
+    }).request("/ai-compose", {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(500);
+  });
 });
 
 describe("GET /:id/ai-compose-status", () => {
