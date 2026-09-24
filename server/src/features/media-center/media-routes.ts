@@ -21,7 +21,7 @@
 import { Hono } from "hono";
 import type { AppContext, Variables } from "../../core/hono-types";
 import { serializeMediaAsset, loadLinkedAssetRows } from "../media/asset";
-import type { MediaAssetRow } from "../media/repository";
+import { findMediaAssetById, type MediaAssetRow } from "../media/repository";
 import { parseOptionalInteger, parsePositiveInteger, parseUpdatedFlag } from "./params";
 import {
     buildAssetStoryMap,
@@ -188,6 +188,37 @@ export function MediaCenterService(): HonoApp {
         const pageData = data.slice(offset, offset + limit);
 
         return c.json({ size, data: pageData, hasNext: offset + limit < size });
+    });
+
+    // GET /media/:id/playback（公开，无需登录）
+    // 前端 media-embed 组件与 AI 写作生成的媒体引用统一指向这里；
+    // 按资产来源 302 跳转到实际可播放地址（R2 走 /api/blob，Stream 走
+    // HLS manifest，Cloudflare Images 走 variants URL）。浏览器跟随跳转，
+    // Range 续播不受影响。
+    app.get("/:id/playback", async (c) => {
+        const db = c.get("db");
+        const id = Number(c.req.param("id"));
+        if (!Number.isInteger(id) || id <= 0) {
+            return errorJson(c, "media_invalid_id", "id must be a positive integer", 400);
+        }
+        const row = await findMediaAssetById(db, id);
+        if (!row) {
+            return c.json(
+                { success: false, error: { code: "NOT_FOUND", message: `Media asset ${id} not found` } },
+                404,
+            );
+        }
+        const wire = serializeMediaAsset(row);
+        if (wire.url) {
+            return c.redirect(wire.url, 302);
+        }
+        return c.json(
+            {
+                success: false,
+                error: { code: "MEDIA_NOT_PLAYABLE", message: `Media asset ${id} has no playback URL` },
+            },
+            404,
+        );
     });
 
     return app;
