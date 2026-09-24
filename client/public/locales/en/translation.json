@@ -722,6 +722,7 @@
   "update$sth": "Update {{sth}}",
   "upload": {
     "failed": "Upload failed",
+    "failed$step": "Upload failed ({{step}}, status {{status}})",
     "failed$size": "Upload failed, file size cannot exceed {{size}} MB",
     "failed$sizeGB": "Upload failed, file size cannot exceed {{size}} GB",
     "image": {

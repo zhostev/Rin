@@ -722,6 +722,7 @@
   "update$sth": "更新 {{sth}}",
   "upload": {
     "failed": "上传失败",
+    "failed$step": "上传失败（{{step}}，状态码 {{status}}）",
     "failed$size": "上传失败，文件大小不能超过 {{size}} MB",
     "failed$sizeGB": "上传失败，文件大小不能超过 {{size}} GB",
     "image": {

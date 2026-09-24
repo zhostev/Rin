@@ -106,8 +106,16 @@ export async function uploadR2DirectFile(
     ...(typeof height === "number" ? { height } : {}),
   });
   if (minted.error || !minted.data?.uploadURL) {
+    const status = minted.error?.status ?? "?";
+    const code =
+      typeof minted.error?.value === "object" && minted.error?.value !== null
+        ? (minted.error.value as { code?: string }).code
+        : undefined;
     throw httpStatusError(
-      typeof minted.error?.value === "string" ? minted.error.value : t("upload.failed"),
+      t("upload.failed$step", {
+        step: code ? `direct-upload:${code}` : "direct-upload",
+        status,
+      }),
       minted.error?.status,
     );
   }
@@ -131,15 +139,23 @@ export async function uploadR2DirectFile(
   }
   if (putStatus < 200 || putStatus >= 300) {
     await client.media.remove(assetId).catch(() => {});
-    throw new Error(t("upload.failed"));
+    throw new Error(t("upload.failed$step", { step: "r2-put", status: putStatus }));
   }
 
   // 3. complete: backend HEADs the object and marks the asset ready
   const completed = await client.media.completeR2DirectUpload(assetId);
   if (completed.error || !completed.data) {
     await client.media.remove(assetId).catch(() => {});
+    const status = completed.error?.status ?? "?";
+    const code =
+      typeof completed.error?.value === "object" && completed.error?.value !== null
+        ? (completed.error.value as { code?: string }).code
+        : undefined;
     throw httpStatusError(
-      typeof completed.error?.value === "string" ? completed.error.value : t("upload.failed"),
+      t("upload.failed$step", {
+        step: code ? `complete:${code}` : "complete",
+        status,
+      }),
       completed.error?.status,
     );
   }

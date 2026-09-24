@@ -713,6 +713,7 @@
   "update$sth": "{{sth}} を更新",
   "upload": {
     "failed": "アップロードに失敗しました",
+    "failed$step": "アップロードに失敗しました（{{step}}、ステータス {{status}}）",
     "failed$size": "アップロードに失敗しました。ファイルサイズは{{size}} MBを超えてはなりません",
     "failed$sizeGB": "アップロードに失敗しました。ファイルサイズは {{size}} GB 以下にしてください",
     "image": {
