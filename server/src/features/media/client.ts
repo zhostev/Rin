@@ -63,6 +63,12 @@ export async function cfRequest<T>(
     void _accountId;
     const url = `${CLOUDFLARE_API_BASE}${path}`;
 
+    // 空对象 body（如 direct_upload 无参调用）按无 body 发送：
+    // Cloudflare 部分接口对 "{}" JSON 体返回 415。
+    const isEmptyBody = body === undefined
+        || (typeof body === "object" && body !== null && Object.keys(body).length === 0);
+    const payload = isEmptyBody ? undefined : JSON.stringify(body);
+
     let response: Response;
     try {
         response = await fetchImpl(url, {
@@ -71,7 +77,7 @@ export async function cfRequest<T>(
                 Authorization: `Bearer ${token}`,
                 "Content-Type": "application/json",
             },
-            body: body === undefined ? undefined : JSON.stringify(body),
+            body: payload,
         });
     } catch (error) {
         // 网络层失败（DNS/超时/连接拒绝）：不抛裸异常
