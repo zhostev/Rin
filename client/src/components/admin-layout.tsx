@@ -64,12 +64,14 @@ export function AdminLayout({
               </p>
               <div className="mt-3 flex flex-col gap-2">
                 <AdminNavItem href="/admin/writing" icon="ri-quill-pen-line" label={t("writing")} />
-                <AdminNavItem href="/admin/media" icon="ri-film-line" label={t("media.title")} />
+                <AdminNavItem href="/admin/stories" icon="ri-book-open-line" label={t("story.nav.stories")} />
+                <AdminNavItem href="/admin/media" icon="ri-image-2-line" label={t("story.nav.media")} />
+                <AdminNavItem href="/admin/series" icon="ri-stack-line" label={t("story.nav.series")} />
+                <AdminNavItem href="/admin/ai-studio" icon="ri-sparkling-2-line" label={t("story.nav.ai_studio")} />
+                <AdminNavItem href="/admin/maintenance" icon="ri-tools-line" label={t("story.nav.maintenance")} />
                 <AdminNavItem href="/admin/settings" icon="ri-settings-3-line" label={t("settings.title")} />
                 <AdminNavItem href="/admin/health" icon="ri-heart-pulse-line" label={t("health.title")} />
                 <AdminNavItem href="/admin/queue-status" icon="ri-todo-line" label={t("queue_status.title")} />
-                <AdminNavItem href="/admin/analytics" icon="ri-bar-chart-line" label={t("analytics.title")} />
-                <AdminNavItem href="/admin/reports" icon="ri-file-chart-line" label={t("reports.title")} />
                 <AdminNavItem href="/admin/compat-tasks" icon="ri-history-line" label={t("compat_tasks.title")} />
               </div>
             </div>

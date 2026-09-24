@@ -38,17 +38,38 @@ export const feedSetTopSchema = t.Object({
   top: t.Numeric(),
 });
 
-export const feedAIComposeSchema = t.Object({
-  topic: t.String({ minLength: 1 }),
-  assets: t.Array(
-    t.Object({
-      id: t.String({ minLength: 1 }),
-      note: t.String(),
-    }),
-  ),
-  length: t.String({ optional: true }),
-  style: t.String({ optional: true }),
-  listed: t.Boolean({ optional: true }),
+// ============================================================================
+// Story Schemas (Stage 1 · 统一内容对象)
+// ============================================================================
+
+export const contentBlockInputSchema = t.Object({
+  type: t.String({ minLength: 1 }),
+  position: t.Integer({ optional: true }),
+  payload: t.Optional(t.Object({})),
+  revision: t.Integer({ optional: true }),
+});
+
+export const storyCreateSchema = t.Object({
+  slug: t.String({ minLength: 1 }),
+  title: t.String({ optional: true }),
+  status: t.String({ optional: true }),
+  summary: t.String({ optional: true }),
+  coverAssetId: t.Integer({ optional: true }),
+  feedId: t.Integer({ optional: true }),
+  publishedAt: t.Date({ optional: true }),
+  blocks: t.Array(contentBlockInputSchema, { optional: true }),
+});
+
+export const storyUpdateSchema = t.Object({
+  slug: t.String({ optional: true }),
+  title: t.String({ optional: true }),
+  status: t.String({ optional: true }),
+  summary: t.String({ optional: true }),
+  coverAssetId: t.Integer({ optional: true }),
+  feedId: t.Integer({ optional: true }),
+  publishedAt: t.Date({ optional: true }),
+  verifiedAt: t.Date({ optional: true }),
+  blocks: t.Array(contentBlockInputSchema, { optional: true }),
 });
 
 // ============================================================================

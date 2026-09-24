@@ -3,6 +3,7 @@
 
 import { getAuthToken } from "../utils/auth";
 import { endpoint } from "../config";
+import { StoryAPI } from "./story";
 
 // Import shared types
 import type {
@@ -28,26 +29,11 @@ import type {
   CreateMomentRequest,
   ConfigType,
   ConfigResponse,
-  AIComposeStatusResponse,
   AIConfig,
   UploadResponse,
   AuthStatus,
-  CreateAIComposeRequest,
-  CreateAIComposeResponse,
   LoginRequest,
   LoginResponse,
-  MediaAsset,
-  MediaLibraryResponse,
-  AnalyticsDimensionType,
-  AnalyticsDimensionsResponse,
-  AnalyticsLiveResponse,
-  AnalyticsOverview,
-  AnalyticsTopFeedsResponse,
-  AnalyticsVisitsResponse,
-  CreateFinanceTransactionRequest,
-  CreateSharingReportRequest,
-  FinanceTransaction,
-  SharingReport,
 } from "@rin/api";
 
 export interface SettingsConfigResponse {
@@ -170,22 +156,6 @@ export type {
   AuthStatus,
   LoginRequest,
   LoginResponse,
-  MediaAsset,
-  MediaLibraryResponse,
-  AnalyticsDimensionItem,
-  AnalyticsDimensionType,
-  AnalyticsDimensionsResponse,
-  AnalyticsLiveTotals,
-  AnalyticsLiveResponse,
-  AnalyticsOverview,
-  AnalyticsTopFeed,
-  AnalyticsTopFeedsResponse,
-  AnalyticsVisit,
-  AnalyticsVisitsResponse,
-  CreateFinanceTransactionRequest,
-  CreateSharingReportRequest,
-  FinanceTransaction,
-  SharingReport,
 } from "@rin/api";
 
 
@@ -354,16 +324,6 @@ class FeedAPI {
   async setTop(id: number, top: number): Promise<ApiResponse<void>> {
     return this.http.post<void>(`/api/feed/top/${id}`, { top });
   }
-
-  // POST /api/feed/ai-compose
-  async aiCompose(body: CreateAIComposeRequest): Promise<ApiResponse<CreateAIComposeResponse>> {
-    return this.http.post<CreateAIComposeResponse>("/api/feed/ai-compose", body);
-  }
-
-  // GET /api/feed/:id/ai-compose-status
-  async aiComposeStatus(id: number): Promise<ApiResponse<AIComposeStatusResponse>> {
-    return this.http.get<AIComposeStatusResponse>(`/api/feed/${id}/ai-compose-status`);
-  }
 }
 
 /**
@@ -492,52 +452,6 @@ class MomentsAPI {
 }
 
 /**
- * Media API methods
- */
-class MediaAPI {
-  constructor(private http: HttpClient) {}
-
-  // POST /api/media
-  async upload(file: File): Promise<ApiResponse<MediaAsset>> {
-    const formData = new FormData();
-    formData.append("file", file);
-    return this.http.post<MediaAsset>("/api/media", formData);
-  }
-
-  // POST /api/media/stream/upload — provisions a TUS URL for 100MB–1GB Stream videos
-  async createStreamUpload(
-    fileName: string,
-    fileSize: number,
-    maxDurationSeconds = 3600,
-  ): Promise<ApiResponse<{ asset: MediaAsset; uploadUrl: string; protocol: "tus" }>> {
-    return this.http.post<{ asset: MediaAsset; uploadUrl: string; protocol: "tus" }>("/api/media/stream/upload", {
-      fileName,
-      fileSize,
-      maxDurationSeconds,
-    });
-  }
-
-  // GET /api/media/:id
-  async get(id: string): Promise<ApiResponse<MediaAsset>> {
-    return this.http.get<MediaAsset>(`/api/media/${encodeURIComponent(id)}`);
-  }
-
-  // GET /api/media
-  async list(params?: { page?: number; limit?: number }): Promise<ApiResponse<MediaLibraryResponse>> {
-    const searchParams = new URLSearchParams();
-    if (params?.page) searchParams.set("page", params.page.toString());
-    if (params?.limit) searchParams.set("limit", params.limit.toString());
-    const query = searchParams.toString();
-    return this.http.get<MediaLibraryResponse>(`/api/media${query ? `?${query}` : ""}`);
-  }
-
-  // DELETE /api/media/:id
-  async delete(id: string): Promise<ApiResponse<void>> {
-    return this.http.delete<void>(`/api/media/${encodeURIComponent(id)}`);
-  }
-}
-
-/**
  * Config API methods
  */
 class ConfigAPI {
@@ -622,74 +536,6 @@ class ConfigAPI {
     test_message?: string;
   }): Promise<ApiResponse<{ success: boolean; error?: string; details?: string }>> {
     return this.http.post("/api/config/test-webhook", body);
-  }
-}
-
-/**
- * Analytics API methods (admin only)
- */
-class AnalyticsAPI {
-  constructor(private http: HttpClient) {}
-
-  // GET /api/analytics/overview
-  async getOverview(days = 30): Promise<ApiResponse<AnalyticsOverview>> {
-    return this.http.get<AnalyticsOverview>(`/api/analytics/overview?days=${days}`);
-  }
-
-  // GET /api/analytics/top-feeds
-  async getTopFeeds(days = 30, limit = 20): Promise<ApiResponse<AnalyticsTopFeedsResponse>> {
-    return this.http.get<AnalyticsTopFeedsResponse>(`/api/analytics/top-feeds?days=${days}&limit=${limit}`);
-  }
-
-  // GET /api/analytics/dimensions
-  async getDimensions(
-    type: AnalyticsDimensionType,
-    days = 30,
-  ): Promise<ApiResponse<AnalyticsDimensionsResponse>> {
-    return this.http.get<AnalyticsDimensionsResponse>(`/api/analytics/dimensions?type=${type}&days=${days}`);
-  }
-
-  // GET /api/analytics/live
-  // GET /api/analytics/live —— 站点级 UTC 当日累计；同时带「昨天同一时刻」的累计供环比
-  async getLive(): Promise<ApiResponse<AnalyticsLiveResponse>> {
-    return this.http.get<AnalyticsLiveResponse>("/api/analytics/live");
-  }
-
-  // GET /api/analytics/visits
-  async getVisits(limit = 100): Promise<ApiResponse<AnalyticsVisitsResponse>> {
-    return this.http.get<AnalyticsVisitsResponse>(`/api/analytics/visits?limit=${limit}`);
-  }
-}
-
-class ReportsAPI {
-  constructor(private http: HttpClient) {}
-
-  async list(): Promise<ApiResponse<SharingReport[]>> {
-    return this.http.get<SharingReport[]>("/api/reports");
-  }
-
-  async create(body: CreateSharingReportRequest): Promise<ApiResponse<SharingReport>> {
-    return this.http.post<SharingReport>("/api/reports", body);
-  }
-
-  async detail(id: number): Promise<ApiResponse<{ report: SharingReport; transactions: FinanceTransaction[] }>> {
-    return this.http.get<{ report: SharingReport; transactions: FinanceTransaction[] }>(`/api/reports/${id}`);
-  }
-
-  async getPublished(slug: string): Promise<ApiResponse<SharingReport>> {
-    return this.http.get<SharingReport>(`/api/reports/published/${encodeURIComponent(slug)}`);
-  }
-
-  async snapshot(id: number): Promise<ApiResponse<SharingReport>> {
-    return this.http.post<SharingReport>(`/api/reports/${id}/snapshot`, {});
-  }
-
-  async update(id: number, body: Partial<CreateSharingReportRequest> & { status?: "draft" | "published" }): Promise<ApiResponse<SharingReport>> {
-    return this.http.patch<SharingReport>(`/api/reports/${id}`, body);
-  }
-
-  async createTransaction(body: CreateFinanceTransactionRequest): Promise<ApiResponse<FinanceTransaction>> {
-    return this.http.post<FinanceTransaction>("/api/reports/transactions", body);
   }
 }
 
@@ -812,13 +658,11 @@ export class ApiClient {
   user: UserAPI;
   friend: FriendAPI;
   moments: MomentsAPI;
-  media: MediaAPI;
   config: ConfigAPI;
-  analytics: AnalyticsAPI;
-  reports: ReportsAPI;
   aiConfig: AIConfigAPI;
   storage: StorageAPI;
   search: SearchAPI;
+  story: StoryAPI;
   auth: AuthAPI;
   wp: WordPressAPI;
   rss: RSSAPI;
@@ -831,13 +675,11 @@ export class ApiClient {
     this.user = new UserAPI(this.http);
     this.friend = new FriendAPI(this.http);
     this.moments = new MomentsAPI(this.http);
-    this.media = new MediaAPI(this.http);
     this.config = new ConfigAPI(this.http);
-    this.analytics = new AnalyticsAPI(this.http);
-    this.reports = new ReportsAPI(this.http);
     this.aiConfig = new AIConfigAPI(this.http);
     this.storage = new StorageAPI(this.http);
     this.search = new SearchAPI(this.http);
+    this.story = new StoryAPI(this.http);
     this.auth = new AuthAPI(this.http);
     this.wp = new WordPressAPI(this.http);
     this.rss = new RSSAPI(baseUrl);

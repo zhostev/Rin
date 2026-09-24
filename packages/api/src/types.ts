@@ -105,6 +105,138 @@ export interface AdjacentFeedResponse {
 }
 
 // ============================================================================
+// Story Types (Stage 1 · 统一内容对象)
+// ============================================================================
+
+/** stories.status 允许的取值 */
+export type StoryStatus = 'draft' | 'scheduled' | 'published' | 'updated' | 'archived';
+
+export const STORY_STATUSES: StoryStatus[] = ['draft', 'scheduled', 'published', 'updated', 'archived'];
+
+/** content_blocks.type 允许的取值 */
+export type ContentBlockType =
+  | 'rich_text'
+  | 'quote'
+  | 'code'
+  | 'callout'
+  | 'image'
+  | 'gallery'
+  | 'video'
+  | 'audio'
+  | 'attachment'
+  | 'divider'
+  | 'cta';
+
+export const CONTENT_BLOCK_TYPES: ContentBlockType[] = [
+  'rich_text', 'quote', 'code', 'callout', 'image', 'gallery',
+  'video', 'audio', 'attachment', 'divider', 'cta',
+];
+
+/** media_assets.kind 允许的取值 */
+export type MediaAssetKind = 'image' | 'video' | 'audio' | 'gallery' | 'attachment';
+
+/** media_assets.source 允许的取值 */
+export type MediaAssetSource = 'r2' | 'stream' | 'external';
+
+/** story_relations.relation_type 允许的取值 */
+export type StoryRelationType = 'prev_next' | 'related' | 'supersedes' | 'cites' | 'derives';
+
+export interface ContentBlock {
+  id: number;
+  storyId: number;
+  type: ContentBlockType;
+  position: number;
+  /** JSON 字符串；按 type 解析（如 rich_text -> { markdown }） */
+  payloadJson: string;
+  revision: number;
+}
+
+/** 新建/更新内容块时的输入（payload 为对象，服务端负责序列化） */
+export interface ContentBlockInput {
+  type: ContentBlockType;
+  position?: number;
+  payload?: Record<string, unknown>;
+  revision?: number;
+}
+
+export interface Story {
+  id: number;
+  slug: string;
+  title: string | null;
+  status: StoryStatus;
+  summary: string;
+  coverAssetId: number | null;
+  /** post-to-story 映射键：非空表示该 story 映射自旧 feeds 行 */
+  feedId: number | null;
+  publishedAt: string | null;
+  updatedAt: string;
+  verifiedAt: string | null;
+  blocks: ContentBlock[];
+  /** 读取时 fallback 合成：命中 feeds.alias 而非 stories.slug */
+  fromLegacyFeed?: boolean;
+}
+
+export interface StoryListResponse {
+  size: number;
+  data: Story[];
+  hasNext: boolean;
+}
+
+export interface CreateStoryRequest {
+  slug: string;
+  title?: string;
+  status?: StoryStatus;
+  summary?: string;
+  coverAssetId?: number;
+  feedId?: number;
+  publishedAt?: string;
+  blocks?: ContentBlockInput[];
+}
+
+export interface UpdateStoryRequest {
+  slug?: string;
+  title?: string;
+  status?: StoryStatus;
+  summary?: string;
+  coverAssetId?: number;
+  feedId?: number;
+  publishedAt?: string;
+  verifiedAt?: string;
+  /** 传入时整体替换该 story 的内容块 */
+  blocks?: ContentBlockInput[];
+}
+
+export interface MediaAsset {
+  id: number;
+  kind: MediaAssetKind;
+  source: MediaAssetSource;
+  r2Key: string | null;
+  /** Cloudflare Stream UID（阶段 2 启用） */
+  streamUid: string | null;
+  mime: string;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  altText: string | null;
+}
+
+export interface Transcript {
+  id: number;
+  assetId: number;
+  language: string;
+  text: string;
+  segmentsJson: string;
+  status: string;
+}
+
+export interface Series {
+  id: number;
+  slug: string;
+  title: string | null;
+  summary: string;
+}
+
+// ============================================================================
 // User Types
 // ============================================================================
 
@@ -178,16 +310,6 @@ export interface Comment {
   guestEmail?: string;
   /** 游客评论的网站 */
   guestWebsite?: string;
-  /** 归属地标签，如 `江苏省·南京市` */
-  location?: string | null;
-  /** 归属地国家 */
-  country?: string | null;
-  /** 归属地省份（仅国内有值） */
-  province?: string | null;
-  /** 归属地城市（仅国内有值） */
-  city?: string | null;
-  /** 原始 IP，仅管理员请求评论列表时返回 */
-  ip?: string | null;
   /** 审核状态 */
   approved: boolean;
 }
@@ -261,33 +383,6 @@ export interface CreateMomentRequest {
   content: string;
 }
 
-// ============================================================================
-// Media Types
-// ============================================================================
-
-export type MediaType = "audio" | "video" | "image";
-
-export interface MediaAsset {
-  id: string;
-  provider: "r2" | "stream";
-  type: MediaType;
-  mimeType: string;
-  fileSize: number;
-  status: "uploading" | "processing" | "ready" | "failed";
-  playbackUrl: string;
-  createdAt: string;
-  feedId?: number | null;
-  feedTitle?: string | null;
-  momentId?: number | null;
-  streamUid?: string | null;
-}
-
-export interface MediaLibraryResponse {
-  size: number;
-  data: MediaAsset[];
-  hasNext: boolean;
-}
-
 export interface MomentListResponse {
   data: Moment[];
   hasNext: boolean;
@@ -313,49 +408,6 @@ export interface AIConfig {
   model: string;
   api_key: string;
   api_url: string;
-}
-
-export type ComposeLength = "short" | "medium" | "long";
-
-export interface AIWriterConfig {
-  enabled: boolean;
-  provider: string;
-  model: string;
-  api_key: string;
-  api_url: string;
-  temperature: number;
-  max_tokens: number;
-  system_prompt: string;
-}
-
-export interface ComposeAssetInput {
-  id: string;
-  note: string;
-}
-
-export interface CreateAIComposeRequest {
-  topic: string;
-  assets: ComposeAssetInput[];
-  length?: ComposeLength;
-  style?: string;
-  listed?: boolean;
-}
-
-export type AIComposeStatus =
-  | "idle"
-  | "pending"
-  | "processing"
-  | "completed"
-  | "failed";
-
-export interface AIComposeStatusResponse {
-  status: AIComposeStatus;
-  error: string;
-}
-
-export interface CreateAIComposeResponse {
-  id: number;
-  status: AIComposeStatus;
 }
 
 // ============================================================================
@@ -453,158 +505,18 @@ export const API_PATHS = {
   // WordPress
   WP_IMPORT: '/wp',
 
+  // Story (Stage 1 · 统一内容对象)
+  // 公开读：先查 stories.slug，不存在则 fallback 到 feeds.alias 合成视图
+  STORY_GET: (slug: string) => `/api/story/${encodeURIComponent(slug)}`,
+  // 管理端：CRUD 全部要求 admin
+  STORY_ADMIN_LIST: '/api/admin/stories',
+  STORY_ADMIN_CREATE: '/api/admin/stories',
+  STORY_ADMIN_GET: (id: number) => `/api/admin/stories/${id}`,
+  STORY_ADMIN_UPDATE: (id: number) => `/api/admin/stories/${id}`,
+  STORY_ADMIN_DELETE: (id: number) => `/api/admin/stories/${id}`,
+
   // RSS
   RSS_GET: (name: string) => `/${encodeURIComponent(name)}`,
 } as const;
 
 export type APIEndpoint = typeof API_PATHS;
-
-// Analytics
-export type AnalyticsDimensionType = "referrer" | "country" | "device";
-export interface AnalyticsDailyPoint { date: string; pv: number; uv: number; }
-export interface AnalyticsOverview {
-    range: { days: number; from: string; to: string };
-    totals: { pv: number; uv: number; uvApproximate: boolean };
-    today: AnalyticsDailyPoint;
-    yesterday: AnalyticsDailyPoint;
-    series: AnalyticsDailyPoint[];
-    /**
-     * 紧邻当前区间之前的等长窗口，供区间卡做环比。
-     *
-     * 长度对齐的是当前区间里**已完结**的天数（cron 从不聚合当天，所以当前区间
-     * 的最后一天在 analytics_daily 里恒为 0）。以 days=30、今天 2026-09-20 为例：
-     * 当前区间 2026-08-22..2026-09-20 里有 29 天完整数据，previous 即
-     * 2026-07-24..2026-08-21，同样 29 天且全部完整——两侧口径一致，
-     * 不会因为当前区间含一个空当天而系统性显示下降。
-     */
-    previous: { from: string; to: string; pv: number; uv: number };
-}
-export interface AnalyticsTopFeed { feedId: number; title: string | null; pv: number; uv: number; }
-export interface AnalyticsTopFeedsResponse { items: AnalyticsTopFeed[]; }
-export interface AnalyticsDimensionItem { value: string; count: number; }
-export interface AnalyticsDimensionsResponse { type: AnalyticsDimensionType; items: AnalyticsDimensionItem[]; }
-export interface AnalyticsLiveTotals { pv: number; uv: number; }
-
-/**
- * GET /api/analytics/live —— 唯一直接查 Analytics Engine 的端点。
- *
- * 刻意做成「站点级 UTC 当日累计」，而不是「按文章分组的滚动 24 小时」：
- * 后者同时踩三个坑 —— ①挂在「今日」卡上标签就是错的（滚动窗口横跨两个 UTC 日）；
- * ②环比要除以昨天一整天，两个窗口根本不可比；③把每篇文章各自的基数去重值相加，
- * 同一个人读两篇会被算两次，而且会被 LIMIT 20 截断。
- */
-export interface AnalyticsLiveResponse {
-    available: boolean;
-    /** UTC 当天的日期（YYYY-MM-DD）。 */
-    date: string;
-    /** 站点级：UTC 当天 00:00 起的累计。 */
-    totals: AnalyticsLiveTotals;
-    /** 站点级：昨天「同一已过小时数」之前的累计 —— 与 totals 窗口对齐，环比才有意义。 */
-    yesterday: AnalyticsLiveTotals;
-    /** UV 来自 AE 的基数估算，不是精确去重。 */
-    uvApproximate: true;
-    /** 已过的 UTC 小时数（0–23），用于说明比较窗口。 */
-    elapsedHours: number;
-}
-
-export interface AnalyticsVisit {
-    /**
-     * ISO 8601，UTC。
-     *
-     * Analytics Engine 的 SQL API 返回的时间戳格式不保证是 ISO（可能是
-     * `YYYY-MM-DD HH:MM:SS`），而客户端要用 `new Date(ts)` 解析。**服务端负责
-     * 归一化成 ISO 再返回**，不要把原始格式透传给前端 —— Safari 对非 ISO 字符串
-     * 的 Date 解析行为与 Chrome 不一致，透传会变成只在部分浏览器出现的空白时间列。
-     */
-    timestamp: string;
-    feedId: number;
-    title: string | null;
-    path: string;
-    /** referrer host，或 "direct"。 */
-    referrer: string;
-    country: string;
-    city: string;
-    device: string;
-    /** 访客指纹前缀，用于肉眼识别同一访客。 */
-    visitor: string;
-    /** 本次改动前写入的数据点为空字符串。 */
-    ip: string;
-}
-
-export interface AnalyticsVisitsResponse {
-    available: boolean;
-    items: AnalyticsVisit[];
-    /** 任意一行 _sample_interval > 1 即为 true：列表不完整。 */
-    sampled: boolean;
-}
-
-export type FinanceTransactionType = "donation" | "expense";
-export type ReportStatus = "draft" | "published";
-
-export interface FinanceTransaction {
-    id: number;
-    reportId: number | null;
-    type: FinanceTransactionType;
-    category: string;
-    title: string;
-    description: string;
-    amount: number;
-    currency: string;
-    occurredAt: string;
-    receiptUrl: string;
-    isAnonymous: boolean;
-    status: "confirmed" | "voided";
-}
-
-export interface FinanceSummary {
-    donationTotal: number;
-    expenseTotal: number;
-    balance: number;
-    donationCount: number;
-    expenseCount: number;
-    byCategory: Array<{ category: string; amount: number }>;
-}
-
-export interface SharingReportMetrics {
-    imageReferences: number;
-    publishedArticles: number;
-    pageViews: number;
-    storageBytes: number;
-}
-
-export interface SharingReport {
-    id: number;
-    slug: string;
-    title: string;
-    periodStart: string;
-    periodEnd: string;
-    goals: string;
-    summary: string;
-    status: ReportStatus;
-    metrics: SharingReportMetrics;
-    finance: FinanceSummary;
-    publishedAt: string | null;
-    createdAt: string;
-    updatedAt: string;
-}
-
-export interface CreateSharingReportRequest {
-    title: string;
-    periodStart: string;
-    periodEnd: string;
-    goals?: string;
-    summary?: string;
-}
-
-export interface CreateFinanceTransactionRequest {
-    type: FinanceTransactionType;
-    category: string;
-    title: string;
-    description?: string;
-    amount: number;
-    currency?: string;
-    occurredAt: string;
-    receiptUrl?: string;
-    isAnonymous?: boolean;
-    reportId?: number | null;
-}

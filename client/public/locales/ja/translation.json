@@ -4,7 +4,6 @@
     "title": "概要"
   },
   "admin": {
-    "analytics_description": "サイトのアクセス推移、人気記事、参照元・地域・デバイスの内訳を確認します。",
     "back_to_site": "サイトに戻る",
     "compat_tasks_description": "過去記事向けの AI 要約と画像 blurhash メタデータを一括補完する互換タスクを実行します。",
     "health_description": "必須設定、未構成の連携、動作に影響するリスクを確認します。",
@@ -12,8 +11,11 @@
     "settings_description": "サイトの挙動、連携設定、公開ルールを一か所で管理します。",
     "title": "管理画面",
     "writing_description": "非公開の管理ワークスペースから記事を作成、編集、公開します。",
-    "media_description": "記事で使用している音声と動画を管理し、参照中のメディアを誤って削除しないようにします。",
-    "reports_description": "共有画像プロジェクトの寄付、支出、成果をまとめた期間レポートを作成します。"
+    "stories_description": "コンテンツパッケージの作成と管理：1つの永続アドレス配下のテキスト・動画・音声ブロック。",
+    "media_description": "アップロード済みメディアアセットの閲覧と管理。（ステージ2で実装）",
+    "series_description": "ストーリーをシリーズやコレクションに整理。（ステージ2で実装）",
+    "ai_studio_description": "AIによる文字起こし・要約・派生コンテンツ。（ステージ4で実装）",
+    "maintenance_description": "リンクチェック、検証期限切れ、メディアジョブの保守。（ステージ2で実装）"
   },
   "compat_tasks": {
     "title": "互換タスク",
@@ -61,94 +63,8 @@
     },
     "title": "AI 要約"
   },
-  "ai_compose": {
-    "title": "AI 記事作成",
-    "desc": "一言のテーマと素材を渡すと、記事全体を生成してそのまま公開します",
-    "topic_placeholder": "書きたい内容を一言で説明してください",
-    "topic_empty": "先にテーマを入力してください",
-    "style_placeholder": "文体（任意）例：冷静で抑制的、口語的",
-    "submit": "生成して公開",
-    "publish_warning": "生成が成功すると、人の確認を経ずにそのまま公開されます。",
-    "failed": "生成に失敗しました",
-    "failed_draft_hint": "この原稿は下書きとして保存されています。手動で編集できます。",
-    "status_failed": "生成状態の取得に失敗しました",
-    "timeout": "まだ生成中です。しばらくしてから記事一覧をご確認ください。",
-    "length": { "short": "短い", "medium": "普通", "long": "長い" },
-    "phase": { "pending": "キュー中…", "processing": "生成中…" },
-    "assets": {
-      "empty": "メディアライブラリにまだ素材がありません",
-      "note_hint": "各素材に一言メモを書くと、モデルがそれを基に配置を決めます。",
-      "note_placeholder": "この素材は何ですか"
-    }
-  },
   "alert": "警告",
   "alias": "エイリアス",
-  "analytics": {
-    "title": "アクセス解析",
-    "range": { "7": "過去 7 日間", "30": "過去 30 日間", "90": "過去 90 日間" },
-    "today_pv": "本日のページビュー",
-    "today_uv": "本日の訪問者数",
-    "range_pv": "ページビュー",
-    "range_uv": "訪問者数",
-    "uv_approximate": "概算値（日次の合計）",
-    "vs_previous": "前の期間比",
-    "vs_yesterday": "前日比",
-    "live_unavailable": "リアルタイムデータを取得できません",
-    "trend": "アクセス推移",
-    "top_feeds": "人気記事",
-    "referrer": "参照元",
-    "country": "国・地域",
-    "device": "デバイス",
-    "empty": "データがまだありません。日次集計ジョブの初回実行後に表示されます。",
-    "load_failed": "アクセス解析の読み込みに失敗しました。",
-    "visits": {
-      "title": "アクセス履歴",
-      "retention": "直近 3 か月のみ保持",
-      "time": "日時",
-      "article": "記事",
-      "referrer": "参照元",
-      "location": "地域",
-      "device": "デバイス",
-      "visitor": "訪問者",
-      "ip": "IP",
-      "sampled": "サンプリングされているため、一覧は完全ではありません",
-      "empty": "アクセス履歴はまだありません。",
-      "unavailable": "リアルタイムデータを取得できません。API トークンの Analytics Read 権限を確認してください。",
-      "load_failed": "アクセス履歴の読み込みに失敗しました。"
-    }
-  },
-  "reports": {
-    "title": "期間レポート",
-    "create_title": "レポートを作成",
-    "create_description": "公開時に、この期間のプロジェクトと財務データをスナップショットとして保存します。",
-    "title_field": "レポートタイトル",
-    "goals": "目標",
-    "summary": "まとめ",
-    "create": "作成",
-    "loading": "レポートを読み込んでいます…",
-    "list": "レポート一覧",
-    "select": "レポートを選択してください",
-    "donations": "寄付",
-    "expenses": "支出",
-    "balance": "残高",
-    "images": "画像参照数",
-    "no_goals": "目標はまだありません。",
-    "refresh_snapshot": "スナップショットを更新",
-    "publish": "公開",
-    "unpublish": "公開を取り消す",
-    "transaction_title": "収入と支出",
-    "amount_hint": "金額は主要通貨単位で入力し、最小単位で保存します。",
-    "expense": "支出",
-    "donation": "寄付",
-    "category": "カテゴリ",
-    "add_transaction": "取引を追加",
-    "open_public": "公開レポートを開く",
-    "results": "成果",
-    "published_articles": "公開記事",
-    "page_views": "ページビュー",
-    "categories": "支出カテゴリ",
-    "expense_breakdown": "支出内訳"
-  },
   "article": {
     "delete": {
       "confirm": "この記事を削除してもよろしいですか？",
@@ -158,15 +74,6 @@
       "placeholder": "キーワードを入力してください",
       "title": "検索",
       "title$keyword": "検索: {{keyword}}"
-    },
-    "share": {
-      "title": "共有",
-      "copy_link": "リンクをコピー",
-      "copied": "コピーしました",
-      "native": "端末で共有",
-      "twitter": "X",
-      "wechat": "WeChat",
-      "wechat_tip": "リンクをコピーしました。WeChat に貼り付けて共有してください"
     },
     "title": "記事",
     "top": {
@@ -201,8 +108,7 @@
     "guest_name_required": "ゲスト名は必須です",
     "guest_name_placeholder": "名前（必須）",
     "guest_email_placeholder": "メール（任意）",
-    "guest_website_placeholder": "ウェブサイト（任意）",
-    "location": "地域"
+    "guest_website_placeholder": "ウェブサイト（任意）"
   },
   "comparison": "対比",
   "confirm": "確認",
@@ -259,35 +165,8 @@
       "ordered_list": "番号付きリスト",
       "quote": "引用",
       "unordered_list": "箇条書き",
-      "upload_image": "画像をアップロード",
-      "upload_media": "音声または動画をアップロード"
+      "upload_image": "画像をアップロード"
     }
-  },
-  "media": {
-    "audio": "音声",
-    "delete_confirm": "この未関連付けのメディアを削除しますか？",
-    "attached_moment": "モーメントで使用中",
-    "delete_referenced_moment": "このメディアはモーメントで使用中のため削除できません。",
-    "delete_referenced": "このメディアは記事で使用中のため削除できません。",
-    "delete_stream": "Cloudflare Stream のメディアは Stream ダッシュボードで管理してください。",
-    "delete_success": "メディアを削除しました",
-    "delete_title": "メディアを削除",
-    "drop_now": "ドロップしてメディアをアップロード",
-    "empty": "まだ何もアップロードされていません。ここから、または執筆ページから画像・音声・動画をアップロードできます。",
-    "processing": "処理中",
-    "title": "メディアライブラリ",
-    "total": "{{count}} 件のメディアを表示",
-    "unattached": "未関連付けのメディア",
-    "unavailable": "このメディアは現在利用できません",
-    "upload": "メディアをアップロード",
-    "upload_hint": "画像は最大 10 MB、音声と動画は最大 1 GB",
-    "upload_success": "メディアをアップロードしました",
-    "uploading": "アップロード中…",
-    "uploading_percent": "アップロード中 {{percent}}%",
-    "video": "動画",
-    "image": "画像",
-    "copy_link": "リンクをコピー",
-    "link_copied": "リンクをコピーしました"
   },
   "error": {
     "api_url": "Pages 環境変数のAPI_URLはWorkerアドレスである必要があります。Pages環境変数のAPI_URLが正しいか確認してください。",
@@ -329,16 +208,7 @@
   "listed": "記事にリスト",
   "load_more": "もっと読み込む",
   "login": {
-    "error": {
-      "empty": "ユーザー名とパスワードを入力してください",
-      "failed": "ログインに失敗しました",
-      "invalid": "ユーザー名またはパスワードが正しくありません",
-      "network": "ネットワークエラーです。もう一度お試しください"
-    },
-    "loading": "ログイン中...",
-    "no_methods": "利用可能なログイン方法がありません",
     "oauth_only": "続行するにはログインしてください",
-    "or": "または",
     "password": {
       "placeholder": "パスワードを入力してください"
     },
@@ -539,18 +409,6 @@
         "http_error$status": "HTTPエラー (ステータス: {{status}})"
       }
     },
-    "ai_writer": {
-      "title": "AI 執筆設定",
-      "enable": { "title": "AI 執筆を有効にする", "desc": "テーマと素材から記事全体を生成できるようにします" },
-      "inherit_hint": "プロバイダー、モデル、API キー、API URL を空欄にすると AI 要約設定を継承します。",
-      "provider": { "title": "AI プロバイダー", "desc": "空欄にすると AI 要約設定を継承します" },
-      "model": { "title": "モデル", "desc": "空欄にすると AI 要約設定を継承します。執筆にはより高性能なモデルを推奨します" },
-      "api_key": { "title": "API キー", "desc": "空欄にすると AI 要約設定を継承します", "set": "設定済み", "placeholder_set": "新しいキーを入力して更新" },
-      "api_url": { "title": "API URL", "desc": "空欄にすると AI 要約設定を継承します" },
-      "temperature": { "title": "Temperature", "desc": "値が高いほど発散的になります。デフォルトは 0.8" },
-      "max_tokens": { "title": "Max Tokens", "desc": "1回の生成における上限。デフォルトは 4000" },
-      "system_prompt": { "title": "システムプロンプト", "desc": "空欄の場合は組み込みの中国語執筆プロンプトを使用します" }
-    },
     "get_config_failed$message": "設定の取得に失敗しました: {{message}}",
     "import_failed$message": "インポートに失敗しました: {{message}}",
     "import_result": "インポート結果",
@@ -664,6 +522,107 @@
   "sitename": "サイト名",
   "sort_order": "ソート順",
   "status": "ステータス",
+  "story": {
+    "nav": {
+      "stories": "コンテンツパッケージ",
+      "media": "メディアライブラリ",
+      "series": "シリーズ",
+      "ai_studio": "AI Studio",
+      "maintenance": "メンテナンス"
+    },
+    "detail": {
+      "not_found": "ストーリーが見つかりません",
+      "back_home": "ホームに戻る",
+      "media_switcher": "楽しみ方を選ぶ",
+      "tab_read": "読む",
+      "tab_video": "動画",
+      "tab_audio": "音声",
+      "no_blocks": "このストーリーにはまだ読めるコンテンツがありません。",
+      "duration": "再生時間",
+      "untitled_video": "無題の動画",
+      "untitled_audio": "無題の音声",
+      "video_stage2_note": "動画再生はステージ2でCloudflare Streamに対応——クリックで読み込み、自動再生なし。",
+      "audio_stage2_note": "サイト内音声プレーヤー（倍速・チャプター・再生位置の記憶）はステージ2で対応。",
+      "coming_stage2": "ステージ2",
+      "published$time": "{{time}}に公開",
+      "updated$time": "{{time}}に更新",
+      "published_at": "公開日時",
+      "updated_at": "更新日時",
+      "verified_at": "最終ファクトチェック",
+      "update_history": "更新履歴",
+      "history_stage2_note": "完全な改訂履歴（毎回の変更内容）はステージ2で対応。",
+      "related": "関連"
+    },
+    "editor": {
+      "new": "新規コンテンツパッケージ",
+      "edit": "コンテンツパッケージを編集",
+      "save": "保存",
+      "add_block": "ブロックを追加",
+      "no_blocks": "ブロックはまだありません——上から最初のブロックを追加してください。",
+      "block_rich_text": "リッチテキスト",
+      "block_video": "動画",
+      "block_audio": "音声",
+      "slug": "スラッグ",
+      "slug_placeholder": "URLスラッグ（例：my-first-story）",
+      "status": "ステータス",
+      "status_draft": "下書き",
+      "status_scheduled": "予約公開",
+      "status_published": "公開済み",
+      "status_archived": "アーカイブ",
+      "title_empty": "タイトルは必須です",
+      "slug_empty": "スラッグは必須です",
+      "save_success": "保存しました",
+      "rich_text_placeholder": "Markdownで書く…",
+      "video_title": "動画タイトル",
+      "video_title_placeholder": "例：講演の全編録画",
+      "video_stage2_note": "ステージ1ではアセット参照のみ保存。Stream直接アップロードと公式プレーヤーはステージ2で対応。",
+      "audio_title": "音声タイトル",
+      "audio_title_placeholder": "例：第12回：…",
+      "audio_stage2_note": "ステージ1ではアセット参照のみ保存。R2ホスティング再生とチャプターはステージ2で対応。",
+      "asset": "メディアアセット",
+      "pick_asset": "アセットを選択",
+      "change_asset": "変更",
+      "no_asset": "アセットが未選択です。",
+      "remove_asset": "アセットを削除",
+      "unknown": "不明",
+      "stream_uid": "Stream UID（ステージ2）",
+      "stream_uid_placeholder": "Streamアップロード後に自動入力",
+      "stream_stage2": "Stream直接アップロードはステージ2で対応——この項目は予約です。",
+      "duration": "再生時間",
+      "move_up": "上に移動",
+      "move_down": "下に移動",
+      "remove_block": "ブロックを削除",
+      "picker": {
+        "title": "メディアを選択",
+        "tab_upload": "アップロード",
+        "tab_url": "リンク",
+        "tab_recent": "最近",
+        "upload_hint": "ファイルを /api/storage にアップロード",
+        "choose_file": "ファイルを選択",
+        "uploading": "アップロード中…",
+        "upload_failed": "アップロードに失敗しました",
+        "url_placeholder": "https://…（Stream / R2 / CDN のURL）",
+        "title_placeholder": "タイトル（任意）",
+        "use_url": "このURLを使う",
+        "no_recent": "このブラウザには最近アップロードしたアセットがありません。"
+      },
+      "status_updated": "更新済み"
+    },
+    "list": {
+      "hint": "各コンテンツパッケージは1つの永続アドレスを持ちます。テキスト・動画・音声は同じストーリーへの入口です。",
+      "new_story": "新規パッケージ",
+      "empty": "コンテンツパッケージはまだありません。",
+      "delete_title": "パッケージを削除",
+      "delete_confirm": "「{{title}}」を削除しますか？元に戻せません。"
+    },
+    "placeholder": {
+      "scheduled": "予定",
+      "media": "メディアライブラリ（全R2 / Streamアセットの閲覧）はステージ2で実装します。",
+      "series": "シリーズ／コレクション管理はステージ2で実装します。",
+      "ai_studio": "AI Studio（文字起こし・要約・派生）はステージ4で実装します。",
+      "maintenance": "メンテナンスツール（リンクチェック・検証期限・メディアジョブ）はステージ2で実装します。"
+    }
+  },
   "summary": "概要",
   "tags": "タグ",
   "timeline": "タイムライン",
@@ -693,12 +652,6 @@
       "invalid_type": "画像ファイルをアップロードしてください",
       "preview_alt": "画像プレビュー",
       "url_placeholder": "画像 URL を入力するか、画像をアップロードしてください"
-    },
-    "media": {
-      "invalid_type": "音声または動画ファイルをアップロードしてください",
-      "invalid_type_library": "画像・音声・動画ファイルをアップロードしてください",
-      "stream_unavailable": "Cloudflare Stream が設定されていないため、大きな動画をアップロードできません。",
-      "too_large": "1 GB（1024 MB）を超える動画には対応していません。圧縮してから再試行してください。"
     },
     "title": "アップロード"
   },
