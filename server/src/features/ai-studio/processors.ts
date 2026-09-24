@@ -48,6 +48,8 @@ import {
 import { transcribeAudio } from "./whisper";
 
 const CHAT_MAX_TOKENS = 1500;
+/** derive 需要输出摘要+章节+双平台文案，中文 token 膨胀，单独给足额度 */
+const DERIVE_MAX_TOKENS = 4000;
 
 function storyUrl(env: Env, slug: string): string {
     const base = (env.FRONTEND_URL || "").replace(/\/+$/, "");
@@ -210,7 +212,7 @@ async function processDerive(env: Env, db: DB, payload: AIStudioTaskPayload): Pr
             { role: "system", content: DERIVE_SYSTEM_PROMPT },
             { role: "user", content },
         ],
-        max_tokens: CHAT_MAX_TOKENS,
+        max_tokens: DERIVE_MAX_TOKENS,
         temperature: 0.3,
     });
     const usage = extractAIUsage(raw);
