@@ -59,7 +59,7 @@ function storyUrl(env: Env, slug: string): string {
 async function failJob(db: DB, jobId: number, message: string, rawPreview?: string): Promise<void> {
     const output: Record<string, any> = { kind: "error", message };
     if (typeof rawPreview === "string" && rawPreview.length > 0) {
-        output.rawPreview = rawPreview.slice(0, 500);
+        output.rawPreview = rawPreview.slice(0, 3000);
     }
     await saveArtifact(db, jobId, output);
     await setJobStatus(db, jobId, "failed");
