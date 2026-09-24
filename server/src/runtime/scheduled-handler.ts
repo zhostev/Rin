@@ -16,14 +16,12 @@ export async function handleScheduled(
   const { friendCrontab } = await import("../services/friends");
   const { rssCrontab } = await import("../services/rss");
   const { sitemapCrontab } = await import("../services/sitemap");
-  const { cleanupMediaAssets } = await import("../services/media");
   const { backfillUvBaseline } = await import("../services/analytics-backfill");
   const { analyticsCrontab } = await import("../services/analytics-rollup");
 
   await friendCrontab(env, ctx, db, cache, serverConfig, clientConfig);
   await rssCrontab(env, db);
   await sitemapCrontab(env, db);
-  await cleanupMediaAssets(db, env);
   // 必须先于聚合执行：聚合按 baseline + analytics_daily 重算 uv。
   await backfillUvBaseline(db, serverConfig);
   await analyticsCrontab(env, db, serverConfig);

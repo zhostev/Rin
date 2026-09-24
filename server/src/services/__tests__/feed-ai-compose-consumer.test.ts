@@ -11,6 +11,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { eq } from "drizzle-orm";
 import { createMockDB, createMockEnv, createTestUser, TestCacheImpl } from "../../../tests/fixtures";
+import { applyMediaMigration } from "../../../tests/fixtures/media";
 import { feedHashtags, feeds, hashtags, mediaAssets } from "../../db/schema";
 import { clearFeedCache } from "../clear-feed-cache";
 import { processFeedAIComposeTask } from "../feed-ai-compose";
@@ -52,16 +53,21 @@ describe("compose consumer end-to-end against real SQLite", () => {
     const { db, sqlite } = createMockDB() as any;
     createTestUser(sqlite);
 
-    await db.insert(mediaAssets).values({
-      id: "img-e2e",
-      uid: 1,
-      provider: "r2",
-      type: "image",
-      objectKey: "media/1/img-e2e.jpg",
-      mimeType: "image/jpeg",
-      fileSize: 1234,
-      status: "ready",
-    });
+    // createMockDB 的 media_assets 仍是 Stage 1 旧表结构（见 tests/fixtures），
+    // 按真实迁移重建，loadComposeAssets 才能按现行 schema 查到资产。
+    sqlite.exec("DROP TABLE IF EXISTS media_assets");
+    applyMediaMigration(sqlite);
+
+    const [assetRow] = await db
+      .insert(mediaAssets)
+      .values({
+        kind: "image",
+        source: "r2",
+        r2Key: "media/1/img-e2e.jpg",
+        mime: "image/jpeg",
+      })
+      .returning({ id: mediaAssets.id });
+    const assetId = assetRow.id;
 
     const now = new Date();
     const inserted = await db
@@ -73,8 +79,8 @@ describe("compose consumer end-to-end against real SQLite", () => {
         ai_summary: "",
         ai_summary_status: "idle",
         ai_summary_error: "",
-        ai_compose_status: "pending",
-        ai_compose_error: "",
+        aiComposeStatus: "pending",
+        aiComposeError: "",
         uid: 1,
         alias: null,
         listed: 1,
@@ -105,7 +111,7 @@ describe("compose consumer end-to-end against real SQLite", () => {
         feedId,
         expectedUpdatedAtUnix,
         topic: "聊聊本地优先软件",
-        assets: [{ id: "img-e2e", note: "架构示意图" }],
+        assets: [{ id: String(assetId), note: "架构示意图" }],
         length: "medium",
         listed: true,
       },
@@ -115,8 +121,8 @@ describe("compose consumer end-to-end against real SQLite", () => {
     const row = await db.query.feeds.findFirst({ where: eq(feeds.id, feedId) });
 
     // Published, not left as a draft.
-    expect(row.ai_compose_status).toBe("completed");
-    expect(row.ai_compose_error).toBe("");
+    expect(row.aiComposeStatus).toBe("completed");
+    expect(row.aiComposeError).toBe("");
     expect(row.draft).toBe(0);
     expect(row.listed).toBe(1);
 
@@ -126,12 +132,13 @@ describe("compose consumer end-to-end against real SQLite", () => {
 
     // Placeholder replaced with real markup; no residue left in a public article.
     expect(row.content).not.toContain("[[media:1]]");
-    expect(row.content).toContain("![架构示意图](/api/media/img-e2e/playback)");
+    expect(row.content).toContain(`![架构示意图](/api/media/${assetId}/playback)`);
 
     // The prompt showed the model the token, never the real asset id.
     const userMessage = capturedBody.messages[1].content;
     expect(userMessage).toContain("[[media:1]]");
-    expect(userMessage).not.toContain("img-e2e");
+    // 提示词里只有占位符 token，没有渲染后的真实引用链接。
+    expect(userMessage).not.toContain(`/api/media/${assetId}/playback`);
 
     // Tags bound through the real relation tables.
     const boundTags = await db
@@ -141,11 +148,14 @@ describe("compose consumer end-to-end against real SQLite", () => {
       .where(eq(feedHashtags.feedId, feedId));
     expect(boundTags.map((t: any) => t.name).sort()).toEqual(["架构", "软件"]);
 
-    // Media asset bound to the feed by syncMediaForFeed.
+    // 资产按现行 schema 可解析：loadComposeAssets 用它生成了上面的 playback 链接。
+    // （旧 syncMediaForFeed 的「资产↔文章行级绑定」已随 Stage 1 媒体模型下线，
+    // 现行模型只在渲染时引用资产 id。）
     const asset = await db.query.mediaAssets.findFirst({
-      where: eq(mediaAssets.id, "img-e2e"),
+      where: eq(mediaAssets.id, assetId),
     });
-    expect(asset.feedId).toBe(feedId);
+    expect(asset?.kind).toBe("image");
+    expect(asset?.r2Key).toBe("media/1/img-e2e.jpg");
   });
 
   it("stops at draft when the model returns something unusable", async () => {
@@ -162,8 +172,8 @@ describe("compose consumer end-to-end against real SQLite", () => {
         ai_summary: "",
         ai_summary_status: "idle",
         ai_summary_error: "",
-        ai_compose_status: "pending",
-        ai_compose_error: "",
+        aiComposeStatus: "pending",
+        aiComposeError: "",
         uid: 1,
         alias: null,
         listed: 1,
@@ -196,8 +206,8 @@ describe("compose consumer end-to-end against real SQLite", () => {
     );
 
     const row = await db.query.feeds.findFirst({ where: eq(feeds.id, inserted[0].id) });
-    expect(row.ai_compose_status).toBe("failed");
-    expect(row.ai_compose_error.length).toBeGreaterThan(0);
+    expect(row.aiComposeStatus).toBe("failed");
+    expect(row.aiComposeError.length).toBeGreaterThan(0);
     expect(row.draft).toBe(1);
   });
 
@@ -215,8 +225,8 @@ describe("compose consumer end-to-end against real SQLite", () => {
         ai_summary: "",
         ai_summary_status: "idle",
         ai_summary_error: "",
-        ai_compose_status: "pending",
-        ai_compose_error: "",
+        aiComposeStatus: "pending",
+        aiComposeError: "",
         uid: 1,
         alias: null,
         listed: 1,
@@ -254,7 +264,7 @@ describe("compose consumer end-to-end against real SQLite", () => {
     expect(row.title).toBe("人工改过的标题");
     expect(row.content).toBe("人工写的正文");
     expect(row.draft).toBe(1);
-    expect(row.ai_compose_status).toBe("pending");
+    expect(row.aiComposeStatus).toBe("pending");
   });
 
   it("fails the row when the AI writer is disabled", async () => {
@@ -271,8 +281,8 @@ describe("compose consumer end-to-end against real SQLite", () => {
         ai_summary: "",
         ai_summary_status: "idle",
         ai_summary_error: "",
-        ai_compose_status: "pending",
-        ai_compose_error: "",
+        aiComposeStatus: "pending",
+        aiComposeError: "",
         uid: 1,
         alias: null,
         listed: 1,
@@ -306,8 +316,8 @@ describe("compose consumer end-to-end against real SQLite", () => {
 
     const row = await db.query.feeds.findFirst({ where: eq(feeds.id, inserted[0].id) });
     expect(called).toBe(false);
-    expect(row.ai_compose_status).toBe("failed");
-    expect(row.ai_compose_error).toBe("AI 写作功能未启用");
+    expect(row.aiComposeStatus).toBe("failed");
+    expect(row.aiComposeError).toBe("AI 写作功能未启用");
     expect(row.draft).toBe(1);
   });
 
@@ -325,8 +335,8 @@ describe("compose consumer end-to-end against real SQLite", () => {
         ai_summary: "",
         ai_summary_status: "idle",
         ai_summary_error: "",
-        ai_compose_status: "pending",
-        ai_compose_error: "",
+        aiComposeStatus: "pending",
+        aiComposeError: "",
         uid: 1,
         alias: null,
         listed: 1,
@@ -360,8 +370,8 @@ describe("compose consumer end-to-end against real SQLite", () => {
 
     const row = await db.query.feeds.findFirst({ where: eq(feeds.id, inserted[0].id) });
     expect(called).toBe(false);
-    expect(row.ai_compose_status).toBe("failed");
-    expect(row.ai_compose_error).toContain("missing-asset");
+    expect(row.aiComposeStatus).toBe("failed");
+    expect(row.aiComposeError).toContain("missing-asset");
     expect(row.draft).toBe(1);
   });
 });

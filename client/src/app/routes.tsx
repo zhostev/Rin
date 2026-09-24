@@ -10,7 +10,6 @@ import { getHeaderLayoutDefinition } from "../components/site-header/layout-regi
 import { Tips, TipsPage } from "../components/tips";
 import useTableOfContents from "../hooks/useTableOfContents";
 import { useSiteConfig } from "../hooks/useSiteConfig";
-import { AnalyticsPage } from "../page/analytics";
 import { CallbackPage } from "../page/callback";
 import { CompatTasksPage } from "../page/compat-tasks";
 import { ErrorPage } from "../page/error";
@@ -21,14 +20,20 @@ import { HealthPage } from "../page/health";
 import { HashtagPage } from "../page/hashtag";
 import { HashtagsPage } from "../page/hashtags";
 import { LoginPage } from "../page/login";
-import { MediaPage } from "../page/media";
 import { MomentsPage } from "../page/moments";
 import { ProfilePage } from "../page/profile";
 import { QueueStatusPage } from "../page/queue-status";
-import { ReportsPage } from "../page/reports";
-import { PublicReportPage } from "../page/public-report";
 import { SearchPage } from "../page/search";
+import { MediaCenterPage } from "../page/media";
+import { PublicSeriesPage } from "../page/series";
 import { Settings } from "../page/settings";
+import { StoryPage } from "../page/story";
+import { StoriesPage } from "../page/stories";
+import { StoryEditorPage } from "../page/story-editor";
+import { MaintenancePage, SeriesPage } from "../page/admin-placeholders";
+import { AdminMediaLibraryPage } from "../page/admin-media";
+import { AIStudioPage } from "../page/ai-studio";
+import { AskPage } from "../page/ask";
 import { TimelinePage } from "../page/timeline";
 import { WritingPage } from "../page/writing";
 import { ProfileContext } from "../state/profile";
@@ -68,6 +73,10 @@ export function AppRoutes() {
         {(params) => <SearchPage keyword={params.keyword || ""} />}
       </AppRoute>
 
+      <AppRoute path="/ask">
+        <AskPage />
+      </AppRoute>
+
       <AdminRoute path="/admin/settings" requirePermission title={t("settings.title")} description={t("admin.settings_description")}>
         <Settings />
       </AdminRoute>
@@ -78,14 +87,6 @@ export function AppRoutes() {
 
       <AdminRoute path="/admin/queue-status" requirePermission title={t("queue_status.title")} description={t("admin.queue_status_description")}>
         <QueueStatusPage />
-      </AdminRoute>
-
-      <AdminRoute path="/admin/analytics" requirePermission title={t("analytics.title")} description={t("admin.analytics_description")}>
-        <AnalyticsPage />
-      </AdminRoute>
-
-      <AdminRoute path="/admin/reports" requirePermission title={t("reports.title")} description={t("admin.reports_description")}>
-        <ReportsPage />
       </AdminRoute>
 
       <AdminRoute path="/admin/compat-tasks" requirePermission title={t("compat_tasks.title")} description={t("admin.compat_tasks_description")}>
@@ -100,16 +101,36 @@ export function AppRoutes() {
         {({ id }) => <WritingPage id={tryInt(0, id)} />}
       </AdminRoute>
 
-      <AdminRoute path="/admin/media" requirePermission title={t("media.title")} description={t("admin.media_description")}>
-        <MediaPage />
+      <AdminRoute path="/admin/stories" requirePermission title={t("story.nav.stories")} description={t("admin.stories_description")}>
+        <StoriesPage />
+      </AdminRoute>
+
+      <AdminRoute path="/admin/story-editor" requirePermission title={t("story.editor.new")} description={t("admin.stories_description")}>
+        <StoryEditorPage />
+      </AdminRoute>
+
+      <AdminRoute path="/admin/story-editor/:id" requirePermission title={t("story.editor.edit")} description={t("admin.stories_description")}>
+        {({ id }) => <StoryEditorPage storyKey={id || ""} />}
+      </AdminRoute>
+
+      <AdminRoute path="/admin/media" requirePermission title={t("admin.media_library.title")} description={t("admin.media_description")}>
+        <AdminMediaLibraryPage />
+      </AdminRoute>
+
+      <AdminRoute path="/admin/series" requirePermission title={t("story.nav.series")} description={t("admin.series_description")}>
+        <SeriesPage />
+      </AdminRoute>
+
+      <AdminRoute path="/admin/ai-studio" requirePermission title={t("story.nav.ai_studio")} description={t("admin.ai_studio_description")}>
+        <AIStudioPage />
+      </AdminRoute>
+
+      <AdminRoute path="/admin/maintenance" requirePermission title={t("story.nav.maintenance")} description={t("admin.maintenance_description")}>
+        <MaintenancePage />
       </AdminRoute>
 
       <AppRoute path="/callback">
         <CallbackPage />
-      </AppRoute>
-
-      <AppRoute path="/reports/:slug">
-        {(params) => <PublicReportPage slug={params.slug || ""} />}
       </AppRoute>
 
       <AppRoute path="/login">
@@ -123,6 +144,18 @@ export function AppRoutes() {
       <TocRoute path="/feed/:id">
         {(params, toc, cleanup) => <FeedPage id={params.id || ""} TOC={toc} clean={cleanup} />}
       </TocRoute>
+
+      <AppRoute path="/story/:slug">
+        {(params) => <StoryPage slug={params.slug || ""} />}
+      </AppRoute>
+
+      <AppRoute path="/media">
+        <MediaCenterPage />
+      </AppRoute>
+
+      <AppRoute path="/series/:slug">
+        {(params) => <PublicSeriesPage slug={params.slug || ""} />}
+      </AppRoute>
 
       <TocRoute path="/:alias">
         {(params, toc, cleanup) => <FeedPage id={params.alias || ""} TOC={toc} clean={cleanup} />}

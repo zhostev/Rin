@@ -10,7 +10,7 @@ import type {
 import type { AppContext, Variables } from "../core/hono-types";
 import { adminOnly } from "../core/route-boundaries";
 import { BadRequestError, NotFoundError } from "../errors";
-import { analyticsDaily, feeds, financeTransactions, mediaAssets, sharingReports } from "../db/schema";
+import { analyticsDaily, feeds, financeTransactions, sharingReports } from "../db/schema";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const IMAGE_PATTERN = /!\[[^\]]*\]\([^)]*\)|<img\b[^>]*>/gi;
@@ -107,14 +107,14 @@ async function buildMetrics(c: AppContext, periodStart: string, periodEnd: strin
     const viewRows = await c.get("db").select({ pageViews: sql<number>`COALESCE(SUM(${analyticsDaily.pv}), 0)` })
         .from(analyticsDaily)
         .where(and(gte(analyticsDaily.date, periodStart), lte(analyticsDaily.date, periodEnd)));
-    const storageRows = await c.get("db").select({ storageBytes: sql<number>`COALESCE(SUM(${mediaAssets.fileSize}), 0)` })
-        .from(mediaAssets)
-        .where(and(gte(mediaAssets.createdAt, from), lte(mediaAssets.createdAt, to)));
+    // media_assets 在 0013/0014 迁移里没有 file_size 列（Stage 1 旧模型才有），
+    // 对不存在的列做 SUM 会在 D1 直接 500。storageBytes 暂时记 0，
+    // 待 file_size 列 + 迁移补上后再恢复真实聚合。
     return {
         imageReferences,
         publishedArticles,
         pageViews: Number(viewRows[0]?.pageViews) || 0,
-        storageBytes: Number(storageRows[0]?.storageBytes) || 0,
+        storageBytes: 0,
     };
 }
 

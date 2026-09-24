@@ -1,57 +1,36 @@
 import type { QueueTask } from "./queue";
 
 declare global {
-  interface StreamDirectUploadResult {
-    uploadURL: string;
-    id: string;
-  }
-
-  interface StreamVideoDetails {
-    id: string;
-    readyToStream: boolean;
-    size?: number;
-    status?: { state?: string };
-  }
-
-  interface StreamVideoHandle {
-    details(): Promise<StreamVideoDetails>;
-    delete(): Promise<void>;
-    generateToken(): Promise<string>;
-  }
-
-  interface StreamBinding {
-    createDirectUpload(options: {
-      maxDurationSeconds: number;
-      creator?: string;
-      meta?: Record<string, string>;
-      allowedOrigins?: string[];
-      requireSignedURLs?: boolean;
-    }): Promise<StreamDirectUploadResult>;
-    video(id: string): StreamVideoHandle;
-  }
-
   interface Env {
     TASK_QUEUE?: Queue<QueueTask>;
     R2_BUCKET?: R2Bucket;
-    STREAM?: StreamBinding;
-    STREAM_PUBLIC_HOST?: string;
-    STREAM_WEBHOOK_SECRET?: string;
-    /** Account id for Stream TUS provisioning (REST; createDirectUpload max 200MB). */
-    CLOUDFLARE_ACCOUNT_ID?: string;
-    /** API token with Stream Write — Worker secret for TUS direct_user uploads. */
-    CLOUDFLARE_API_TOKEN?: string;
-    /** Stream-only API token (Stream:Edit). Preferred over CLOUDFLARE_API_TOKEN. */
-    STREAM_API_TOKEN?: string;
+    /** Stage 4 · 站内问答向量索引（staging-only binding） */
+    VECTORIZE?: VectorizeIndex;
     /** 站点公开访问地址（可选）。未设置时 sitemap/robots 回退到请求来源 origin */
     FRONTEND_URL?: string;
-    /** Optional site identity vars written by deploy into wrangler [vars] */
+    // --- Stage 2 · 媒体栈（Cloudflare Stream / Images）---
+    /** Cloudflare 账户 ID（Stream/Images API 路径必需） */
+    CLOUDFLARE_ACCOUNT_ID?: string;
+    /** 媒体栈 API Token（优先）；需具备 Stream 与 Images 权限 */
+    CF_MEDIA_API_TOKEN?: string;
+    /** 兼容：仅 Stream 权限的 Token（CF_MEDIA_API_TOKEN 未设置时回退） */
+    CF_STREAM_TOKEN?: string;
+    /** 兼容：仅 Images 权限的 Token（CF_MEDIA_API_TOKEN 未设置时回退） */
+    CF_IMAGES_TOKEN?: string;
+    /** Stream webhook 签名密钥（Dashboard > Stream > Webhooks 配置的 secret） */
+    STREAM_WEBHOOK_SECRET?: string;
+    // --- 站点元信息（feed-og 等处读取；未设置时回退默认值）---
+    /** 站点名称 */
     NAME?: string;
+    /** 站点描述 */
     DESCRIPTION?: string;
+    /** 站点头像 URL（绝对或相对路径） */
     AVATAR?: string;
-    R2_BUCKET_NAME?: string;
-    /** Workers Analytics Engine dataset for page-view ingestion. Optional so
-     *  that a missing binding degrades to "no analytics" instead of throwing. */
+    // --- 访问分析 ---
+    /** Analytics Engine 数据集 binding（文章浏览记录） */
     ANALYTICS?: AnalyticsEngineDataset;
+    /** Cloudflare API Token（Analytics Engine SQL API 查询用；与媒体栈 token 独立） */
+    CLOUDFLARE_API_TOKEN?: string;
   }
 }
 

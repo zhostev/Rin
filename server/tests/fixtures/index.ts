@@ -39,25 +39,35 @@ export function createMockDB() {
             updated_at INTEGER DEFAULT (unixepoch())
         );
 
+        -- media_assets：Stage 2 新模型，与 server/sql/0013.sql（建表）+
+        -- 0014.sql（增列）+ 0018.sql（moment_id）+ 0023.sql（poster/subtitles 引用）
+        -- 及 drizzle schema 对齐。旧 Stage 1 模型（TEXT 主键、uid/type/object_key…列）
+        -- 已下线，fixture 不再保留旧列。
         CREATE TABLE IF NOT EXISTS media_assets (
-            id TEXT PRIMARY KEY,
-            uid INTEGER NOT NULL,
-            feed_id INTEGER,
-            moment_id INTEGER,
-            provider TEXT DEFAULT 'r2' NOT NULL,
+            id INTEGER PRIMARY KEY,
+            kind TEXT DEFAULT 'image' NOT NULL,
+            source TEXT DEFAULT 'r2' NOT NULL,
+            r2_key TEXT,
             stream_uid TEXT,
-            playback_url TEXT,
-            type TEXT NOT NULL,
-            object_key TEXT NOT NULL UNIQUE,
-            mime_type TEXT NOT NULL,
-            file_size INTEGER NOT NULL,
-            status TEXT DEFAULT 'ready' NOT NULL,
+            mime TEXT DEFAULT '' NOT NULL,
+            duration INTEGER,
+            width INTEGER,
+            height INTEGER,
+            alt_text TEXT DEFAULT '',
+            title TEXT DEFAULT '',
+            stream_status TEXT DEFAULT 'ready',
+            stream_error TEXT DEFAULT '',
+            stream_meta_json TEXT DEFAULT '{}' NOT NULL,
+            images_id TEXT DEFAULT '',
+            images_variants_json TEXT DEFAULT '{}' NOT NULL,
+            upload_session_json TEXT DEFAULT '{}' NOT NULL,
+            moment_id INTEGER REFERENCES moments(id) ON DELETE SET NULL,
             created_at INTEGER DEFAULT (unixepoch()) NOT NULL,
-            updated_at INTEGER DEFAULT (unixepoch()) NOT NULL,
-            FOREIGN KEY (uid) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE SET NULL,
-            FOREIGN KEY (moment_id) REFERENCES moments(id) ON DELETE SET NULL
+            updated_at INTEGER DEFAULT (unixepoch()) NOT NULL
         );
+        CREATE INDEX IF NOT EXISTS media_assets_kind_idx ON media_assets(kind);
+        CREATE INDEX IF NOT EXISTS media_assets_stream_uid_idx ON media_assets(stream_uid);
+        CREATE INDEX IF NOT EXISTS media_assets_moment_idx ON media_assets(moment_id);
 
         -- Feeds table
         CREATE TABLE IF NOT EXISTS feeds (

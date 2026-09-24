@@ -1,590 +1,907 @@
-import { and, count, desc, eq, isNull, lt, or } from "drizzle-orm";
+/**
+ * Stage 2 · 媒体栈路由。
+ *
+ * AdminMediaService（挂载到 /admin/media → 对外 /api/admin/media）：
+ *   全部路由走 adminOnly 守卫（未授权默认 401），模式沿用 AdminStoryService。
+ * StreamWebhookService（挂载到 /webhooks → 对外 /api/webhooks/stream）：
+ *   公开路由，靠 STREAM_WEBHOOK_SECRET 做 HMAC 验签。
+ *
+ * 错误码约定：
+ *   503 stream_not_configured / images_not_configured / storage_not_configured
+ *       —— 服务端未配置凭据/存储（当前 Cloudflare 凭据无 Stream/Images 权限，
+ *          账户侧开通前这些接口会返回 503，不崩溃）
+ *   502 <op>_failed —— 上游 Cloudflare API 调用失败（附 upstreamStatus）
+ *   500 stream_webhook_secret_not_configured —— webhook secret 未配置（拒绝验签，不静默通过）
+ *   401 webhook_signature_missing / webhook_signature_invalid
+ *
+ * R2 视频链路（用户决策：视频走 R2，Stream 暂不开通）：
+ *   POST /video —— multipart 上传视频（video/*，≤100MB），R2 binding 优先否则 S3
+ *   POST /video/:id/poster —— 上传封面图并关联（image/*，≤10MB；重复上传替换旧封面）
+ *   POST /video/:id/subtitles —— 上传字幕并关联（.vtt，≤1MB；重复上传替换旧字幕）
+ *   DELETE /video/:id/poster ｜ DELETE /video/:id/subtitles —— 解除关联并删除对应资产
+ *   DELETE /:id 删除视频时级联删除其封面/字幕资产行与 R2 对象。
+ */
 import { Hono } from "hono";
-import type { MediaAsset as MediaAssetContract, MediaType } from "@rin/api";
 import type { AppContext, DB, Variables } from "../core/hono-types";
 import { adminOnly } from "../core/route-boundaries";
-import { profileAsync } from "../core/server-timing";
-import { feeds, mediaAssets, moments } from "../db/schema";
-import { deleteStorageObject, getStorageObject, putStorageObject } from "../utils/storage";
+import { loadLinkedAssetRows, serializeMediaAsset } from "../features/media/asset";
+import { uploadAudioObject } from "../features/media/audio";
+import {
+    CloudflareApiError,
+    MediaNotConfiguredError,
+} from "../features/media/client";
+import {
+    buildVariantsRecord,
+    CloudflareImagesClient,
+} from "../features/media/images";
+import {
+    deleteMediaAssetById,
+    findMediaAssetById,
+    findMediaAssetByImagesId,
+    findMediaAssetByStreamUid,
+    insertMediaAsset,
+    isMediaKind,
+    listMediaAssets,
+    updateMediaAssetById,
+    type MediaAssetRow,
+    type MediaKind,
+} from "../features/media/repository";
+import {
+    parseProbedNumber,
+    uploadVideoObject,
+    validateUploadFile,
+    VIDEO_MAX_BYTES,
+    type VideoUploadKind,
+} from "../features/media/video";
+import {
+    CloudflareStreamClient,
+    computeStreamSync,
+} from "../features/media/stream";
+import {
+    applyStreamWebhook,
+    verifyStreamWebhookSignature,
+    WebhookConfigError,
+} from "../features/media/webhook";
 
-const MAX_MEDIA_SIZE = 100 * 1024 * 1024;
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
-const MIME_TYPES: Record<MediaType, Set<string>> = {
-    audio: new Set(["audio/mpeg", "audio/mp4", "audio/ogg", "audio/wav", "audio/webm"]),
-    video: new Set(["video/mp4", "video/webm", "video/ogg", "video/quicktime"]),
-    // SVG is intentionally excluded: it is served inline and can carry scripts.
-    image: new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/avif"]),
-};
+type HonoApp = Hono<{
+    Bindings: Env;
+    Variables: Variables;
+}>;
 
-/** Per-type upload ceiling for the R2/S3 path (Stream videos use MAX_STREAM_VIDEO_SIZE). */
-function maxSizeForType(type: MediaType) {
-    return type === "image" ? MAX_IMAGE_SIZE : MAX_MEDIA_SIZE;
+function parsePositiveInteger(value: string | undefined, fallback: number, maximum?: number) {
+    if (!value) {
+        return fallback;
+    }
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return fallback;
+    }
+    return maximum ? Math.min(parsed, maximum) : parsed;
 }
 
-
-export const MAX_STREAM_VIDEO_SIZE = 1024 * 1024 * 1024;
-/** createDirectUpload (Workers binding) does not support files over 200MB; use TUS. */
-export const STREAM_DIRECT_UPLOAD_MAX_BYTES = 200 * 1024 * 1024;
-
-function encodeTusMetadataValue(value: string): string {
-    return btoa(unescape(encodeURIComponent(value)));
+function parseMediaId(value: string): number | null {
+    if (!/^[1-9]\d*$/.test(value)) {
+        return null;
+    }
+    const id = Number(value);
+    return Number.isSafeInteger(id) ? id : null;
 }
 
-/** Build Cloudflare Stream Upload-Metadata header (tus). Values are base64. */
-export function buildStreamTusMetadata(options: {
-    fileName?: string;
-    maxDurationSeconds: number;
-    creator?: string;
-    requireSignedURLs?: boolean;
-    allowedOrigins?: string[];
-}): string {
-    const parts: string[] = [
-        `maxdurationseconds ${encodeTusMetadataValue(String(options.maxDurationSeconds))}`,
-    ];
-    if (options.fileName) {
-        parts.push(`name ${encodeTusMetadataValue(options.fileName)}`);
+/** 503：服务端未配置凭据（token 全部走环境变量读取，缺失绝不崩溃） */
+function notConfigured(c: AppContext, error: unknown): Response {
+    if (error instanceof MediaNotConfiguredError) {
+        return c.json({ error: { code: error.code, message: error.message } }, 503);
     }
-    if (options.creator) {
-        parts.push(`creator ${encodeTusMetadataValue(options.creator)}`);
-    }
-    if (options.requireSignedURLs) {
-        parts.push("requiresignedurls");
-    }
-    if (options.allowedOrigins?.length) {
-        parts.push(`allowedorigins ${encodeTusMetadataValue(options.allowedOrigins.join(","))}`);
-    }
-    return parts.join(",");
+    console.error("[media] unexpected error while resolving config", error);
+    return c.json({ error: { code: "media_internal_error", message: "Internal error" } }, 500);
 }
 
-/**
- * Stream REST credential. Prefers STREAM_API_TOKEN, a token that only needs
- * Stream:Edit, and falls back to the deploy token for existing installs.
- * Keeping them separate means rotating the deploy token cannot silently break
- * video uploads, and the deploy token no longer has to carry Stream:Edit.
- */
-export function resolveStreamApiToken(env: Env): string {
-    return (env.STREAM_API_TOKEN || "").trim() || (env.CLOUDFLARE_API_TOKEN || "").trim();
+/** 502：上游 Cloudflare API 失败 → 清晰错误码 + 日志，不抛裸异常 */
+function upstreamError(c: AppContext, error: unknown, code: string): Response {
+    if (error instanceof CloudflareApiError) {
+        console.error(`[media] ${code}: upstream HTTP ${error.status}: ${error.message}`);
+        return c.json({
+            error: {
+                code,
+                message: error.message,
+                ...(error.status ? { upstreamStatus: error.status } : {}),
+            },
+        }, 502);
+    }
+    console.error(`[media] ${code}: unexpected error`, error);
+    return c.json({ error: { code, message: "Internal error" } }, 500);
 }
 
-/**
- * Caller-facing text for a failed Stream provision. Cloudflare's own body is
- * deliberately dropped: it is operator-grade detail (token ids, doc links) that
- * would otherwise surface verbatim in the browser. Keep it on the error's
- * `detail` for the server log instead.
- */
-export function describeStreamProvisionFailure(status: number, _detail: string): string {
-    if (status === 401 || status === 403) {
-        return `Cloudflare rejected the Stream API token (HTTP ${status}). Grant STREAM_API_TOKEN (or CLOUDFLARE_API_TOKEN) the account-level Stream:Edit permission, then redeploy.`;
-    }
-    if (status === 404) {
-        return `Cloudflare Stream endpoint not found (HTTP 404). Check that CLOUDFLARE_ACCOUNT_ID points at the account that owns Stream.`;
-    }
-    if (status === 429) {
-        return "Cloudflare Stream rate limit reached (HTTP 429). Try the upload again shortly.";
-    }
-    return `Cloudflare could not provision the Stream upload (HTTP ${status}).`;
+interface DirectUploadBody {
+    filename?: unknown;
+    maxDurationSeconds?: unknown;
+    meta?: unknown;
 }
 
-/** Carries the upstream status and body for logging, without leaking them to the client. */
-export class StreamProvisionError extends Error {
-    readonly status: number;
-    readonly detail: string;
-
-    constructor(status: number, detail: string) {
-        super(describeStreamProvisionFailure(status, detail));
-        this.name = "StreamProvisionError";
-        this.status = status;
-        this.detail = detail;
+function parseDirectUploadBody(value: unknown): { filename: string; maxDurationSeconds?: number; meta: Record<string, string> } | { error: string } {
+    if (!value || typeof value !== "object") {
+        return { error: "Invalid JSON body" };
     }
+    const body = value as DirectUploadBody;
+    const filename = typeof body.filename === "string" ? body.filename : "";
+
+    let maxDurationSeconds: number | undefined;
+    if (body.maxDurationSeconds !== undefined) {
+        if (!Number.isInteger(body.maxDurationSeconds) || (body.maxDurationSeconds as number) <= 0) {
+            return { error: "maxDurationSeconds must be a positive integer" };
+        }
+        maxDurationSeconds = body.maxDurationSeconds as number;
+    }
+
+    const meta: Record<string, string> = {};
+    if (body.meta && typeof body.meta === "object" && !Array.isArray(body.meta)) {
+        for (const [key, val] of Object.entries(body.meta as Record<string, unknown>)) {
+            if (typeof val === "string") {
+                meta[key] = val;
+            }
+        }
+    }
+
+    return { filename, maxDurationSeconds, meta };
 }
 
-export type StreamTusProvisionResult = {
-    uploadUrl: string;
-    streamUid: string;
-};
-
-/**
- * Provision a one-time TUS upload URL via Stream REST (`direct_user=true`).
- * Required for videos over 200MB (Workers createDirectUpload limit).
- */
-export async function provisionStreamTusUpload(options: {
-    accountId: string;
-    apiToken: string;
-    uploadLength: number;
-    metadata: string;
-}): Promise<StreamTusProvisionResult> {
-    const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(options.accountId)}/stream?direct_user=true`;
-    const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${options.apiToken}`,
-            "Tus-Resumable": "1.0.0",
-            "Upload-Length": String(options.uploadLength),
-            "Upload-Metadata": options.metadata,
-        },
-    });
-    if (!response.ok) {
-        const body = await response.text().catch(() => "");
-        throw new StreamProvisionError(response.status, body.slice(0, 300) || response.statusText);
+/** R2/S3 存储可用性检查：不可用时返回 503 响应，可用时返回 null。 */
+function requireStorage(c: AppContext, what: string): Response | null {
+    const env = c.get('env');
+    if (env.R2_BUCKET) {
+        return null;
     }
-    const uploadUrl = response.headers.get("Location");
-    const streamUid =
-        response.headers.get("stream-media-id") ||
-        response.headers.get("Stream-Media-Id") ||
-        "";
-    if (!uploadUrl || !streamUid) {
-        throw new Error("Stream TUS provision did not return Location / stream-media-id");
+    const missing = ['S3_ENDPOINT', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_BUCKET']
+        .filter((key) => !(env as unknown as Record<string, unknown>)[key]);
+    if (missing.length > 0) {
+        return c.json({
+            error: {
+                code: 'storage_not_configured',
+                message: `${what} storage is not configured (missing: ${missing.join(', ')})`,
+            },
+        }, 503);
     }
-    return { uploadUrl, streamUid };
-}
-
-function mediaTypeForMime(mimeType: string): MediaType | null {
-    if (MIME_TYPES.audio.has(mimeType)) return "audio";
-    if (MIME_TYPES.video.has(mimeType)) return "video";
-    if (MIME_TYPES.image.has(mimeType)) return "image";
     return null;
 }
 
-function extensionForMime(mimeType: string) {
-    const extension = mimeType.split("/")[1]?.split(";")[0]?.toLowerCase() || "bin";
-    if (extension === "mpeg") return "mp3";
-    if (extension === "quicktime") return "mov";
-    if (extension === "jpeg") return "jpg";
-    return extension;
-}
-
-function playbackUrl(id: string) {
-    return `/api/media/${encodeURIComponent(id)}/playback`;
-}
-
-function toContract(asset: typeof mediaAssets.$inferSelect, feed?: { id: number; title: string | null } | null): MediaAssetContract {
-    return {
-        id: asset.id,
-        provider: asset.provider as MediaAssetContract["provider"],
-        type: asset.type as MediaType,
-        mimeType: asset.mimeType,
-        fileSize: asset.fileSize,
-        status: asset.status as MediaAssetContract["status"],
-        playbackUrl: playbackUrl(asset.id),
-        createdAt: asset.createdAt.toISOString(),
-        feedId: asset.feedId,
-        feedTitle: feed?.title ?? null,
-        momentId: asset.momentId,
-        streamUid: asset.streamUid,
-    };
-}
-
-function extractMediaIds(content: string) {
-    const ids = new Set<string>();
-    // <audio>/<video> markup inserted by the editor toolbar.
-    const attributePattern = /data-rin-media-id=["']([a-zA-Z0-9-]+)["']/g;
-    for (const match of content.matchAll(attributePattern)) {
-        if (match[1]) ids.add(match[1]);
-    }
-    // Playback links pasted by hand, e.g. images copied from the media library.
-    const urlPattern = /\/api\/media\/([a-zA-Z0-9-]+)\/playback/g;
-    for (const match of content.matchAll(urlPattern)) {
-        if (match[1]) ids.add(match[1]);
-    }
-    return [...ids];
-}
-
-function streamPlaybackUrl(env: Env, streamUid: string) {
-    const host = (env.STREAM_PUBLIC_HOST || "https://iframe.videodelivery.net").replace(/\/$/, "");
-    return host ? `${host}/${encodeURIComponent(streamUid)}/iframe` : null;
-}
-
-function streamAllowedOrigin(frontendUrl?: string) {
-    if (!frontendUrl) return undefined;
-    try {
-        return [new URL(frontendUrl).host];
-    } catch {
-        return undefined;
-    }
-}
-
-function hexToBytes(value: string) {
-    if (!/^[0-9a-f]+$/i.test(value) || value.length % 2 !== 0) return null;
-    const bytes = new Uint8Array(value.length / 2);
-    for (let index = 0; index < bytes.length; index += 1) {
-        bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
-    }
-    return bytes;
-}
-
-async function verifyStreamWebhookSignature(signatureHeader: string | null, body: string, secret: string, now = Math.floor(Date.now() / 1000)) {
-    if (!signatureHeader) return false;
-    const values = Object.fromEntries(signatureHeader.split(",").map((part) => {
-        const separator = part.indexOf("=");
-        return separator === -1 ? [part.trim(), ""] : [part.slice(0, separator).trim(), part.slice(separator + 1).trim()];
-    }));
-    const timestamp = Number(values.time);
-    if (!Number.isFinite(timestamp) || Math.abs(now - timestamp) > 300 || !values.sig1) return false;
-    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    const digest = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${timestamp}.${body}`)));
-    const expected = hexToBytes(values.sig1);
-    if (!expected || expected.length !== digest.length) return false;
-    let difference = 0;
-    for (let index = 0; index < digest.length; index += 1) difference |= digest[index] ^ expected[index];
-    return difference === 0;
-}
-
-export async function cleanupMediaAssets(db: DB, env: Env, now = new Date()) {
-    const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const stale = await db.query.mediaAssets.findMany({
-        where: and(
-            isNull(mediaAssets.feedId),
-            isNull(mediaAssets.momentId),
-            lt(mediaAssets.updatedAt, cutoff),
-            or(eq(mediaAssets.status, "failed"), eq(mediaAssets.status, "processing")),
-        ),
-    });
-    let cleaned = 0;
-    for (const asset of stale) {
+/** 删远端对象（R2，失败只记日志不阻断）+ 删 D1 行：级联删除与上传回滚共用。 */
+async function deleteAssetWithObject(db: DB, env: Env, row: MediaAssetRow): Promise<void> {
+    if (row.source === 'r2' && row.r2Key && env.R2_BUCKET) {
         try {
-            if (asset.provider === "stream" && env.STREAM && asset.streamUid) await env.STREAM.video(asset.streamUid).delete();
-            if (asset.provider !== "stream") await deleteStorageObject(env, asset.objectKey);
-            await db.delete(mediaAssets).where(eq(mediaAssets.id, asset.id));
-            cleaned += 1;
+            await env.R2_BUCKET.delete(row.r2Key);
         } catch (error) {
-            console.warn("Failed to clean stale media asset:", asset.id, error);
+            console.error(`[media] failed to delete r2 object ${row.r2Key}:`, error);
         }
     }
-    return cleaned;
+    await deleteMediaAssetById(db, row.id);
 }
 
-async function refreshStreamAsset(db: DB, env: Env, asset: typeof mediaAssets.$inferSelect) {
-    if (asset.provider !== "stream" || !asset.streamUid || !env.STREAM) return asset;
-    try {
-        const details = await env.STREAM.video(asset.streamUid).details();
-        const nextStatus = details.readyToStream
-            ? "ready"
-            : details.status?.state === "error"
-                ? "failed"
-                : "processing";
-        const [updated] = await db.update(mediaAssets).set({
-            status: nextStatus,
-            fileSize: details.size || asset.fileSize,
-            updatedAt: new Date(),
-        }).where(eq(mediaAssets.id, asset.id)).returning();
-        return updated || asset;
-    } catch (error) {
-        console.warn("Failed to refresh Stream media status:", error);
-        return asset;
-    }
+/** 校验结果 → 400/413 JSON 错误响应（code 直接透传 validateUploadFile 的 code）。 */
+function invalidUploadFile(c: AppContext, validation: { code?: string; message?: string }): Response {
+    const status = validation.code === 'video_too_large' ? 413 : 400;
+    return c.json({ error: { code: validation.code ?? 'video_invalid_mime', message: validation.message ?? 'Invalid file' } }, status);
 }
 
-export async function syncMediaForFeed(db: DB, feedId: number, uid: number, content: string) {
-    const ids = extractMediaIds(content);
-    await db.update(mediaAssets).set({ feedId: null, updatedAt: new Date() }).where(eq(mediaAssets.feedId, feedId));
+/**
+ * 管理端媒体服务（挂载到 /admin/media → 对外 /api/admin/media）。
+ */
+export function AdminMediaService(): HonoApp {
+    const app = new Hono<{
+        Bindings: Env;
+        Variables: Variables;
+    }>();
 
-    for (const id of ids) {
-        await db.update(mediaAssets)
-            .set({ feedId, updatedAt: new Date() })
-            .where(and(eq(mediaAssets.id, id), eq(mediaAssets.uid, uid)));
-    }
-}
+    // POST /admin/media/stream/direct-upload —— 创建 Stream 直接上传会话 + 建 media_assets 行
+    app.post('/stream/direct-upload', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
 
-export async function syncMediaForMoment(db: DB, momentId: number, uid: number, content: string) {
-    const ids = extractMediaIds(content);
-    await db.update(mediaAssets).set({ momentId: null, updatedAt: new Date() }).where(eq(mediaAssets.momentId, momentId));
-
-    for (const id of ids) {
-        await db.update(mediaAssets)
-            .set({ momentId, updatedAt: new Date() })
-            .where(and(eq(mediaAssets.id, id), eq(mediaAssets.uid, uid)));
-    }
-}
-
-async function canReadAsset(c: AppContext, asset: typeof mediaAssets.$inferSelect) {
-    const uid = c.get("uid");
-    const admin = c.get("admin");
-    if (admin || asset.uid === uid) return true;
-
-    if (asset.feedId) {
-        const feed = await c.get("db").query.feeds.findFirst({
-            where: eq(feeds.id, asset.feedId),
-            columns: { uid: true, draft: true },
-        });
-        if (feed && feed.draft === 0) return true;
-    }
-
-    if (asset.momentId) {
-        // Moments have no draft state: once posted they are public.
-        const moment = await c.get("db").query.moments.findFirst({
-            where: eq(moments.id, asset.momentId),
-            columns: { id: true },
-        });
-        if (moment) return true;
-    }
-
-    return false;
-}
-
-export function MediaService(): Hono<{
-    Bindings: Env;
-    Variables: Variables;
-}> {
-    const app = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-    app.post("/stream/webhook", async (c) => {
-        const secret = c.get("env").STREAM_WEBHOOK_SECRET;
-        if (!secret) return c.text("Cloudflare Stream webhook is not configured", 503);
-        const body = await c.req.text();
-        if (!await verifyStreamWebhookSignature(c.req.header("Webhook-Signature") || null, body, secret)) return c.text("Invalid webhook signature", 401);
-        let payload: { uid?: string; id?: string; readyToStream?: boolean; size?: number; status?: { state?: string } };
+        let raw: unknown;
         try {
-            payload = JSON.parse(body);
+            raw = await c.req.json();
         } catch {
-            return c.text("Invalid webhook payload", 400);
+            return c.text('Invalid JSON body', 400);
         }
-        const streamUid = payload.uid || payload.id;
-        if (!streamUid) return c.text("Webhook video id is required", 400);
-        const status = payload.readyToStream ? "ready" : payload.status?.state === "error" ? "failed" : "processing";
-        await c.get("db").update(mediaAssets).set({
-            status,
-            fileSize: payload.size || undefined,
-            updatedAt: new Date(),
-        }).where(eq(mediaAssets.streamUid, streamUid));
-        return c.body(null, 204);
-    });
-
-    app.get("/", adminOnly(async (c) => {
-        const page = Math.max(1, Number.parseInt(c.req.query("page") || "1", 10) || 1);
-        const limit = Math.min(50, Math.max(1, Number.parseInt(c.req.query("limit") || "20", 10) || 20));
-        const offset = (page - 1) * limit;
-        const db = c.get("db");
-        const [sizeResult, rows] = await Promise.all([
-            db.select({ count: count() }).from(mediaAssets),
-            db.query.mediaAssets.findMany({
-                orderBy: [desc(mediaAssets.createdAt)],
-                offset,
-                limit: limit + 1,
-                with: { feed: { columns: { id: true, title: true } } },
-            }),
-        ]);
-        const hasNext = rows.length > limit;
-        if (hasNext) rows.pop();
-        const refreshedRows = await Promise.all(rows.map((asset) => refreshStreamAsset(c.get("db"), c.get("env"), asset)));
-        return c.json({
-            size: sizeResult[0]?.count || 0,
-            data: refreshedRows.map((asset, index) => toContract(asset, rows[index]?.feed)),
-            hasNext,
-        });
-    }, { message: "Permission denied", status: 403 }));
-
-    app.post("/", adminOnly(async (c) => {
-        const uid = c.get("uid");
-        if (!uid) return c.text("Unauthorized", 401);
-
-        const body = await profileAsync(c, "media_parse", () => c.req.parseBody());
-        const file = body.file;
-        if (!(file instanceof File)) {
-            return c.text("Media file is required", 400);
+        const parsed = parseDirectUploadBody(raw);
+        if ("error" in parsed) {
+            return c.text(parsed.error, 400);
         }
 
-        const mimeType = file.type.toLowerCase();
-        const type = mediaTypeForMime(mimeType);
-        if (!type) {
-            return c.text("Unsupported image, audio or video type", 400);
-        }
-        if (file.size <= 0 || file.size > maxSizeForType(type)) {
-            return c.text("Media file is empty or too large", 400);
-        }
-
-        const id = crypto.randomUUID();
-        const key = `media/${uid}/${id}.${extensionForMime(mimeType)}`;
-        let storedKey: string | undefined;
+        let client: CloudflareStreamClient;
         try {
-            const stored = await profileAsync(c, "media_put", () => putStorageObject(
-                c.get("env"),
-                key,
-                file,
-                mimeType,
-                new URL(c.req.url).origin,
-            ));
-            storedKey = stored.key;
-
-            const asset = await profileAsync(c, "media_insert", () => c.get("db").insert(mediaAssets).values({
-                id,
-                uid,
-                provider: c.get("env").R2_BUCKET ? "r2" : "s3",
-                type,
-                objectKey: stored.key,
-                mimeType,
-                fileSize: file.size,
-                status: "ready",
-            }).returning().then((rows) => rows[0]));
-
-            if (!asset) {
-                await deleteStorageObject(c.get("env"), stored.key);
-                return c.text("Failed to create media asset", 500);
-            }
-            return c.json(toContract(asset));
+            client = CloudflareStreamClient.fromEnv(env);
         } catch (error) {
-            if (storedKey) await deleteStorageObject(c.get("env"), storedKey).catch(() => undefined);
-            console.error("Media upload failed:", error);
-            return c.text(error instanceof Error ? error.message : "Media upload failed", 400);
+            return notConfigured(c, error);
         }
-    }, { message: "Permission denied", status: 403 }));
 
-    app.post("/stream/upload", adminOnly(async (c) => {
-        const uid = c.get("uid");
-        const env = c.get("env");
-        const stream = env.STREAM;
-        if (!uid) return c.text("Unauthorized", 401);
-        // STREAM binding still required for playback tokens / delete / details.
-        if (!stream) return c.text("Cloudflare Stream is not configured", 503);
-
-        let body: { fileName?: string; fileSize?: number; maxDurationSeconds?: number };
+        let upload: { uid: string; uploadURL: string };
         try {
-            body = await c.req.json();
-        } catch {
-            return c.text("Invalid JSON body", 400);
-        }
-
-        const fileSize = Math.floor(Number(body.fileSize) || 0);
-        if (fileSize <= 0 || fileSize > MAX_STREAM_VIDEO_SIZE) {
-            return c.text("Stream video fileSize is required and must be <= 1 GiB", 400);
-        }
-
-        const maxDurationSeconds = Math.min(
-            36000,
-            Math.max(1, Math.floor(Number(body.maxDurationSeconds) || 3600)),
-        );
-        const fileName = String(body.fileName || "video");
-        const allowedOrigins = streamAllowedOrigin(env.FRONTEND_URL);
-
-        // Workers binding createDirectUpload does not support >200MB; always use TUS
-        // for the editor Stream path (100MB–1GB). Requires account id + API token.
-        const accountId = (env.CLOUDFLARE_ACCOUNT_ID || "").trim();
-        const apiToken = resolveStreamApiToken(env);
-        if (!accountId || !apiToken) {
-            return c.text(
-                "Stream TUS upload requires CLOUDFLARE_ACCOUNT_ID and STREAM_API_TOKEN (or CLOUDFLARE_API_TOKEN)",
-                503,
-            );
-        }
-
-        let provisioned: StreamTusProvisionResult;
-        try {
-            provisioned = await provisionStreamTusUpload({
-                accountId,
-                apiToken,
-                uploadLength: fileSize,
-                metadata: buildStreamTusMetadata({
-                    fileName,
-                    maxDurationSeconds,
-                    creator: String(uid),
-                    requireSignedURLs: true,
-                    allowedOrigins,
-                }),
+            upload = await client.createDirectUpload({
+                maxDurationSeconds: parsed.maxDurationSeconds,
+                meta: parsed.meta,
             });
         } catch (error) {
-            if (error instanceof StreamProvisionError) {
-                console.error(`Stream TUS provision failed (${error.status}):`, error.detail);
-            } else {
-                console.error("Stream TUS provision failed:", error);
-            }
-            return c.text(error instanceof Error ? error.message : "Stream TUS provision failed", 502);
+            return upstreamError(c, error, 'stream_direct_upload_failed');
         }
 
-        const id = crypto.randomUUID();
-        const playbackUrl = streamPlaybackUrl(env, provisioned.streamUid);
-        let asset: typeof mediaAssets.$inferSelect | undefined;
+        const now = new Date();
+        const inserted = await insertMediaAsset(db, {
+            kind: 'video',
+            source: 'stream',
+            title: parsed.filename,
+            streamUid: upload.uid,
+            streamStatus: 'uploading',
+            uploadSessionJson: JSON.stringify({
+                uploadURL: upload.uploadURL,
+                createdAt: now.toISOString(),
+                maxDurationSeconds: parsed.maxDurationSeconds ?? null,
+                meta: parsed.meta,
+            }),
+            createdAt: now,
+            updatedAt: now,
+        });
+        if (!inserted) {
+            return c.text('Failed to insert media asset', 500);
+        }
+
+        const row = await findMediaAssetById(db, inserted.insertedId);
+        if (!row) {
+            return c.text('Failed to load media asset', 500);
+        }
+        // uploadURL 必须返回给浏览器做直传（一次性 URL）；asset 供编辑器嵌入 payload。
+        return c.json({ asset: serializeMediaAsset(row), uploadURL: upload.uploadURL }, 201);
+    }));
+
+    // GET /admin/media/stream/:uid —— 调 Stream getVideo 同步 D1 状态后返回 asset
+    app.get('/stream/:uid', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const uid = c.req.param('uid');
+        if (!uid) {
+            return c.text('Not found', 404);
+        }
+
+        const row = await findMediaAssetByStreamUid(db, uid);
+        if (!row) {
+            return c.text('Not found', 404);
+        }
+
+        let client: CloudflareStreamClient;
         try {
-            asset = await c.get("db").insert(mediaAssets).values({
-                id,
-                uid,
-                provider: "stream",
-                streamUid: provisioned.streamUid,
-                playbackUrl,
-                type: "video",
-                objectKey: `stream/${uid}/${provisioned.streamUid}`,
-                mimeType: "video/mp4",
-                fileSize,
-                status: "processing",
-            }).returning().then((rows) => rows[0]);
+            client = CloudflareStreamClient.fromEnv(env);
         } catch (error) {
-            await stream.video(provisioned.streamUid).delete().catch(() => undefined);
-            throw error;
+            return notConfigured(c, error);
         }
 
-        if (!asset) {
-            await stream.video(provisioned.streamUid).delete().catch(() => undefined);
-            return c.text("Failed to create Stream media asset", 500);
+        let video: {
+            status?: { state?: string; pctComplete?: string; errorReasonCode?: string; errorReasonText?: string };
+            duration?: number;
+            thumbnail?: string;
+            readyToStream?: boolean;
+        };
+        try {
+            video = await client.getVideo(uid);
+        } catch (error) {
+            return upstreamError(c, error, 'stream_get_video_failed');
         }
+
+        const decision = computeStreamSync(row.streamStatus, row.streamMetaJson, {
+            state: video.status?.state ?? null,
+            errorReasonCode: video.status?.errorReasonCode ?? null,
+            errorReasonText: video.status?.errorReasonText ?? null,
+            duration: typeof video.duration === "number" ? video.duration : null,
+            thumbnail: typeof video.thumbnail === "string" ? video.thumbnail : null,
+            readyToStream: typeof video.readyToStream === "boolean" ? video.readyToStream : null,
+            pctComplete: typeof video.status?.pctComplete === "string" ? video.status.pctComplete : null,
+        });
+        if (decision.changed) {
+            await updateMediaAssetById(db, row.id, {
+                ...decision.patch,
+                updatedAt: new Date(),
+            });
+        }
+
+        const updated = await findMediaAssetById(db, row.id);
+        return c.json(serializeMediaAsset(updated ?? row));
+    }));
+
+    // POST /admin/media/images/direct-upload —— 创建 Images 直接上传会话 + 建行
+    app.post('/images/direct-upload', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+
+        let client: CloudflareImagesClient;
+        try {
+            client = CloudflareImagesClient.fromEnv(env);
+        } catch (error) {
+            return notConfigured(c, error);
+        }
+
+        let upload: { id: string; uploadURL: string };
+        try {
+            upload = await client.createDirectUpload();
+        } catch (error) {
+            return upstreamError(c, error, 'images_direct_upload_failed');
+        }
+
+        const now = new Date();
+        const inserted = await insertMediaAsset(db, {
+            kind: 'image',
+            source: 'cloudflare_images',
+            imagesId: upload.id,
+            uploadSessionJson: JSON.stringify({
+                uploadURL: upload.uploadURL,
+                createdAt: now.toISOString(),
+            }),
+            createdAt: now,
+            updatedAt: now,
+        });
+        if (!inserted) {
+            return c.text('Failed to insert media asset', 500);
+        }
+
+        const row = await findMediaAssetById(db, inserted.insertedId);
+        if (!row) {
+            return c.text('Failed to load media asset', 500);
+        }
+        return c.json({ asset: serializeMediaAsset(row), uploadURL: upload.uploadURL }, 201);
+    }));
+
+    // POST /admin/media/images/:id/finalize —— 直传完成后拉取 variants 并更新行
+    app.post('/images/:id/finalize', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const id = c.req.param('id');
+        if (!id) {
+            return c.text('Not found', 404);
+        }
+
+        const row = await findMediaAssetByImagesId(db, id);
+        if (!row) {
+            return c.text('Not found', 404);
+        }
+
+        let client: CloudflareImagesClient;
+        try {
+            client = CloudflareImagesClient.fromEnv(env);
+        } catch (error) {
+            return notConfigured(c, error);
+        }
+
+        let image: { variants?: string[] };
+        try {
+            image = await client.getImage(id);
+        } catch (error) {
+            return upstreamError(c, error, 'images_get_failed');
+        }
+
+        // 变体 URL 直接采用 API 返回的完整 URL；变体名默认 thumb/medium/large，
+        // 缺失时序列化层回退 public 变体（见 serializeMediaAsset）。
+        const variants = buildVariantsRecord(image.variants);
+        await updateMediaAssetById(db, row.id, {
+            imagesVariantsJson: JSON.stringify(variants),
+            updatedAt: new Date(),
+        });
+
+        const updated = await findMediaAssetById(db, row.id);
+        return c.json(serializeMediaAsset(updated ?? row));
+    }));
+
+    // POST /admin/media/audio —— multipart 上传音频（R2 binding 优先，否则 S3）
+    app.post('/audio', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+
+        let form: Record<string, string | File>;
+        try {
+            form = await c.req.parseBody() as Record<string, string | File>;
+        } catch {
+            return c.text('Invalid multipart body', 400);
+        }
+
+        const file = form['file'];
+        if (!(file instanceof File)) {
+            return c.json({ error: { code: 'audio_file_required', message: 'multipart field "file" is required' } }, 400);
+        }
+        const title = typeof form['title'] === 'string' ? form['title'] : '';
+
+        // 无 R2 binding 时走 S3：先校验配置，避免建出孤儿行
+        if (!env.R2_BUCKET) {
+            const missing = ['S3_ENDPOINT', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_BUCKET']
+                .filter((key) => !(env as unknown as Record<string, unknown>)[key]);
+            if (missing.length > 0) {
+                return c.json({
+                    error: {
+                        code: 'storage_not_configured',
+                        message: `Audio upload storage is not configured (missing: ${missing.join(', ')})`,
+                    },
+                }, 503);
+            }
+        }
+
+        const now = new Date();
+        const inserted = await insertMediaAsset(db, {
+            kind: 'audio',
+            source: 'r2',
+            mime: file.type || '',
+            title,
+            createdAt: now,
+            updatedAt: now,
+        });
+        if (!inserted) {
+            return c.text('Failed to insert media asset', 500);
+        }
+        const assetId = inserted.insertedId;
+
+        try {
+            const result = await uploadAudioObject(env, assetId, file, file.name, file.type || undefined);
+            await updateMediaAssetById(db, assetId, {
+                r2Key: result.key,
+                updatedAt: new Date(),
+            });
+        } catch (error) {
+            // 上传失败：清理孤儿行
+            await deleteMediaAssetById(db, assetId);
+            return upstreamError(c, error, 'audio_upload_failed');
+        }
+
+        const row = await findMediaAssetById(db, assetId);
+        if (!row) {
+            return c.text('Failed to load media asset', 500);
+        }
+        return c.json(serializeMediaAsset(row), 201);
+    }));
+
+    // POST /admin/media/video —— multipart 上传视频到 R2
+    //   fields: file*（video/*，≤100MB）、title?、duration?、width?、height?
+    //   （duration/width/height 由客户端 probeMediaFile 探测后上报，非法值忽略）
+    //   201 -> MediaAsset（asset.url 为站内 /api/blob/<key>）
+    app.post('/video', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+
+        let form: Record<string, string | File>;
+        try {
+            form = await c.req.parseBody() as Record<string, string | File>;
+        } catch {
+            return c.text('Invalid multipart body', 400);
+        }
+
+        const validation = validateUploadFile(form['file'], 'video');
+        if (!validation.ok) {
+            return invalidUploadFile(c, validation);
+        }
+        const file = form['file'] as File;
+        const title = typeof form['title'] === 'string' ? form['title'] : '';
+
+        const storageError = requireStorage(c, 'Video upload');
+        if (storageError) {
+            return storageError;
+        }
+
+        const now = new Date();
+        const inserted = await insertMediaAsset(db, {
+            kind: 'video',
+            source: 'r2',
+            mime: file.type || '',
+            title,
+            duration: parseProbedNumber(form['duration']),
+            width: (() => { const n = parseProbedNumber(form['width']); return n === undefined ? undefined : Math.round(n); })(),
+            height: (() => { const n = parseProbedNumber(form['height']); return n === undefined ? undefined : Math.round(n); })(),
+            createdAt: now,
+            updatedAt: now,
+        });
+        if (!inserted) {
+            return c.text('Failed to insert media asset', 500);
+        }
+        const assetId = inserted.insertedId;
+
+        let uploadedKey: string | undefined;
+        try {
+            const result = await uploadVideoObject(env, assetId, file, file.name, file.type || undefined);
+            uploadedKey = result.key;
+            await updateMediaAssetById(db, assetId, {
+                r2Key: result.key,
+                updatedAt: new Date(),
+            });
+        } catch (error) {
+            // 回滚：R2 对象已上传则删除，避免 R2 孤儿对象；再删 D1 孤儿行
+            if (uploadedKey && env.R2_BUCKET) {
+                try {
+                    await env.R2_BUCKET.delete(uploadedKey);
+                } catch (deleteError) {
+                    console.error(`[media] failed to roll back r2 object ${uploadedKey}:`, deleteError);
+                }
+            }
+            await deleteMediaAssetById(db, assetId);
+            return upstreamError(c, error, 'video_upload_failed');
+        }
+
+        const row = await findMediaAssetById(db, assetId);
+        if (!row) {
+            return c.text('Failed to load media asset', 500);
+        }
+        return c.json(serializeMediaAsset(row), 201);
+    }));
+
+    // POST /admin/media/video/:id/poster —— 上传封面图并关联到视频
+    //   fields: file*（image/*，≤10MB）。重复上传替换旧封面（旧资产行 + R2 对象一并删除）。
+    //   200 -> MediaAsset（带 poster_asset_id / poster_url）
+    app.post('/video/:id/poster', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const id = parseMediaId(c.req.param('id'));
+        if (id === null) {
+            return c.text('Not found', 404);
+        }
+
+        const video = await findMediaAssetById(db, id);
+        if (!video || video.kind !== 'video') {
+            return c.text('Not found', 404);
+        }
+
+        let form: Record<string, string | File>;
+        try {
+            form = await c.req.parseBody() as Record<string, string | File>;
+        } catch {
+            return c.text('Invalid multipart body', 400);
+        }
+
+        const validation = validateUploadFile(form['file'], 'poster');
+        if (!validation.ok) {
+            return invalidUploadFile(c, validation);
+        }
+        const file = form['file'] as File;
+
+        const storageError = requireStorage(c, 'Poster upload');
+        if (storageError) {
+            return storageError;
+        }
+
+        const now = new Date();
+        const inserted = await insertMediaAsset(db, {
+            kind: 'image',
+            source: 'r2',
+            mime: file.type || '',
+            title: typeof form['title'] === 'string' ? form['title'] : file.name,
+            createdAt: now,
+            updatedAt: now,
+        });
+        if (!inserted) {
+            return c.text('Failed to insert media asset', 500);
+        }
+        const posterId = inserted.insertedId;
+
+        let uploadedKey: string | undefined;
+        try {
+            const result = await uploadVideoObject(env, posterId, file, file.name, file.type || undefined);
+            uploadedKey = result.key;
+            await updateMediaAssetById(db, posterId, { r2Key: result.key, updatedAt: new Date() });
+        } catch (error) {
+            if (uploadedKey && env.R2_BUCKET) {
+                try {
+                    await env.R2_BUCKET.delete(uploadedKey);
+                } catch (deleteError) {
+                    console.error(`[media] failed to roll back r2 object ${uploadedKey}:`, deleteError);
+                }
+            }
+            await deleteMediaAssetById(db, posterId);
+            return upstreamError(c, error, 'poster_upload_failed');
+        }
+
+        // 替换旧封面：先挂新引用，再删旧资产（旧资产删除失败不阻断）
+        const oldPosterId = video.posterAssetId;
+        await updateMediaAssetById(db, video.id, { posterAssetId: posterId, updatedAt: new Date() });
+        if (oldPosterId && oldPosterId !== posterId) {
+            const oldRow = await findMediaAssetById(db, oldPosterId);
+            if (oldRow) {
+                await deleteAssetWithObject(db, env, oldRow);
+            }
+        }
+
+        const updated = await findMediaAssetById(db, video.id);
+        const poster = await findMediaAssetById(db, posterId);
+        if (!updated || !poster) {
+            return c.text('Failed to load media asset', 500);
+        }
+        // 同时带上已有的字幕关联，避免挂字幕后再换封面时字幕 URL 丢失
+        const linked = await loadLinkedAssetRows(db, [updated]);
+        return c.json(serializeMediaAsset(updated, linked.get(updated.id)));
+    }));
+
+    // POST /admin/media/video/:id/subtitles —— 上传字幕并关联到视频
+    //   fields: file*（.vtt，≤1MB）。重复上传替换旧字幕。
+    //   200 -> MediaAsset（带 subtitles_asset_id / subtitles_url）
+    app.post('/video/:id/subtitles', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const id = parseMediaId(c.req.param('id'));
+        if (id === null) {
+            return c.text('Not found', 404);
+        }
+
+        const video = await findMediaAssetById(db, id);
+        if (!video || video.kind !== 'video') {
+            return c.text('Not found', 404);
+        }
+
+        let form: Record<string, string | File>;
+        try {
+            form = await c.req.parseBody() as Record<string, string | File>;
+        } catch {
+            return c.text('Invalid multipart body', 400);
+        }
+
+        const validation = validateUploadFile(form['file'], 'subtitles');
+        if (!validation.ok) {
+            return invalidUploadFile(c, validation);
+        }
+        const file = form['file'] as File;
+
+        const storageError = requireStorage(c, 'Subtitles upload');
+        if (storageError) {
+            return storageError;
+        }
+
+        const now = new Date();
+        const inserted = await insertMediaAsset(db, {
+            kind: 'attachment',
+            source: 'r2',
+            mime: 'text/vtt',
+            title: typeof form['title'] === 'string' ? form['title'] : file.name,
+            createdAt: now,
+            updatedAt: now,
+        });
+        if (!inserted) {
+            return c.text('Failed to insert media asset', 500);
+        }
+        const subtitlesId = inserted.insertedId;
+
+        let uploadedKey: string | undefined;
+        try {
+            const result = await uploadVideoObject(env, subtitlesId, file, file.name, 'text/vtt');
+            uploadedKey = result.key;
+            await updateMediaAssetById(db, subtitlesId, { r2Key: result.key, updatedAt: new Date() });
+        } catch (error) {
+            if (uploadedKey && env.R2_BUCKET) {
+                try {
+                    await env.R2_BUCKET.delete(uploadedKey);
+                } catch (deleteError) {
+                    console.error(`[media] failed to roll back r2 object ${uploadedKey}:`, deleteError);
+                }
+            }
+            await deleteMediaAssetById(db, subtitlesId);
+            return upstreamError(c, error, 'subtitles_upload_failed');
+        }
+
+        const oldSubtitlesId = video.subtitlesAssetId;
+        await updateMediaAssetById(db, video.id, { subtitlesAssetId: subtitlesId, updatedAt: new Date() });
+        if (oldSubtitlesId && oldSubtitlesId !== subtitlesId) {
+            const oldRow = await findMediaAssetById(db, oldSubtitlesId);
+            if (oldRow) {
+                await deleteAssetWithObject(db, env, oldRow);
+            }
+        }
+
+        const updated = await findMediaAssetById(db, video.id);
+        const subtitles = await findMediaAssetById(db, subtitlesId);
+        if (!updated || !subtitles) {
+            return c.text('Failed to load media asset', 500);
+        }
+        // 同时带上已有的封面关联，避免挂封面后再加字幕时封面 URL 丢失
+        const linked = await loadLinkedAssetRows(db, [updated]);
+        return c.json(serializeMediaAsset(updated, linked.get(updated.id)));
+    }));
+
+    // DELETE /admin/media/video/:id/poster —— 解除封面关联并删除封面资产（行 + R2 对象）
+    app.delete('/video/:id/poster', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const id = parseMediaId(c.req.param('id'));
+        if (id === null) {
+            return c.text('Not found', 404);
+        }
+
+        const video = await findMediaAssetById(db, id);
+        if (!video || video.kind !== 'video') {
+            return c.text('Not found', 404);
+        }
+        if (!video.posterAssetId) {
+            return c.text('Not found', 404);
+        }
+
+        const poster = await findMediaAssetById(db, video.posterAssetId);
+        await updateMediaAssetById(db, video.id, { posterAssetId: null, updatedAt: new Date() });
+        if (poster) {
+            await deleteAssetWithObject(db, env, poster);
+        }
+        return c.text('Deleted');
+    }));
+
+    // DELETE /admin/media/video/:id/subtitles —— 解除字幕关联并删除字幕资产（行 + R2 对象）
+    app.delete('/video/:id/subtitles', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const id = parseMediaId(c.req.param('id'));
+        if (id === null) {
+            return c.text('Not found', 404);
+        }
+
+        const video = await findMediaAssetById(db, id);
+        if (!video || video.kind !== 'video') {
+            return c.text('Not found', 404);
+        }
+        if (!video.subtitlesAssetId) {
+            return c.text('Not found', 404);
+        }
+
+        const subtitles = await findMediaAssetById(db, video.subtitlesAssetId);
+        await updateMediaAssetById(db, video.id, { subtitlesAssetId: null, updatedAt: new Date() });
+        if (subtitles) {
+            await deleteAssetWithObject(db, env, subtitles);
+        }
+        return c.text('Deleted');
+    }));
+
+    // GET /admin/media —— 媒体列表（?kind=video|audio|image，供媒体选择器用）
+    app.get('/', adminOnly(async (c) => {
+        const db = c.get('db');
+        const kindParam = c.req.query('kind');
+        let kind: MediaKind | undefined;
+        if (kindParam !== undefined) {
+            if (!isMediaKind(kindParam)) {
+                return c.text('Invalid kind (expected image|video|audio|gallery|attachment)', 400);
+            }
+            kind = kindParam;
+        }
+
+        const page = parsePositiveInteger(c.req.query('page'), 1) - 1;
+        const limit = parsePositiveInteger(c.req.query('limit'), 20, 100);
+
+        const result = await listMediaAssets(db, {
+            kind,
+            limit,
+            offset: page * limit,
+        });
+
+        const linked = await loadLinkedAssetRows(db, result.rows);
+
         return c.json({
-            asset: toContract(asset),
-            uploadUrl: provisioned.uploadUrl,
-            protocol: "tus" as const,
+            size: result.size,
+            data: result.rows.map((row) => serializeMediaAsset(row, linked.get(row.id))),
+            hasNext: result.hasNext,
         });
-    }, { message: "Permission denied", status: 403 }));
+    }));
 
-    app.get("/:id/playback", async (c) => {
-        const asset = await c.get("db").query.mediaAssets.findFirst({
-            where: eq(mediaAssets.id, c.req.param("id")),
-        });
-        if (!asset || asset.status === "failed" || (asset.status !== "ready" && asset.provider !== "stream")) return c.text("Not found", 404);
-        if (!(await canReadAsset(c, asset))) return c.text("Permission denied", 403);
+    // DELETE /admin/media/:id —— 删远端（失败只记日志不阻断）再删 D1 行
+    //   视频资产：先级联删除其封面/字幕资产（行 + R2 对象），再删自身。
+    app.delete('/:id', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const id = parseMediaId(c.req.param('id'));
+        if (id === null) {
+            return c.text('Not found', 404);
+        }
 
-        if (asset.provider === "stream") {
-            if (!asset.playbackUrl) return c.text("Stream playback is not configured", 503);
-            const stream = c.get("env").STREAM;
-            if (!asset.streamUid || !stream) return c.text("Cloudflare Stream is not configured", 503);
+        const row = await findMediaAssetById(db, id);
+        if (!row) {
+            return c.text('Not found', 404);
+        }
+
+        if (row.source === 'stream' && row.streamUid) {
             try {
-                const token = await stream.video(asset.streamUid).generateToken();
-                return Response.redirect(streamPlaybackUrl(c.get("env"), token) || asset.playbackUrl, 302);
-            } catch {
-                return c.text("Stream playback token is unavailable", 503);
+                await CloudflareStreamClient.fromEnv(env).deleteVideo(row.streamUid);
+            } catch (error) {
+                console.error(`[media] failed to delete stream video ${row.streamUid}:`, error);
+            }
+        } else if (row.source === 'cloudflare_images' && row.imagesId) {
+            try {
+                await CloudflareImagesClient.fromEnv(env).deleteImage(row.imagesId);
+            } catch (error) {
+                console.error(`[media] failed to delete images image ${row.imagesId}:`, error);
+            }
+        } else if (row.source === 'r2' && row.r2Key && env.R2_BUCKET) {
+            try {
+                await env.R2_BUCKET.delete(row.r2Key);
+            } catch (error) {
+                console.error(`[media] failed to delete r2 object ${row.r2Key}:`, error);
             }
         }
 
-        const response = await profileAsync(c, "media_playback", () => getStorageObject(
-            c.get("env"),
-            asset.objectKey,
-            c.req.header("range"),
-        ));
-        if (!response) return c.text("Not found", 404);
-
-        response.headers.set("Content-Disposition", "inline");
-        response.headers.set("Cache-Control", "public, max-age=31536000, immutable");
-        return response;
-    });
-
-    app.get("/:id", async (c) => {
-        const asset = await c.get("db").query.mediaAssets.findFirst({
-            where: eq(mediaAssets.id, c.req.param("id")),
-        });
-        if (!asset || !(await canReadAsset(c, asset))) return c.text("Not found", 404);
-        return c.json(toContract(await refreshStreamAsset(c.get("db"), c.get("env"), asset)));
-    });
-
-    app.delete("/:id", adminOnly(async (c) => {
-        const id = c.req.param("id");
-        const db = c.get("db");
-        const asset = await db.query.mediaAssets.findFirst({ where: eq(mediaAssets.id, id) });
-        if (!asset) return c.text("Not found", 404);
-        if (asset.feedId) return c.text("Media is still used by an article", 409);
-        if (asset.momentId) return c.text("Media is still used by a moment", 409);
-
-        try {
-            if (asset.provider === "stream") {
-                const stream = c.get("env").STREAM;
-                if (!stream || !asset.streamUid) return c.text("Cloudflare Stream is not configured", 503);
-                await stream.video(asset.streamUid).delete();
-            } else {
-                await deleteStorageObject(c.get("env"), asset.objectKey);
+        // 视频资产：级联删除其封面/字幕资产（行 + R2 对象）；单个失败只记日志不阻断
+        if (row.kind === 'video') {
+            for (const linkedId of [row.posterAssetId, row.subtitlesAssetId]) {
+                if (!linkedId) continue;
+                try {
+                    const linkedRow = await findMediaAssetById(db, linkedId);
+                    if (linkedRow) {
+                        await deleteAssetWithObject(db, env, linkedRow);
+                    }
+                } catch (error) {
+                    console.error(`[media] failed to cascade-delete linked asset ${linkedId}:`, error);
+                }
             }
-            await db.delete(mediaAssets).where(eq(mediaAssets.id, id));
-            return c.body(null, 204);
-        } catch (error) {
-            console.error("Media deletion failed:", error);
-            return c.text(error instanceof Error ? error.message : "Media deletion failed", 400);
         }
-    }, { message: "Permission denied", status: 403 }));
+
+        await deleteMediaAssetById(db, id);
+        return c.text('Deleted');
+    }));
 
     return app;
 }
 
-export { extractMediaIds, verifyStreamWebhookSignature };
+/**
+ * Stream webhook 服务（挂载到 /webhooks → 对外 /api/webhooks/stream）。
+ * 公开路由：靠 STREAM_WEBHOOK_SECRET 做 HMAC-SHA256 验签。
+ */
+export function StreamWebhookService(): HonoApp {
+    const app = new Hono<{
+        Bindings: Env;
+        Variables: Variables;
+    }>();
+
+    app.post('/stream', async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+
+        // secret 未配置：拒绝并报 500 级清晰错误，不静默通过
+        const secret = env.STREAM_WEBHOOK_SECRET;
+        if (!secret) {
+            console.error('[media] rejecting stream webhook: STREAM_WEBHOOK_SECRET is not set');
+            return c.json({
+                error: {
+                    code: new WebhookConfigError().code,
+                    message: 'Stream webhook secret is not configured',
+                },
+            }, 500);
+        }
+
+        const signature = c.req.header('webhook-signature');
+        if (!signature) {
+            return c.json({ error: { code: 'webhook_signature_missing', message: 'Missing Webhook-Signature header' } }, 401);
+        }
+
+        // 验签需要原始 body（不能先 JSON.parse 再 stringify，空白/键序会改变 digest）
+        const rawBody = await c.req.text();
+        let valid: boolean;
+        try {
+            valid = await verifyStreamWebhookSignature(rawBody, signature, secret);
+        } catch (error) {
+            if (error instanceof WebhookConfigError) {
+                return c.json({ error: { code: error.code, message: error.message } }, 500);
+            }
+            console.error('[media] webhook signature verification error', error);
+            return c.json({ error: { code: 'webhook_verify_error', message: 'Internal error' } }, 500);
+        }
+        if (!valid) {
+            return c.json({ error: { code: 'webhook_signature_invalid', message: 'Invalid webhook signature' } }, 401);
+        }
+
+        let payload: unknown;
+        try {
+            payload = JSON.parse(rawBody);
+        } catch {
+            return c.json({ error: { code: 'webhook_invalid_payload', message: 'Invalid JSON payload' } }, 400);
+        }
+
+        const result = await applyStreamWebhook(db, payload);
+        if (!result.handled) {
+            if (result.reason === 'unknown_uid') {
+                console.warn('[media] stream webhook for unknown uid; acked to avoid retries');
+            } else {
+                console.warn(`[media] stream webhook ignored: ${result.reason}`);
+            }
+            return c.json({ ok: true, ignored: result.reason });
+        }
+
+        return c.json({
+            ok: true,
+            assetId: result.assetId,
+            from: result.from,
+            to: result.to,
+            deduped: result.deduped,
+        });
+    });
+
+    return app;
+}

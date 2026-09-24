@@ -24,7 +24,6 @@ import {
 } from "../utils/ai-compose";
 import { getAIWriterConfig } from "../utils/db-config";
 import { syncFeedAISummaryQueueState } from "./feed-ai-summary";
-import { syncMediaForFeed } from "./media";
 import { bindTagToPost } from "./tag";
 
 type ConfigReader = {
@@ -43,11 +42,11 @@ export function normalizeComposeLength(value: unknown): ComposeLength {
 
 function buildStatusUpdate(
     status: FeedAIComposeStatus,
-    overrides?: Partial<{ ai_compose_error: string }>,
+    overrides?: Partial<{ aiComposeError: string }>,
 ) {
     return {
-        ai_compose_status: status,
-        ai_compose_error: "",
+        aiComposeStatus: status,
+        aiComposeError: "",
         ...overrides,
     };
 }
@@ -103,10 +102,19 @@ export async function loadComposeAssets(
         return { ok: true, assets: [] };
     }
 
+    // API 侧资产 id 是字符串，media_assets 主键是整数：能解析的才查，
+    // 解析不了的直接算缺失（与旧行为一致：找不到 → missing）。
+    const numericIds = requested
+        .map((asset) => Number(asset.id))
+        .filter((id) => Number.isSafeInteger(id) && id > 0);
+    if (numericIds.length === 0) {
+        // inArray 不接受空数组；全部 id 都解析不了时直接判缺失。
+        return { ok: false, missing: requested.map((asset) => asset.id) };
+    }
     const rows = await db.query.mediaAssets.findMany({
-        where: inArray(mediaAssets.id, requested.map((asset) => asset.id)),
+        where: inArray(mediaAssets.id, numericIds),
     });
-    const byId = new Map(rows.map((row) => [row.id, row]));
+    const byId = new Map(rows.map((row) => [String(row.id), row]));
 
     const missing = requested.filter((asset) => !byId.has(asset.id)).map((asset) => asset.id);
     if (missing.length > 0) {
@@ -119,9 +127,14 @@ export async function loadComposeAssets(
         assets: requested.map((asset) => {
             const row = byId.get(asset.id)!;
             return {
-                id: row.id,
-                type: row.type as ComposeAsset["type"],
-                provider: row.provider as ComposeAsset["provider"],
+                id: String(row.id),
+                // Stage 2 的 kind 比旧 type 多 gallery/attachment 等取值，
+                // 渲染只认 image/video/audio：非常见值按 image 处理。
+                type: (["image", "video", "audio"] as const).includes(row.kind as "image")
+                    ? (row.kind as ComposeAsset["type"])
+                    : "image",
+                // 只有 stream 需要打 provider 标记，其余一律走本站直链。
+                provider: (row.source === "stream" ? "stream" : "r2") as ComposeAsset["provider"],
                 note: asset.note,
             };
         }),
@@ -156,7 +169,7 @@ export async function processFeedAIComposeTask(
     if (!writerConfig.enabled) {
         await db
             .update(feeds)
-            .set(buildStatusUpdate("failed", { ai_compose_error: "AI 写作功能未启用" }))
+            .set(buildStatusUpdate("failed", { aiComposeError: "AI 写作功能未启用" }))
             .where(eq(feeds.id, feed.id));
         return;
     }
@@ -169,7 +182,7 @@ export async function processFeedAIComposeTask(
             .update(feeds)
             .set(
                 buildStatusUpdate("failed", {
-                    ai_compose_error: `素材不存在：${assetResult.missing.join(", ")}`,
+                    aiComposeError: `素材不存在：${assetResult.missing.join(", ")}`,
                 }),
             )
             .where(eq(feeds.id, feed.id));
@@ -212,7 +225,7 @@ export async function processFeedAIComposeTask(
     if (outcome.kind === "failed") {
         await db
             .update(feeds)
-            .set(buildStatusUpdate("failed", { ai_compose_error: outcome.error }))
+            .set(buildStatusUpdate("failed", { aiComposeError: outcome.error }))
             .where(eq(feeds.id, feed.id));
         await clearFeedCache(cache, feed.id, feed.alias, feed.alias);
         return;
@@ -235,7 +248,8 @@ export async function processFeedAIComposeTask(
         .where(eq(feeds.id, feed.id));
 
     await bindTagToPost(db, feed.id, outcome.article.tags);
-    await syncMediaForFeed(db, feed.id, feed.uid, content);
+    // Stage 2 媒体栈不再做「文章 ↔ 资产」行级绑定（旧 syncMediaForFeed 已随
+    // Stage 1 媒体模型下线），渲染时直接用资产 id 生成 playback 链接。
     await syncFeedAISummaryQueueState(db, serverConfig, env, feed.id, {
         draft: false,
         updatedAt: publishedAt,
@@ -280,8 +294,8 @@ export function registerFeedAIComposeRoutes(app: Hono<{ Bindings: Env; Variables
                         ai_summary: "",
                         ai_summary_status: "idle",
                         ai_summary_error: "",
-                        ai_compose_status: "pending",
-                        ai_compose_error: "",
+                        aiComposeStatus: "pending",
+                        aiComposeError: "",
                         uid,
                         alias: null,
                         listed: listed ? 1 : 0,
@@ -309,7 +323,7 @@ export function registerFeedAIComposeRoutes(app: Hono<{ Bindings: Env; Variables
                 if (!enqueued.ok) {
                     await db
                         .update(feeds)
-                        .set(buildStatusUpdate("failed", { ai_compose_error: enqueued.error }))
+                        .set(buildStatusUpdate("failed", { aiComposeError: enqueued.error }))
                         .where(eq(feeds.id, placeholder.id));
                     return c.text(enqueued.error, 500);
                 }
@@ -340,8 +354,8 @@ export function registerFeedAIComposeRoutes(app: Hono<{ Bindings: Env; Variables
                 }
 
                 return c.json({
-                    status: feed.ai_compose_status,
-                    error: feed.ai_compose_error,
+                    status: feed.aiComposeStatus,
+                    error: feed.aiComposeError,
                 });
             },
             { message: "Permission denied", status: 403 },

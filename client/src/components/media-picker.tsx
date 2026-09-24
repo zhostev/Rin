@@ -1,4 +1,4 @@
-import type { MediaAsset } from "@rin/api";
+import type { MediaAsset } from "../api/story";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactLoading from "react-loading";
@@ -39,7 +39,7 @@ export function MediaPicker({
     let cancelled = false;
 
     client.media
-      .list({ page: 1, limit: 50 })
+      .list(undefined, { page: 1, limit: 50 })
       .then(({ data, error: requestError }) => {
         if (cancelled) return;
         if (requestError) {
@@ -83,14 +83,14 @@ export function MediaPicker({
     <div className={className}>
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
         {assets.map((asset) => {
-          const order = pickedIndex.get(asset.id);
+          const order = pickedIndex.get(String(asset.id));
           const picked = order !== undefined;
 
           return (
             <button
               key={asset.id}
               type="button"
-              onClick={() => onChange(togglePickedAsset(value, asset.id))}
+              onClick={() => onChange(togglePickedAsset(value, String(asset.id)))}
               aria-pressed={picked}
               className={`relative aspect-square overflow-hidden rounded-xl border transition-colors ${
                 picked
@@ -98,9 +98,9 @@ export function MediaPicker({
                   : "border-black/10 hover:border-theme/50 dark:border-white/10"
               }`}
             >
-              {asset.type === "image" ? (
+              {asset.kind === "image" ? (
                 <img
-                  src={asset.playbackUrl}
+                  src={asset.url}
                   alt=""
                   loading="lazy"
                   className="h-full w-full object-cover"
@@ -108,7 +108,7 @@ export function MediaPicker({
               ) : (
                 <span className="flex h-full w-full items-center justify-center bg-secondary text-2xl">
                   <i
-                    className={asset.type === "video" ? "ri-film-line" : "ri-volume-up-line"}
+                    className={asset.kind === "video" ? "ri-film-line" : "ri-volume-up-line"}
                     aria-hidden="true"
                   />
                 </span>

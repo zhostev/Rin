@@ -149,7 +149,7 @@ describe("GET /:id/ai-compose-status", () => {
   it("returns the stored status and error", async () => {
     const app = buildApp({
       admin: true,
-      feed: { ai_compose_status: "failed", ai_compose_error: "AI 返回了空响应" },
+      feed: { aiComposeStatus: "failed", aiComposeError: "AI 返回了空响应" },
     });
 
     const res = await app.request("/42/ai-compose-status");
