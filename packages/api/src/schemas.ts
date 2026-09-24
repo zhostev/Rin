@@ -161,3 +161,20 @@ export const searchSchema = t.Object({
   page: t.Number({ optional: true }),
   limit: t.Number({ optional: true }),
 });
+
+// ============================================================================
+// AI Compose Schemas (server/src/services/feed-ai-compose.ts)
+// ============================================================================
+
+export const feedAIComposeSchema = t.Object({
+  topic: t.String({ minLength: 1 }),
+  assets: t.Array(
+    t.Object({
+      id: t.String(),
+      note: t.String(),
+    }),
+  ),
+  length: t.Optional(t.String()),
+  style: t.Optional(t.String()),
+  listed: t.Optional(t.Boolean()),
+});

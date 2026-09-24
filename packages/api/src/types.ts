@@ -618,3 +618,224 @@ export const API_PATHS = {
 } as const;
 
 export type APIEndpoint = typeof API_PATHS;
+
+// ============================================================================
+// Media Types (Stage 1/2 upload + AI compose)
+// ============================================================================
+
+/** 素材/上传的类型标记：markdown_editor、media-embed、ai-compose 共用 */
+export type MediaType = 'image' | 'video' | 'audio';
+
+// ============================================================================
+// AI Writer Config (server/src/utils/db-config.ts:getAIWriterConfig)
+// ============================================================================
+
+export interface AIWriterConfig {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  api_key: string;
+  api_url: string;
+  temperature: number;
+  max_tokens: number;
+  system_prompt: string;
+}
+
+// ============================================================================
+// Analytics (server/src/services/analytics.ts → GET /analytics/*, adminOnly)
+// ============================================================================
+
+export interface AnalyticsDailyPoint {
+  date: string;
+  pv: number;
+  uv: number;
+}
+
+export interface AnalyticsOverview {
+  range: { days: number; from: string; to: string };
+  totals: { pv: number; uv: number; uvApproximate: boolean };
+  today: AnalyticsDailyPoint;
+  yesterday: AnalyticsDailyPoint;
+  series: AnalyticsDailyPoint[];
+  previous: { from: string; to: string; pv: number; uv: number };
+}
+
+export interface AnalyticsTopFeed {
+  feedId: number;
+  title: string | null;
+  pv: number;
+  uv: number;
+}
+
+export interface AnalyticsTopFeedsResponse {
+  items: AnalyticsTopFeed[];
+}
+
+export type AnalyticsDimensionType = 'referrer' | 'country' | 'device';
+
+export interface AnalyticsDimensionItem {
+  value: string;
+  count: number;
+}
+
+export interface AnalyticsDimensionsResponse {
+  type: AnalyticsDimensionType;
+  items: AnalyticsDimensionItem[];
+}
+
+export interface AnalyticsLiveTotals {
+  pv: number;
+  uv: number;
+}
+
+export interface AnalyticsLiveResponse {
+  available: boolean;
+  date: string;
+  totals: AnalyticsLiveTotals;
+  yesterday: AnalyticsLiveTotals;
+  uvApproximate: boolean;
+  elapsedHours: number;
+}
+
+export interface AnalyticsVisit {
+  timestamp: string;
+  feedId: number;
+  title: string | null;
+  path: string;
+  referrer: string;
+  country: string;
+  city: string;
+  device: string;
+  visitor: string;
+  ip: string;
+}
+
+export interface AnalyticsVisitsResponse {
+  available: boolean;
+  items: AnalyticsVisit[];
+  sampled: boolean;
+}
+
+// ============================================================================
+// AI Compose (server/src/services/feed-ai-compose.ts)
+// POST /feed/ai-compose, GET /feed/:id/ai-compose-status, adminOnly
+// ============================================================================
+
+export type ComposeLength = 'short' | 'medium' | 'long';
+
+export interface AIComposeAssetInput {
+  id: string;
+  note: string;
+}
+
+export interface CreateAIComposeRequest {
+  topic: string;
+  assets: AIComposeAssetInput[];
+  length?: ComposeLength;
+  style?: string;
+  listed?: boolean;
+}
+
+export interface AIComposeResponse {
+  id: number;
+  status: 'pending';
+}
+
+export interface AIComposeStatusResponse {
+  status: string;
+  error: string;
+}
+
+// ============================================================================
+// Sharing Reports (server/src/services/sharing-reports.ts)
+// ============================================================================
+
+export interface SharingReportMetrics {
+  imageReferences: number;
+  publishedArticles: number;
+  pageViews: number;
+  storageBytes: number;
+}
+
+export interface FinanceCategoryTotal {
+  category: string;
+  amount: number;
+}
+
+export interface FinanceSummary {
+  donationTotal: number;
+  expenseTotal: number;
+  balance: number;
+  donationCount: number;
+  expenseCount: number;
+  byCategory: FinanceCategoryTotal[];
+}
+
+export type FinanceTransactionType = 'donation' | 'expense';
+export type FinanceTransactionStatus = 'confirmed' | 'voided';
+
+export interface FinanceTransaction {
+  id: number;
+  reportId: number | null;
+  type: FinanceTransactionType;
+  category: string;
+  title: string;
+  description: string;
+  amount: number;
+  currency: string;
+  occurredAt: string;
+  receiptUrl: string;
+  isAnonymous: boolean;
+  status: FinanceTransactionStatus;
+}
+
+export interface SharingReport {
+  id: number;
+  slug: string;
+  title: string;
+  periodStart: string;
+  periodEnd: string;
+  goals: string;
+  summary: string;
+  status: 'draft' | 'published';
+  metrics: SharingReportMetrics;
+  finance: FinanceSummary;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSharingReportRequest {
+  title: string;
+  periodStart: string;
+  periodEnd: string;
+  goals?: string;
+  summary?: string;
+}
+
+export interface UpdateSharingReportRequest {
+  title?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  goals?: string;
+  summary?: string;
+  status?: 'draft' | 'published';
+}
+
+export interface CreateFinanceTransactionRequest {
+  type: FinanceTransactionType;
+  category: string;
+  title: string;
+  description?: string;
+  amount: number;
+  currency?: string;
+  occurredAt: string;
+  reportId?: number | null;
+  receiptUrl?: string;
+  isAnonymous?: boolean;
+}
+
+export interface SharingReportDetailResponse {
+  report: SharingReport;
+  transactions: FinanceTransaction[];
+}

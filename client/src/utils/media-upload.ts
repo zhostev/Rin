@@ -1,8 +1,22 @@
-import type { MediaAsset, MediaType } from "@rin/api";
-import * as tus from "tus-js-client";
+// Media upload helpers for the Markdown editor (paste/drop).
+//
+// Wired to the Stage 2 media stack (client/src/api/media.ts):
+//
+//   image → POST /api/admin/media/images/direct-upload (mint) → PUT bytes to
+//           uploadURL → POST /api/admin/media/images/:id/finalize
+//   audio → POST /api/admin/media/audio (multipart XHR, progress events)
+//   video → POST /api/admin/media/stream/direct-upload (mint) → TUS upload to
+//           uploadURL → provisional asset (transcode continues server-side)
+//
+// File bytes never pass through the JSON HttpClient.
+
+import type { MediaType } from "@rin/api";
+import type { MediaAsset } from "../api/story";
 import { client } from "../app/runtime";
 import { endpoint } from "../config";
 import { generateImageMetadata, type UploadedImageResult } from "./image-upload";
+import { startStreamUpload } from "./stream-upload";
+import { uploadFileRaw } from "./upload-xhr";
 
 export const R2_MEDIA_MAX_BYTES = 100 * 1024 * 1024;
 export const MAX_STREAM_VIDEO_BYTES = 1024 * 1024 * 1024;
@@ -34,38 +48,31 @@ async function uploadStreamVideo(file: File, { t, onProgress }: UploadMediaOptio
   let lastUploadError: Error | undefined;
 
   for (let attempt = 1; attempt <= STREAM_UPLOAD_ATTEMPTS && !uploadedAsset; attempt += 1) {
-    // createDirectUpload (FormData POST) is capped at 200MB; use TUS for 100MB–1GB.
-    const streamUpload = await client.media.createStreamUpload(file.name, file.size);
-    if (streamUpload.error || !streamUpload.data) {
-      throw new Error(streamUpload.error?.value || t("upload.media.stream_unavailable"));
+    // POST /api/admin/media/stream/direct-upload mints a one-time TUS URL plus
+    // the provisional asset (stream_status "uploading"); the browser uploads
+    // straight to Cloudflare Stream.
+    const minted = await client.media.createStreamDirectUpload({ filename: file.name });
+    if (minted.error || !minted.data?.uploadURL) {
+      throw new Error(minted.error?.value || t("upload.media.stream_unavailable"));
     }
+    const provisional = minted.data.asset;
     try {
-      await new Promise<void>((resolve, reject) => {
-        const upload = new tus.Upload(file, {
-          // Pre-provisioned one-time URL from /api/media/stream/upload (direct_user TUS).
-          uploadUrl: streamUpload.data!.uploadUrl,
-          // CF Stream: min 5MiB chunk unless whole file is smaller; prefer ~50MiB.
-          chunkSize: 52_428_800,
-          retryDelays: [0, 3000, 5000, 10000, 20000],
-          metadata: {
-            filename: file.name,
-            filetype: file.type || "video/mp4",
-          },
-          onError: (error) => reject(error instanceof Error ? error : new Error(t("upload.failed"))),
-          onProgress: (bytesUploaded, bytesTotal) => {
-            if (bytesTotal > 0) {
-              onProgress?.(Math.round((bytesUploaded / bytesTotal) * 100));
-            }
-          },
-          onSuccess: () => resolve(),
-        });
-        upload.start();
+      const handle = startStreamUpload(file, minted.data.uploadURL, {
+        onProgress: (bytesUploaded, bytesTotal) => {
+          if (bytesTotal > 0) {
+            onProgress?.(Math.round((bytesUploaded / bytesTotal) * 100));
+          }
+        },
       });
-      uploadedAsset = streamUpload.data.asset;
+      await handle.done;
+      uploadedAsset = provisional;
     } catch (error) {
       lastUploadError = error instanceof Error ? error : new Error(t("upload.failed"));
     }
-    if (!uploadedAsset) await client.media.delete(streamUpload.data.asset.id);
+    // Best-effort cleanup so failed attempts don't pile up provisional assets.
+    if (!uploadedAsset) {
+      await client.media.remove(provisional.id);
+    }
     if (!uploadedAsset && attempt < STREAM_UPLOAD_ATTEMPTS) onProgress?.(0);
   }
 
@@ -73,29 +80,72 @@ async function uploadStreamVideo(file: File, { t, onProgress }: UploadMediaOptio
   return uploadedAsset;
 }
 
+async function uploadImageDirect(file: File, { t, onProgress }: UploadMediaOptions): Promise<MediaAsset> {
+  // POST /api/admin/media/images/direct-upload mints a one-time PUT URL plus
+  // the provisional asset; the browser PUTs the bytes, then finalizes.
+  const minted = await client.media.createImageDirectUpload();
+  if (minted.error || !minted.data?.uploadURL) {
+    throw new Error(minted.error?.value || t("upload.failed"));
+  }
+  const imagesId = minted.data.asset.images_id;
+  if (!imagesId) {
+    throw new Error(t("upload.failed"));
+  }
+  const { status } = await uploadFileRaw(minted.data.uploadURL, file, {
+    method: "PUT",
+    headers: file.type ? { "Content-Type": file.type } : undefined,
+    onProgress: (loaded, total) => {
+      if (total > 0) {
+        onProgress?.(Math.round((loaded / total) * 100));
+      }
+    },
+  });
+  if (status < 200 || status >= 300) {
+    await client.media.remove(minted.data.asset.id);
+    throw new Error(t("upload.failed"));
+  }
+  const finalized = await client.media.finalizeImage(imagesId);
+  if (finalized.error || !finalized.data) {
+    throw new Error(finalized.error?.value || t("upload.failed"));
+  }
+  return finalized.data;
+}
+
 export async function uploadMediaFile(
   file: File,
   type: MediaType,
   options: UploadMediaOptions,
 ): Promise<UploadedMediaResult> {
-  const { t } = options;
+  const { t, onProgress } = options;
 
   if (type === "image" && file.size > MAX_IMAGE_BYTES) {
     throw new Error(t("upload.failed$size", { size: MAX_IMAGE_BYTES / 1024 / 1024 }));
   }
 
-  if (type === "video" && file.size > R2_MEDIA_MAX_BYTES) {
-    if (file.size > MAX_STREAM_VIDEO_BYTES) {
-      throw new Error(t("upload.media.too_large"));
-    }
-    return { asset: await uploadStreamVideo(file, options), provider: "stream" };
+  if (type === "image") {
+    return { asset: await uploadImageDirect(file, options), provider: "r2" };
   }
 
-  const { data, error } = await client.media.upload(file);
-  if (error || !data) {
-    throw new Error(error?.value || t("upload.failed"));
+  if (type === "audio") {
+    // multipart XHR keeps upload progress events (JSON HttpClient can't).
+    const asset = await client.media.uploadAudio(
+      file,
+      (loaded, total) => {
+        if (total > 0) {
+          onProgress?.(Math.round((loaded / total) * 100));
+        }
+      },
+      file.name,
+    );
+    return { asset, provider: "r2" };
   }
-  return { asset: data, provider: "r2" };
+
+  // video: Cloudflare Stream direct upload (TUS), regardless of size —
+  // the transcode continues server-side after the bytes land.
+  if (file.size > MAX_STREAM_VIDEO_BYTES) {
+    throw new Error(t("upload.media.too_large"));
+  }
+  return { asset: await uploadStreamVideo(file, options), provider: "stream" };
 }
 
 /** Absolute playback URL, so content stays valid in RSS and other off-site renderers. */
@@ -125,7 +175,7 @@ export async function uploadImageToLibrary(
 
   return {
     asset: uploadResult.value.asset,
-    url: mediaPlaybackUrl(uploadResult.value.asset.id),
+    url: mediaPlaybackUrl(String(uploadResult.value.asset.id)),
     ...(metadataResult.status === "fulfilled" ? metadataResult.value : {}),
   };
 }

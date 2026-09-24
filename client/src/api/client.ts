@@ -37,6 +37,22 @@ import type {
   AuthStatus,
   LoginRequest,
   LoginResponse,
+  // Stage 4 baseline additions (server/src/services/*.ts)
+  AnalyticsOverview,
+  AnalyticsTopFeedsResponse,
+  AnalyticsDimensionsResponse,
+  AnalyticsDimensionType,
+  AnalyticsLiveResponse,
+  AnalyticsVisitsResponse,
+  SharingReport,
+  SharingReportDetailResponse,
+  FinanceTransaction,
+  CreateSharingReportRequest,
+  UpdateSharingReportRequest,
+  CreateFinanceTransactionRequest,
+  CreateAIComposeRequest,
+  AIComposeResponse,
+  AIComposeStatusResponse,
 } from "@rin/api";
 
 export interface SettingsConfigResponse {
@@ -159,6 +175,22 @@ export type {
   AuthStatus,
   LoginRequest,
   LoginResponse,
+  AnalyticsOverview,
+  AnalyticsTopFeedsResponse,
+  AnalyticsDimensionsResponse,
+  AnalyticsDimensionType,
+  AnalyticsLiveResponse,
+  AnalyticsVisitsResponse,
+  AnalyticsVisit,
+  SharingReport,
+  SharingReportDetailResponse,
+  FinanceTransaction,
+  CreateSharingReportRequest,
+  UpdateSharingReportRequest,
+  CreateFinanceTransactionRequest,
+  CreateAIComposeRequest,
+  AIComposeResponse,
+  AIComposeStatusResponse,
 } from "@rin/api";
 
 
@@ -326,6 +358,16 @@ class FeedAPI {
   // POST /api/feed/top/:id
   async setTop(id: number, top: number): Promise<ApiResponse<void>> {
     return this.http.post<void>(`/api/feed/top/${id}`, { top });
+  }
+
+  // POST /api/feed/ai-compose — AI 写作：创建占位文章并入队，202 -> { id, status: "pending" }
+  async aiCompose(body: CreateAIComposeRequest): Promise<ApiResponse<AIComposeResponse>> {
+    return this.http.post<AIComposeResponse>("/api/feed/ai-compose", body);
+  }
+
+  // GET /api/feed/:id/ai-compose-status — 轮询 AI 写作进度（不走缓存的 /feed/:id）
+  async aiComposeStatus(id: number): Promise<ApiResponse<AIComposeStatusResponse>> {
+    return this.http.get<AIComposeStatusResponse>(`/api/feed/${id}/ai-compose-status`);
   }
 }
 
@@ -596,6 +638,85 @@ class SearchAPI {
 }
 
 /**
+ * Analytics API methods — admin only.
+ * Backend counterpart: server/src/services/analytics.ts (挂载前缀 /analytics)
+ */
+class AnalyticsAPI {
+  constructor(private http: HttpClient) {}
+
+  // GET /api/analytics/overview?days=30
+  async getOverview(days: 7 | 30 | 90 = 30): Promise<ApiResponse<AnalyticsOverview>> {
+    return this.http.get<AnalyticsOverview>(`/api/analytics/overview?days=${days}`);
+  }
+
+  // GET /api/analytics/top-feeds?days=30&limit=20
+  async getTopFeeds(days: 7 | 30 | 90 = 30, limit = 20): Promise<ApiResponse<AnalyticsTopFeedsResponse>> {
+    return this.http.get<AnalyticsTopFeedsResponse>(`/api/analytics/top-feeds?days=${days}&limit=${limit}`);
+  }
+
+  // GET /api/analytics/dimensions?type=referrer&days=30
+  async getDimensions(
+    type: AnalyticsDimensionType,
+    days: 7 | 30 | 90 = 30
+  ): Promise<ApiResponse<AnalyticsDimensionsResponse>> {
+    return this.http.get<AnalyticsDimensionsResponse>(`/api/analytics/dimensions?type=${type}&days=${days}`);
+  }
+
+  // GET /api/analytics/live — UTC 当日累计（Analytics Engine，未聚合当天数据）
+  async getLive(): Promise<ApiResponse<AnalyticsLiveResponse>> {
+    return this.http.get<AnalyticsLiveResponse>("/api/analytics/live");
+  }
+
+  // GET /api/analytics/visits?limit=100
+  async getVisits(limit = 100): Promise<ApiResponse<AnalyticsVisitsResponse>> {
+    return this.http.get<AnalyticsVisitsResponse>(`/api/analytics/visits?limit=${limit}`);
+  }
+}
+
+/**
+ * Sharing Reports API methods.
+ * Backend counterpart: server/src/services/sharing-reports.ts (挂载前缀 /reports)
+ */
+class ReportsAPI {
+  constructor(private http: HttpClient) {}
+
+  // GET /api/reports — admin: 全部报告（含财务汇总）
+  async list(): Promise<ApiResponse<SharingReport[]>> {
+    return this.http.get<SharingReport[]>("/api/reports");
+  }
+
+  // GET /api/reports/:id — admin: 报告 + 全部账目
+  async detail(id: number): Promise<ApiResponse<SharingReportDetailResponse>> {
+    return this.http.get<SharingReportDetailResponse>(`/api/reports/${id}`);
+  }
+
+  // POST /api/reports — admin: 新建报告，201 -> SharingReport
+  async create(body: CreateSharingReportRequest): Promise<ApiResponse<SharingReport>> {
+    return this.http.post<SharingReport>("/api/reports", body);
+  }
+
+  // PATCH /api/reports/:id — admin: 更新（含发布/撤下）
+  async update(id: number, body: UpdateSharingReportRequest): Promise<ApiResponse<SharingReport>> {
+    return this.http.patch<SharingReport>(`/api/reports/${id}`, body);
+  }
+
+  // POST /api/reports/:id/snapshot — admin: 刷新指标与财务快照
+  async snapshot(id: number): Promise<ApiResponse<SharingReport>> {
+    return this.http.post<SharingReport>(`/api/reports/${id}/snapshot`);
+  }
+
+  // POST /api/reports/transactions — admin: 记一笔账，201 -> FinanceTransaction
+  async createTransaction(body: CreateFinanceTransactionRequest): Promise<ApiResponse<FinanceTransaction>> {
+    return this.http.post<FinanceTransaction>("/api/reports/transactions", body);
+  }
+
+  // GET /api/reports/published/:slug — 公开：已发布的报告
+  async getPublished(slug: string): Promise<ApiResponse<SharingReport>> {
+    return this.http.get<SharingReport>(`/api/reports/published/${encodeURIComponent(slug)}`);
+  }
+}
+
+/**
  * Auth API methods
  */
 class AuthAPI {
@@ -673,6 +794,10 @@ export class ApiClient {
   aiStudio: AIStudioAPI;
   /** Stage 4 public site Q&A: POST /api/ask, GET /api/ask/recommend. */
   ask: AskAPI;
+  /** Analytics dashboard: /api/analytics/* (admin). Backend: server/src/services/analytics.ts */
+  analytics: AnalyticsAPI;
+  /** Sharing reports: /api/reports/* (admin + public /published). Backend: server/src/services/sharing-reports.ts */
+  reports: ReportsAPI;
   auth: AuthAPI;
   wp: WordPressAPI;
   rss: RSSAPI;
@@ -694,6 +819,8 @@ export class ApiClient {
     this.mediaCenter = new MediaCenterAPI(this.http);
     this.aiStudio = new AIStudioAPI(this.http);
     this.ask = new AskAPI(this.http);
+    this.analytics = new AnalyticsAPI(this.http);
+    this.reports = new ReportsAPI(this.http);
     this.auth = new AuthAPI(this.http);
     this.wp = new WordPressAPI(this.http);
     this.rss = new RSSAPI(baseUrl);

@@ -124,7 +124,7 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
       if (!editorInstance) return;
       editorInstance.executeEdits(undefined, [{
         range,
-        text: buildMediaMarkup(type, asset.id, file.name, provider),
+        text: buildMediaMarkup(type, String(asset.id), file.name, provider),
       }]);
       setContent(editorInstance.getValue());
     } catch (error) {
