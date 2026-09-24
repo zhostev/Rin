@@ -59,12 +59,23 @@ async function failJob(db: DB, jobId: number, message: string): Promise<void> {
     await setJobStatus(db, jobId, "failed");
 }
 
-function parseJsonObject(text: string): Record<string, any> | null {
+function extractJsonCandidate(text: string): string {
     const cleaned = text
         .trim()
         .replace(/^```(?:json)?\s*/i, "")
         .replace(/\s*```$/, "")
         .trim();
+    // 模型可能在 JSON 前后加解释文字：截取第一个 { 到最后一个 } 之间的部分
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+        return cleaned.slice(start, end + 1);
+    }
+    return cleaned;
+}
+
+export function parseJsonObject(text: string): Record<string, any> | null {
+    const cleaned = extractJsonCandidate(text);
     try {
         const parsed = JSON.parse(cleaned);
         return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
@@ -73,12 +84,22 @@ function parseJsonObject(text: string): Record<string, any> | null {
     }
 }
 
-function parseJsonArray(text: string): Array<Record<string, any>> | null {
+function extractJsonArrayCandidate(text: string): string {
     const cleaned = text
         .trim()
         .replace(/^```(?:json)?\s*/i, "")
         .replace(/\s*```$/, "")
         .trim();
+    const start = cleaned.indexOf("[");
+    const end = cleaned.lastIndexOf("]");
+    if (start >= 0 && end > start) {
+        return cleaned.slice(start, end + 1);
+    }
+    return cleaned;
+}
+
+export function parseJsonArray(text: string): Array<Record<string, any>> | null {
+    const cleaned = extractJsonArrayCandidate(text);
     try {
         const parsed = JSON.parse(cleaned);
         return Array.isArray(parsed) ? parsed : null;

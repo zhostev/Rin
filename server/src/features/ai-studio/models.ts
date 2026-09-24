@@ -117,7 +117,8 @@ export function isAIStudioJobKind(value: unknown): value is AIStudioJobKind {
 // ---------------------------------------------------------------------------
 
 export const DERIVE_SYSTEM_PROMPT =
-    "你是一个中文内容编辑助手。根据用户提供的文章内容，输出严格的 JSON（不要输出 markdown 代码围栏以外的任何文字），" +
+    "你是一个中文内容编辑助手。根据用户提供的文章内容，只输出 JSON 本身，" +
+    "不要加 markdown 代码围栏，不要加任何解释、前言或结尾文字，" +
     "格式：{\"summary\": \"200字以内摘要\", " +
     "\"sections\": [{\"title\": \"章节标题\", \"summary\": \"章节提要\"}], " +
     "\"platformCopy\": {\"xiaohongshu\": \"小红书风格文案，带emoji，150字以内\", \"weibo\": \"微博风格文案，140字以内\"}}。" +
