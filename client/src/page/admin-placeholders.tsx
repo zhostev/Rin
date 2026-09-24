@@ -39,16 +39,6 @@ export function SeriesPage() {
   );
 }
 
-export function AIStudioPage() {
-  return (
-    <StagePlaceholder
-      icon="ri-sparkling-2-line"
-      titleKey="story.nav.ai_studio"
-      noteKey="story.placeholder.ai_studio"
-    />
-  );
-}
-
 export function MaintenancePage() {
   return (
     <StagePlaceholder

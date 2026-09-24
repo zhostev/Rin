@@ -6,6 +6,7 @@ import { endpoint } from "../config";
 import { StoryAPI } from "./story";
 import { MediaAPI } from "./media";
 import { MediaCenterAPI } from "./media-center";
+import { AIStudioAPI, AskAPI } from "./ai-studio";
 
 // Import shared types
 import type {
@@ -668,6 +669,10 @@ export class ApiClient {
   media: MediaAPI;
   /** Stage 3 public media center: /api/media, /api/series/:slug, /api/events. */
   mediaCenter: MediaCenterAPI;
+  /** Stage 4 AI Studio admin endpoints: /api/admin/ai-studio/*. */
+  aiStudio: AIStudioAPI;
+  /** Stage 4 public site Q&A: POST /api/ask, GET /api/ask/recommend. */
+  ask: AskAPI;
   auth: AuthAPI;
   wp: WordPressAPI;
   rss: RSSAPI;
@@ -687,6 +692,8 @@ export class ApiClient {
     this.story = new StoryAPI(this.http);
     this.media = new MediaAPI(this.http);
     this.mediaCenter = new MediaCenterAPI(this.http);
+    this.aiStudio = new AIStudioAPI(this.http);
+    this.ask = new AskAPI(this.http);
     this.auth = new AuthAPI(this.http);
     this.wp = new WordPressAPI(this.http);
     this.rss = new RSSAPI(baseUrl);

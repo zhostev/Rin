@@ -113,6 +113,13 @@ export function SearchPage({ keyword }: { keyword: string }) {
                             <p className="text-sm mt-4 text-neutral-500 font-normal">
                                 {t('article.total$count', { count: feeds?.size })}
                             </p>
+                            <Link
+                                href={`/ask?q=${encodeURIComponent(keyword)}`}
+                                className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-theme/10 px-4 py-1.5 text-sm font-medium text-theme hover:bg-theme/20"
+                            >
+                                <i className="ri-sparkling-2-line" />
+                                {t('ask.entry')}
+                            </Link>
                         </div>
                     </div>
                     <Waiting for={status === 'idle'}>

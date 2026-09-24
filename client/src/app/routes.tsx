@@ -30,7 +30,9 @@ import { Settings } from "../page/settings";
 import { StoryPage } from "../page/story";
 import { StoriesPage } from "../page/stories";
 import { StoryEditorPage } from "../page/story-editor";
-import { AIStudioPage, MaintenancePage, MediaLibraryPage, SeriesPage } from "../page/admin-placeholders";
+import { MaintenancePage, MediaLibraryPage, SeriesPage } from "../page/admin-placeholders";
+import { AIStudioPage } from "../page/ai-studio";
+import { AskPage } from "../page/ask";
 import { TimelinePage } from "../page/timeline";
 import { WritingPage } from "../page/writing";
 import { ProfileContext } from "../state/profile";
@@ -68,6 +70,10 @@ export function AppRoutes() {
 
       <AppRoute path="/search/:keyword">
         {(params) => <SearchPage keyword={params.keyword || ""} />}
+      </AppRoute>
+
+      <AppRoute path="/ask">
+        <AskPage />
       </AppRoute>
 
       <AdminRoute path="/admin/settings" requirePermission title={t("settings.title")} description={t("admin.settings_description")}>
