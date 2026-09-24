@@ -54,8 +54,12 @@ function storyUrl(env: Env, slug: string): string {
     return base ? `${base}/story/${slug}` : `/story/${slug}`;
 }
 
-async function failJob(db: DB, jobId: number, message: string): Promise<void> {
-    await saveArtifact(db, jobId, { kind: "error", message });
+async function failJob(db: DB, jobId: number, message: string, rawPreview?: string): Promise<void> {
+    const output: Record<string, any> = { kind: "error", message };
+    if (typeof rawPreview === "string" && rawPreview.length > 0) {
+        output.rawPreview = rawPreview.slice(0, 500);
+    }
+    await saveArtifact(db, jobId, output);
     await setJobStatus(db, jobId, "failed");
 }
 
@@ -220,7 +224,7 @@ async function processDerive(env: Env, db: DB, payload: AIStudioTaskPayload): Pr
     const text = stripReasoningTags(extractAIText(raw) ?? "");
     const parsed = parseJsonObject(text);
     if (!parsed || typeof parsed.summary !== "string" || !parsed.summary.trim()) {
-        await failJob(db, jobId, "AI 返回的 JSON 无法解析或缺少 summary");
+        await failJob(db, jobId, "AI 返回的 JSON 无法解析或缺少 summary", text);
         return;
     }
 
