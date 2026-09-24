@@ -3,6 +3,7 @@ import { Helmet } from 'react-helmet'
 import { Link, useSearch } from "wouter"
 import { FeedCard } from "../components/feed_card"
 import { Waiting } from "../components/loading"
+import { ContinueSection } from "../components/continue-section"
 import { client } from "../app/runtime"
 import { ProfileContext } from "../state/profile"
 
@@ -79,6 +80,7 @@ export function FeedsPage() {
             </Helmet>
             <Waiting for={feeds.draft.size + feeds.normal.size + feeds.unlisted.size > 0 || status === 'idle'}>
                 <main className="w-full flex flex-col justify-center items-center mb-8">
+                    <ContinueSection />
                     <div className="wauto text-start text-black dark:text-white py-4 text-4xl font-bold">
                         <p>
                             {listState === 'draft' ? t('draft_bin') : listState === 'normal' ? t('article.title') : t('unlisted')}

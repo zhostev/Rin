@@ -24,6 +24,8 @@ import { MomentsPage } from "../page/moments";
 import { ProfilePage } from "../page/profile";
 import { QueueStatusPage } from "../page/queue-status";
 import { SearchPage } from "../page/search";
+import { MediaCenterPage } from "../page/media";
+import { PublicSeriesPage } from "../page/series";
 import { Settings } from "../page/settings";
 import { StoryPage } from "../page/story";
 import { StoriesPage } from "../page/stories";
@@ -138,6 +140,14 @@ export function AppRoutes() {
 
       <AppRoute path="/story/:slug">
         {(params) => <StoryPage slug={params.slug || ""} />}
+      </AppRoute>
+
+      <AppRoute path="/media">
+        <MediaCenterPage />
+      </AppRoute>
+
+      <AppRoute path="/series/:slug">
+        {(params) => <PublicSeriesPage slug={params.slug || ""} />}
       </AppRoute>
 
       <TocRoute path="/:alias">

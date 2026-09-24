@@ -18,6 +18,9 @@ import {
     searchFeedPage,
     updateFeedById,
 } from "../features/feed/repository";
+// Stage 3 · 转录搜索：GET /api/search/:keyword 新增可选 transcripts 字段，
+// 命中 transcripts 表的 text/segments_json，只返回命中片段前后各 ~40 字。
+import { searchTranscripts } from "../features/media-center/transcripts";
 import { recordPageView } from "../utils/analytics";
 import { extractImageWithMetadata } from "../utils/image";
 import { stripMarkdown } from "../utils/markdown";
@@ -555,7 +558,22 @@ export function SearchService(): Hono<{
                 };
             });
 
-            return { size: pageResult.size, data, hasNext: pageResult.hasNext };
+            const result: { size: number; data: unknown[]; hasNext: boolean; transcripts?: unknown[] } = {
+                size: pageResult.size,
+                data,
+                hasNext: pageResult.hasNext,
+            };
+            // Stage 3 · 转录命中作为可选字段附加：无命中时不出现，保持原有 shape 不变。
+            // transcripts 表在旧库/旧迁移基线上可能不存在，查不到就当无命中（不炸搜索）。
+            try {
+                const hits = await searchTranscripts(db, keyword, { publicOnly: !admin });
+                if (hits.length > 0) {
+                    result.transcripts = hits;
+                }
+            } catch {
+                // 忽略：转录索引缺失不影响关键词搜索主链路
+            }
+            return result;
         }));
 
         return c.json(result);

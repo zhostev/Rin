@@ -11,6 +11,9 @@ import { SitemapService } from "../services/sitemap";
 import { BlobService, StorageService } from "../services/storage";
 import { AdminStoryService, StoryService } from "../services/story";
 import { AdminMediaService, StreamWebhookService } from "../services/media";
+import { MediaCenterService } from "../features/media-center/media-routes";
+import { SeriesService } from "../features/media-center/series-routes";
+import { EventsService } from "../features/media-center/events-routes";
 import { TagService } from "../services/tag";
 import { UserService } from "../services/user";
 
@@ -23,6 +26,9 @@ export function registerRoutes(app: RinApp) {
   app.route("/admin/media", AdminMediaService());
   app.route("/webhooks", StreamWebhookService());
   app.route("/search", SearchService());
+  app.route("/media", MediaCenterService());
+  app.route("/series", SeriesService());
+  app.route("/events", EventsService());
   app.route("/wp", WordPressService());
   app.route("/tag", TagService());
   app.route("/comment", CommentService());

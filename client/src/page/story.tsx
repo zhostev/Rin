@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet";
 import { useTranslation } from "react-i18next";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import Lightbox from "yet-another-react-lightbox";
 import Zoom from "yet-another-react-lightbox/plugins/zoom";
 import { Waiting } from "../components/loading";
@@ -23,6 +23,9 @@ import { client } from "../app/runtime";
 import { useSiteConfig } from "../hooks/useSiteConfig";
 import { siteName } from "../utils/constants";
 import { timeago } from "../utils/timeago";
+import { tryInt } from "../utils/int";
+import { getSharedEventTracker } from "../utils/analytics-client";
+import { loadReadProgress, saveReadProgress } from "../utils/media-progress";
 import type {
   AudioPayload,
   ContentBlock,
@@ -32,6 +35,7 @@ import type {
 import {
   mediaTabsForBlocks,
   responsiveImageProps,
+  shouldPersistProgress,
   type MediaTab,
 } from "../components/story-blocks";
 
@@ -205,6 +209,12 @@ export function StoryPage({ slug }: { slug: string }) {
   const [error, setError] = useState<string>();
   const [activeTab, setActiveTab] = useState<MediaTab>("read");
   const ref = useRef("");
+  const query = new URLSearchParams(useSearch());
+  // Transcript deep link: ?t=<seconds>&asset=<assetId> (from /search transcripts).
+  const seekTime = tryInt(0, query.get("t"));
+  const seekAsset = query.get("asset") ?? undefined;
+  const lastSavedRef = useRef(0);
+  const readMilestoneSentRef = useRef(false);
 
   const blocks = useMemo(() => detail?.blocks ?? [], [detail]);
   const tabs = useMemo(() => mediaTabsForBlocks(blocks), [blocks]);
@@ -236,6 +246,46 @@ export function StoryPage({ slug }: { slug: string }) {
   const videoBlocks = blocks.filter((block) => block.type === "video");
   const audioBlocks = blocks.filter((block) => block.type === "audio");
   const readBlocks = blocks.filter((block) => block.type !== "video" && block.type !== "audio");
+
+  // A transcript deep link (?t=) opens the audio tab so the player can seek.
+  useEffect(() => {
+    if (seekTime > 0 && audioBlocks.length > 0) {
+      setActiveTab("audio");
+    }
+  }, [seekTime, audioBlocks.length]);
+
+  // Reading progress: throttled scroll-fraction writes to localStorage
+  // (s7ea:progress:read:{storyId}), restore-once on mount, and a single
+  // story_read milestone at 50%.
+  useEffect(() => {
+    if (!story) return;
+    const storyId = story.id;
+    readMilestoneSentRef.current = false;
+    lastSavedRef.current = 0;
+
+    const saved = loadReadProgress(storyId);
+    if (saved && saved.fraction > 0.02 && saved.fraction < 0.98) {
+      requestAnimationFrame(() => {
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        if (max > 0) window.scrollTo(0, saved.fraction * max);
+      });
+    }
+
+    const onScroll = () => {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      const fraction = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
+      if (!readMilestoneSentRef.current && fraction >= 0.5) {
+        readMilestoneSentRef.current = true;
+        getSharedEventTracker().track({ type: "story_read", storyId });
+      }
+      if (shouldPersistProgress(lastSavedRef.current, Date.now())) {
+        lastSavedRef.current = Date.now();
+        saveReadProgress({ storyId, slug, fraction, title: story.title });
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [story, slug]);
 
   return (
     <Waiting for={detail || error}>
@@ -318,16 +368,52 @@ export function StoryPage({ slug }: { slug: string }) {
                   )}
                   {activeTab === "video" && (
                     <div role="tabpanel" className="flex flex-col gap-4">
-                      {videoBlocks.map((block, index) => (
-                        <StreamPlayer key={String(block.id ?? index)} payload={block.payload as VideoPayload} />
-                      ))}
+                      {videoBlocks.map((block, index) => {
+                        const payload = block.payload as VideoPayload;
+                        const assetId = payload.asset_id ?? payload.asset?.id;
+                        return (
+                          <StreamPlayer
+                            key={String(block.id ?? index)}
+                            payload={payload}
+                            onReveal={() =>
+                              getSharedEventTracker().track({
+                                type: "video_play",
+                                assetId,
+                                storyId: story.id,
+                              })
+                            }
+                          />
+                        );
+                      })}
                     </div>
                   )}
                   {activeTab === "audio" && (
                     <div role="tabpanel" className="flex flex-col gap-3">
-                      {audioBlocks.map((block, index) => (
-                        <AudioPlayer key={String(block.id ?? index)} payload={block.payload as AudioPayload} />
-                      ))}
+                      {audioBlocks.map((block, index) => {
+                        const payload = block.payload as AudioPayload;
+                        const assetId = payload.asset_id ?? payload.asset?.id;
+                        const seekTarget =
+                          seekTime > 0 &&
+                          (seekAsset === undefined
+                            ? index === 0
+                            : String(assetId ?? "") === seekAsset)
+                            ? seekTime
+                            : undefined;
+                        return (
+                          <AudioPlayer
+                            key={String(block.id ?? index)}
+                            payload={payload}
+                            initialTime={seekTarget}
+                            onPlay={() =>
+                              getSharedEventTracker().track({
+                                type: "audio_play",
+                                assetId,
+                                storyId: story.id,
+                              })
+                            }
+                          />
+                        );
+                      })}
                     </div>
                   )}
                 </div>

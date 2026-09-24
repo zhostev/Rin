@@ -73,7 +73,9 @@
     "search": {
       "placeholder": "キーワードを入力してください",
       "title": "検索",
-      "title$keyword": "検索: {{keyword}}"
+      "title$keyword": "検索: {{keyword}}",
+      "transcripts": "字幕・文字起こしのヒット",
+      "transcripts$more": "あと {{count}} 件"
     },
     "title": "記事",
     "top": {
@@ -881,5 +883,69 @@
   "sort_latest": "新着",
   "sort_popular": "人気",
   "total_tags": "全 {{count}} 個のタグ",
-  "anonymous": "匿名"
+  "anonymous": "匿名",
+  "media": "メディア",
+  "media_page": {
+    "title": "メディア",
+    "tabs": {
+      "video": "動画",
+      "audio": "音声",
+      "image": "ギャラリー"
+    },
+    "empty": "まだ何もありません。条件を変えてみてください",
+    "filters": {
+      "story": "テーマ",
+      "all_stories": "すべてのテーマ",
+      "year": "年",
+      "min_duration": "最短（秒）",
+      "max_duration": "最長（秒）",
+      "updated": "更新状態",
+      "updated_all": "すべて",
+      "updated_only": "更新ありのみ",
+      "not_updated_only": "更新なしのみ",
+      "reset": "リセット"
+    },
+    "video": {
+      "chapters$count": "チャプター（{{count}}）",
+      "untitled_chapter": "無題のチャプター"
+    },
+    "audio": {
+      "now_playing": "再生中",
+      "previous": "前のエピソード",
+      "next": "次のエピソード",
+      "play_episode": "再生：{{title}}",
+      "untitled": "無題の音声",
+      "resume_at": "前回 {{time}} まで再生",
+      "open_story": "テーマを開く"
+    },
+    "image": {
+      "untitled_story": "無題のテーマ",
+      "open_story": "テーマを開く",
+      "view": "拡大表示"
+    }
+  },
+  "series": {
+    "title": "特集",
+    "eyebrow": "特集",
+    "completion": "進捗",
+    "completion$count": "{{published}} / {{total}} · {{percent}}%",
+    "stories": "テーマ一覧",
+    "no_stories": "この特集にはまだテーマがありません",
+    "updated$time": "{{time}}に更新",
+    "recent_updates": "最近の更新",
+    "status": {
+      "draft": "下書き",
+      "scheduled": "予約",
+      "published": "公開済み",
+      "updated": "更新済み",
+      "archived": "アーカイブ"
+    }
+  },
+  "continue": {
+    "title": "つづき",
+    "resume_video": "つづきを視聴",
+    "resume_audio": "つづきを聴く",
+    "resume_read": "つづきを読む",
+    "read_percent": "{{percent}}% 読了"
+  }
 }

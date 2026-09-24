@@ -279,6 +279,18 @@ export const storySeries = sqliteTable("story_series", {
     storyIdx: index("story_series_story_idx").on(table.storyId, table.position),
 }));
 
+// Stage 3 · 聚合分析事件：只做聚合统计，不收任何 PII
+// （不收 IP / UA / cookie）。原始事件按行存，聚合在查询时按天 GROUP BY。
+export const mediaEvents = sqliteTable("media_events", {
+    id: integer("id").primaryKey(),
+    eventType: text("event_type").notNull(), // video_play/audio_play/story_read/media_view
+    assetId: integer("asset_id"),
+    storyId: integer("story_id"),
+    createdAt: integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`).notNull(),
+}, (table) => ({
+    typeCreatedIdx: index("media_events_type_created_idx").on(table.eventType, table.createdAt),
+}));
+
 export const storyRelations = sqliteTable("story_relations", {
     fromId: integer("from_id").references(() => stories.id, { onDelete: 'cascade' }).notNull(),
     toId: integer("to_id").references(() => stories.id, { onDelete: 'cascade' }).notNull(),

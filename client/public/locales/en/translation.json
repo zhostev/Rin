@@ -73,7 +73,9 @@
     "search": {
       "placeholder": "Please enter keywords",
       "title": "Search",
-      "title$keyword": "Search: {{keyword}}"
+      "title$keyword": "Search: {{keyword}}",
+      "transcripts": "Transcript matches",
+      "transcripts$more": "{{count}} more"
     },
     "title": "Articles",
     "top": {
@@ -890,5 +892,69 @@
   "sort_latest": "Latest",
   "sort_popular": "Popular",
   "total_tags": "Total {{count}} tags",
-  "anonymous": "Anonymous"
+  "anonymous": "Anonymous",
+  "media": "Media",
+  "media_page": {
+    "title": "Media",
+    "tabs": {
+      "video": "Video",
+      "audio": "Audio",
+      "image": "Gallery"
+    },
+    "empty": "Nothing here yet — try different filters",
+    "filters": {
+      "story": "Story",
+      "all_stories": "All stories",
+      "year": "Year",
+      "min_duration": "Min length (s)",
+      "max_duration": "Max length (s)",
+      "updated": "Updated",
+      "updated_all": "All",
+      "updated_only": "Updated only",
+      "not_updated_only": "Not updated only",
+      "reset": "Reset"
+    },
+    "video": {
+      "chapters$count": "{{count}} chapters",
+      "untitled_chapter": "Untitled chapter"
+    },
+    "audio": {
+      "now_playing": "Now playing",
+      "previous": "Previous",
+      "next": "Next",
+      "play_episode": "Play: {{title}}",
+      "untitled": "Untitled audio",
+      "resume_at": "Resumed at {{time}}",
+      "open_story": "Open story"
+    },
+    "image": {
+      "untitled_story": "Untitled story",
+      "open_story": "Open story",
+      "view": "View full size"
+    }
+  },
+  "series": {
+    "title": "Series",
+    "eyebrow": "Series",
+    "completion": "Completion",
+    "completion$count": "{{published}} / {{total}} · {{percent}}%",
+    "stories": "Stories",
+    "no_stories": "No stories in this series yet",
+    "updated$time": "Updated {{time}}",
+    "recent_updates": "Recent updates",
+    "status": {
+      "draft": "Draft",
+      "scheduled": "Scheduled",
+      "published": "Published",
+      "updated": "Updated",
+      "archived": "Archived"
+    }
+  },
+  "continue": {
+    "title": "Continue",
+    "resume_video": "Continue watching",
+    "resume_audio": "Continue listening",
+    "resume_read": "Continue reading",
+    "read_percent": "{{percent}}% read"
+  }
 }

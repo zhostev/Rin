@@ -17,12 +17,26 @@ import {
   shouldPersistProgress,
 } from "./story-blocks/block-utils";
 
-export function AudioPlayer({ payload }: { payload: AudioPayload }) {
+export function AudioPlayer({
+  payload,
+  onPlay,
+  onEnded,
+  initialTime,
+}: {
+  payload: AudioPayload;
+  /** fired when playback starts (analytics milestone) */
+  onPlay?: () => void;
+  /** fired when the track ends naturally (queue auto-advance) */
+  onEnded?: () => void;
+  /** explicit start offset in seconds; takes precedence over stored progress */
+  initialTime?: number;
+}) {
   const { t } = useTranslation();
   const audioRef = useRef<HTMLAudioElement>(null);
   const currentTimeRef = useRef(0);
   const lastSavedRef = useRef(0);
   const restoredRef = useRef(false);
+  const initialSeekDoneRef = useRef(false);
 
   const asset = payload.asset;
   const src = asset?.url;
@@ -78,6 +92,20 @@ export function AudioPlayer({ payload }: { payload: AudioPayload }) {
     }
     if (!restoredRef.current) {
       restoredRef.current = true;
+      // An explicit ?t= start offset wins over the stored progress.
+      if (
+        !initialSeekDoneRef.current &&
+        typeof initialTime === "number" &&
+        Number.isFinite(initialTime) &&
+        initialTime > 1
+      ) {
+        initialSeekDoneRef.current = true;
+        const target = Math.max(0, initialTime);
+        audio.currentTime = target;
+        currentTimeRef.current = target;
+        setCurrentTime(target);
+        return;
+      }
       const saved = parseStoredProgress(localStorage.getItem(storageKey));
       const knownDuration = naturalDuration > 0 ? naturalDuration : duration;
       if (
@@ -115,6 +143,7 @@ export function AudioPlayer({ payload }: { payload: AudioPayload }) {
         setPlaying(false);
       });
       setPlaying(true);
+      onPlay?.();
     }
   }
 
@@ -216,6 +245,7 @@ export function AudioPlayer({ payload }: { payload: AudioPayload }) {
         onEnded={() => {
           setPlaying(false);
           persistProgress(0);
+          onEnded?.();
         }}
         className="hidden"
       />

@@ -5,6 +5,7 @@ import { getAuthToken } from "../utils/auth";
 import { endpoint } from "../config";
 import { StoryAPI } from "./story";
 import { MediaAPI } from "./media";
+import { MediaCenterAPI } from "./media-center";
 
 // Import shared types
 import type {
@@ -665,6 +666,8 @@ export class ApiClient {
   search: SearchAPI;
   story: StoryAPI;
   media: MediaAPI;
+  /** Stage 3 public media center: /api/media, /api/series/:slug, /api/events. */
+  mediaCenter: MediaCenterAPI;
   auth: AuthAPI;
   wp: WordPressAPI;
   rss: RSSAPI;
@@ -683,6 +686,7 @@ export class ApiClient {
     this.search = new SearchAPI(this.http);
     this.story = new StoryAPI(this.http);
     this.media = new MediaAPI(this.http);
+    this.mediaCenter = new MediaCenterAPI(this.http);
     this.auth = new AuthAPI(this.http);
     this.wp = new WordPressAPI(this.http);
     this.rss = new RSSAPI(baseUrl);

@@ -73,7 +73,9 @@
     "search": {
       "placeholder": "請輸入關鍵字",
       "title": "搜尋",
-      "title$keyword": "搜尋：{{keyword}}"
+      "title$keyword": "搜尋：{{keyword}}",
+      "transcripts": "字幕 / 轉錄命中",
+      "transcripts$more": "還有 {{count}} 處"
     },
     "title": "文章",
     "top": {
@@ -890,5 +892,69 @@
   "sort_latest": "最新",
   "sort_popular": "熱門",
   "total_tags": "共 {{count}} 個標籤",
-  "anonymous": "匿名"
+  "anonymous": "匿名",
+  "media": "媒體",
+  "media_page": {
+    "title": "媒體",
+    "tabs": {
+      "video": "影片",
+      "audio": "音訊",
+      "image": "圖集"
+    },
+    "empty": "這裡還沒有內容，換個篩選條件試試",
+    "filters": {
+      "story": "主題",
+      "all_stories": "全部主題",
+      "year": "年份",
+      "min_duration": "最短時長（秒）",
+      "max_duration": "最長時長（秒）",
+      "updated": "更新狀態",
+      "updated_all": "全部",
+      "updated_only": "僅看已更新",
+      "not_updated_only": "僅看未更新",
+      "reset": "重置"
+    },
+    "video": {
+      "chapters$count": "章節（{{count}}）",
+      "untitled_chapter": "未命名章節"
+    },
+    "audio": {
+      "now_playing": "正在播放",
+      "previous": "上一集",
+      "next": "下一集",
+      "play_episode": "播放：{{title}}",
+      "untitled": "未命名音訊",
+      "resume_at": "上次聽到 {{time}}",
+      "open_story": "打開主題"
+    },
+    "image": {
+      "untitled_story": "未命名主題",
+      "open_story": "打開主題",
+      "view": "查看大圖"
+    }
+  },
+  "series": {
+    "title": "專題",
+    "eyebrow": "專題",
+    "completion": "完成度",
+    "completion$count": "{{published}} / {{total}} · {{percent}}%",
+    "stories": "主題序列",
+    "no_stories": "這個專題還沒有主題",
+    "updated$time": "更新於 {{time}}",
+    "recent_updates": "最近更新",
+    "status": {
+      "draft": "草稿",
+      "scheduled": "定時",
+      "published": "已發布",
+      "updated": "已更新",
+      "archived": "已歸檔"
+    }
+  },
+  "continue": {
+    "title": "繼續",
+    "resume_video": "繼續觀看",
+    "resume_audio": "繼續收聽",
+    "resume_read": "繼續閱讀",
+    "read_percent": "已讀 {{percent}}%"
+  }
 }

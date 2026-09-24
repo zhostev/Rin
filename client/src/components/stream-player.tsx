@@ -35,7 +35,7 @@ export function streamIframeSrc(asset: MediaAsset | undefined, uid?: string): st
   return `https://iframe.videodelivery.net/${encodeURIComponent(uid ?? "")}`;
 }
 
-export function StreamPlayer({ payload }: { payload: VideoPayload }) {
+export function StreamPlayer({ payload, onReveal }: { payload: VideoPayload; onReveal?: () => void }) {
   const { t } = useTranslation();
   const [revealed, setRevealed] = useState(false);
   const asset: MediaAsset | undefined = payload.asset;
@@ -108,7 +108,10 @@ export function StreamPlayer({ payload }: { payload: VideoPayload }) {
       ) : (
         <button
           type="button"
-          onClick={() => setRevealed(true)}
+          onClick={() => {
+            setRevealed(true);
+            onReveal?.();
+          }}
           aria-label={t("story.detail.play_video")}
           className="group relative block h-full w-full"
         >

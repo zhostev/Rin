@@ -237,6 +237,98 @@ export interface Series {
 }
 
 // ============================================================================
+// Stage 3 · 媒体中心 Types（GET /api/media、/api/series/:slug、搜索转录、事件）
+// ============================================================================
+
+/** GET /api/media type 参数：gallery 视为 image（后端合并返回，前端按 story 聚合） */
+export type MediaCenterTypeFilter = 'video' | 'audio' | 'image';
+
+/** GET /api/media 返回的单个资产（只含已发布 story 的资产） */
+export interface MediaCenterItem {
+  id: number;
+  kind: string;
+  title: string | null;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  /** Stream UID；非 stream 源为 null */
+  streamUid: string | null;
+  /** stream 转码状态；非 stream 源为 null。无真实 Stream token 时 video 的值非 ready */
+  streamStatus: string | null;
+  thumbnailUrl: string | null;
+  publicUrl: string | null;
+  storyId: number;
+  storySlug: string;
+  storyTitle: string | null;
+  /** 归属 story 的 publishedAt 年份 */
+  year: number | null;
+  updatedAt: string;
+}
+
+export interface MediaCenterListResponse {
+  size: number;
+  data: MediaCenterItem[];
+  hasNext: boolean;
+}
+
+export interface SeriesStoryItem {
+  storyId: number;
+  slug: string;
+  title: string | null;
+  status: string;
+  position: number;
+  publishedAt: string | null;
+  updatedAt: string;
+  coverUrl?: string;
+}
+
+/** GET /api/series/:slug */
+export interface SeriesDetailResponse {
+  series: { id: number; slug: string; title: string | null; summary: string };
+  stories: SeriesStoryItem[];
+  completion: { total: number; published: number };
+  recentUpdates: Array<{ storySlug: string; title: string | null; updatedAt: string }>;
+}
+
+/** GET /api/search/:keyword 的可选 transcripts 字段 */
+export interface TranscriptSegmentHit {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface TranscriptHit {
+  assetId: number;
+  storyId: number;
+  storySlug: string;
+  storyTitle: string | null;
+  /** 命中位置前后各 ~40 字 */
+  snippet: string;
+  segments: TranscriptSegmentHit[];
+}
+
+/** POST /api/events 事件类型：只做聚合统计，不收任何 PII */
+export type MediaEventType = 'video_play' | 'audio_play' | 'story_read' | 'media_view';
+
+export interface MediaEventInput {
+  type: MediaEventType;
+  assetId?: number;
+  storyId?: number;
+}
+
+/** GET /api/events/daily */
+export interface EventsDailyResponse {
+  days: number;
+  from: string | null;
+  to: string | null;
+  data: Array<{
+    date: string;
+    total: number;
+    counts: Record<MediaEventType, number>;
+  }>;
+}
+
+// ============================================================================
 // User Types
 // ============================================================================
 
@@ -501,6 +593,12 @@ export const API_PATHS = {
 
   // Search
   SEARCH: (keyword: string) => `/search/${encodeURIComponent(keyword)}`,
+
+  // Stage 3 · 媒体中心（公开）
+  MEDIA_LIST: '/media',
+  SERIES_GET: (slug: string) => `/series/${encodeURIComponent(slug)}`,
+  EVENTS_POST: '/events',
+  EVENTS_DAILY: '/events/daily',
 
   // WordPress
   WP_IMPORT: '/wp',
