@@ -18,6 +18,8 @@ import { AIStudioService } from "../features/ai-studio/routes";
 import { AskService } from "../features/ai-studio/ask-routes";
 import { TagService } from "../services/tag";
 import { UserService } from "../services/user";
+import { AnalyticsService } from "../services/analytics";
+import { SharingReportService } from "../services/sharing-reports";
 
 export function registerRoutes(app: RinApp) {
   app.get("/", (c) => c.text("Hi"));
@@ -40,6 +42,13 @@ export function registerRoutes(app: RinApp) {
   app.route("/blob", BlobService());
   app.route("/friend", FriendService());
   app.route("/moments", MomentsService());
+  // GET /analytics/overview | /analytics/top-feeds | /analytics/dimensions |
+  //     /analytics/live | /analytics/visits（全部 adminOnly）
+  app.route("/analytics", AnalyticsService());
+  // GET /reports/published | GET /reports/published/:slug（公开）
+  // GET/POST /reports | GET/PATCH /reports/:id | POST /reports/:id/snapshot |
+  // POST/PATCH /reports/transactions/:id（adminOnly）
+  app.route("/reports", SharingReportService());
   app.route("/user", UserService());
   app.route("/auth", PasswordAuthService());
   app.route("/config", ConfigService());

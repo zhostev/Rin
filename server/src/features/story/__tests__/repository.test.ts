@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { createMockDB, cleanupTestDB } from '../../../../tests/fixtures';
+import { createMockDB, createTestUser, cleanupTestDB } from '../../../../tests/fixtures';
 import { applyStoryMigration } from '../../../../tests/fixtures/story';
 import {
     deleteStoryById,
@@ -24,6 +24,8 @@ describe('story repository', () => {
         db = mock.db;
         sqlite = mock.sqlite;
         applyStoryMigration(sqlite);
+        // feeds.uid 有外键约束指向 users(id)，先建测试用户
+        createTestUser(sqlite);
     });
 
     afterEach(() => {

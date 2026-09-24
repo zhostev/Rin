@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import { moments } from "../db/schema";
 import type { AppContext } from "../core/hono-types";
 import { profileAsync } from "../core/server-timing";
-import { syncMediaForMoment } from "./media";
 import { momentCreateSchema, momentUpdateSchema } from "@rin/api";
 
 export function MomentsService(): Hono {
@@ -82,7 +81,6 @@ export function MomentsService(): Hono {
             return c.text('Failed to insert', 500);
         }
 
-        await profileAsync(c, 'moments_create_media', () => syncMediaForMoment(db, result[0].insertedId, uid, content));
         await profileAsync(c, 'moments_create_cache_invalidate', () => cache.deletePrefix('moments_'));
         return c.json(result[0]);
     });
@@ -121,7 +119,6 @@ export function MomentsService(): Hono {
             updatedAt: new Date()
         }).where(eq(moments.id, id_num)));
         
-        await profileAsync(c, 'moments_update_media', () => syncMediaForMoment(db, id_num, moment.uid, content));
         await profileAsync(c, 'moments_update_cache_invalidate', () => cache.deletePrefix('moments_'));
         return c.text('Updated');
     });
@@ -149,8 +146,7 @@ export function MomentsService(): Hono {
             return c.text('Not found', 404);
         }
         
-        // Release the media explicitly: the FK set-null only fires when D1 enforces it.
-        await profileAsync(c, 'moments_delete_media', () => syncMediaForMoment(db, id_num, moment.uid, ''));
+        // media_assets.moment_id 的 ON DELETE SET NULL 由 D1 外键执行，无需手动解绑。
         await profileAsync(c, 'moments_delete_db', () => db.delete(moments).where(eq(moments.id, id_num)));
         await profileAsync(c, 'moments_delete_cache_invalidate', () => cache.deletePrefix('moments_'));
         return c.text('Deleted');

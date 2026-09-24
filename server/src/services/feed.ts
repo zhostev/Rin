@@ -26,7 +26,6 @@ import { extractImageWithMetadata } from "../utils/image";
 import { stripMarkdown } from "../utils/markdown";
 import { registerFeedAIComposeRoutes } from "./feed-ai-compose";
 import { syncFeedAISummaryQueueState } from "./feed-ai-summary";
-import { syncMediaForFeed } from "./media";
 import { bindTagToPost } from "./tag";
 import { clearFeedCache, clearFeedCollectionCaches } from "./clear-feed-cache";
 export { clearFeedCache } from "./clear-feed-cache";
@@ -210,7 +209,6 @@ export function FeedService(): Hono<{
         }
 
         await profileAsync(c, 'feed_create_tags', () => bindTagToPost(db, result.insertedId, tags));
-        await profileAsync(c, 'feed_create_media', () => syncMediaForFeed(db, result.insertedId, uid, content));
         await profileAsync(c, 'feed_create_ai_queue', () => syncFeedAISummaryQueueState(db, serverConfig, env, result.insertedId, {
             draft: Boolean(draft),
             updatedAt: date,
@@ -437,10 +435,6 @@ export function FeedService(): Hono<{
             createdAt: createdAt ? new Date(createdAt) : undefined,
             updatedAt: updateTime
         }));
-
-        if (content !== undefined) {
-            await profileAsync(c, 'feed_update_media', () => syncMediaForFeed(db, id_num, feed.uid, content));
-        }
 
         if (tags) {
             await profileAsync(c, 'feed_update_tags', () => bindTagToPost(db, id_num, tags));

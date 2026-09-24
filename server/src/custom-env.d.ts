@@ -19,6 +19,18 @@ declare global {
     CF_IMAGES_TOKEN?: string;
     /** Stream webhook 签名密钥（Dashboard > Stream > Webhooks 配置的 secret） */
     STREAM_WEBHOOK_SECRET?: string;
+    // --- 站点元信息（feed-og 等处读取；未设置时回退默认值）---
+    /** 站点名称 */
+    NAME?: string;
+    /** 站点描述 */
+    DESCRIPTION?: string;
+    /** 站点头像 URL（绝对或相对路径） */
+    AVATAR?: string;
+    // --- 访问分析 ---
+    /** Analytics Engine 数据集 binding（文章浏览记录） */
+    ANALYTICS?: AnalyticsEngineDataset;
+    /** Cloudflare API Token（Analytics Engine SQL API 查询用；与媒体栈 token 独立） */
+    CLOUDFLARE_API_TOKEN?: string;
   }
 }
 

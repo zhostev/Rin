@@ -11,6 +11,9 @@ function seed(sqlite: Database) {
         INSERT INTO series (id, slug, title, summary) VALUES
             (1, 'deep-dive', 'Deep Dive', 'A slow series');
 
+        INSERT INTO media_assets (id, kind, source, title, images_id, images_variants_json, created_at, updated_at) VALUES
+            (12, 'image', 'cloudflare_images', 'Cover', 'img-1', '{"medium":"https://imagedelivery.net/acc/img-1/medium"}', 1742000000, 1742000000);
+
         INSERT INTO stories (id, slug, title, status, cover_asset_id, published_at, updated_at) VALUES
             (1, 'part-one', 'Part One', 'published', 12, 1717200000, 1717200000),
             (2, 'part-two', 'Part Two', 'updated', NULL, 1742000000, 1742086400),
@@ -20,9 +23,6 @@ function seed(sqlite: Database) {
             (1, 1, 0),
             (1, 2, 1),
             (1, 3, 2);
-
-        INSERT INTO media_assets (id, kind, source, title, images_id, images_variants_json, created_at, updated_at) VALUES
-            (12, 'image', 'cloudflare_images', 'Cover', 'img-1', '{"medium":"https://imagedelivery.net/acc/img-1/medium"}', 1742000000, 1742000000);
     `);
 }
 

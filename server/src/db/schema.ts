@@ -12,6 +12,9 @@ export const feeds = sqliteTable("feeds", {
     ai_summary: text("ai_summary").default("").notNull(),
     ai_summary_status: text("ai_summary_status").default("idle").notNull(),
     ai_summary_error: text("ai_summary_error").default("").notNull(),
+    // 0019 · AI 写作任务状态（feed-ai-compose.ts 读写；迁移已建列，schema 后补）
+    aiComposeStatus: text("ai_compose_status").default("idle").notNull(),
+    aiComposeError: text("ai_compose_error").default("").notNull(),
     content: text("content").notNull(),
     listed: integer("listed").default(1).notNull(),
     draft: integer("draft").default(1).notNull(),
@@ -51,6 +54,10 @@ export const visits = sqliteTable("visits", {
 export const visitStats = sqliteTable("visit_stats", {
     feedId: integer("feed_id").references(() => feeds.id, { onDelete: 'cascade' }).notNull().primaryKey(),
     pv: integer("pv").default(0).notNull(),
+    // 0016 新增列（聚合 rollup 读写；迁移已建列，schema 后补）
+    uv: integer("uv").default(0).notNull(),
+    pvBaseline: integer("pv_baseline").default(0).notNull(),
+    uvBaseline: integer("uv_baseline").default(0).notNull(),
     hllData: text("hll_data").default("").notNull(),
     updatedAt: updated_at,
 });
@@ -102,6 +109,12 @@ export const comments = sqliteTable("comments", {
     guestEmail: text("guest_email").default(""),
     guestWebsite: text("guest_website").default(""),
     approved: integer("approved").default(1).notNull(),
+    // 0015 新增列（评论地理归属；迁移已建列，schema 后补）
+    ip: text("ip"),
+    location: text("location"),
+    country: text("country"),
+    province: text("province"),
+    city: text("city"),
     createdAt: created_at,
     updatedAt: updated_at,
 }, (table) => ({
@@ -435,3 +448,84 @@ export const aiSettings = sqliteTable("ai_settings", {
     value: text("value").default("").notNull(),
     updatedAt: updated_at,
 });
+
+// ============================================================================
+// 上游基线迁移 0016 · 访问聚合表
+// ----------------------------------------------------------------------------
+// Drizzle 定义后补：services/analytics.ts（/analytics）、analytics-rollup.ts
+// 早已引用这两张表，schema 一直缺失。字段与 server/sql/0016.sql 一一对应。
+// ============================================================================
+
+export const analyticsDaily = sqliteTable("analytics_daily", {
+    date: text("date").notNull(),
+    feedId: integer("feed_id").notNull(),
+    pv: integer("pv").default(0).notNull(),
+    uv: integer("uv").default(0).notNull(),
+}, (table) => ({
+    pk: primaryKey({ columns: [table.date, table.feedId] }),
+    dateIdx: index("analytics_daily_date_idx").on(table.date),
+}));
+
+export const analyticsDimDaily = sqliteTable("analytics_dim_daily", {
+    date: text("date").notNull(),
+    dimType: text("dim_type").notNull(),
+    dimValue: text("dim_value").notNull(),
+    count: integer("count").default(0).notNull(),
+}, (table) => ({
+    pk: primaryKey({ columns: [table.date, table.dimType, table.dimValue] }),
+    dateTypeIdx: index("analytics_dim_daily_date_type_idx").on(table.date, table.dimType),
+}));
+
+// ============================================================================
+// 上游基线迁移 0017 · 公开分享报告（sharing_reports / finance_transactions）
+// ----------------------------------------------------------------------------
+// Drizzle 定义后补：services/sharing-reports.ts（/reports）已引用，schema
+// 一直缺失。字段与 server/sql/0017.sql 一一对应。
+// ============================================================================
+
+export const sharingReports = sqliteTable("sharing_reports", {
+    id: integer("id").primaryKey(),
+    slug: text("slug").notNull().unique(),
+    title: text("title").notNull(),
+    periodStart: text("period_start").notNull(),
+    periodEnd: text("period_end").notNull(),
+    goals: text("goals").default("").notNull(),
+    summary: text("summary").default("").notNull(),
+    status: text("status").default("draft").notNull(),
+    metricsJson: text("metrics_json").default("{}").notNull(),
+    financeJson: text("finance_json").default("{}").notNull(),
+    publishedAt: integer("published_at", { mode: 'timestamp' }),
+    createdAt: created_at,
+    updatedAt: updated_at,
+}, (table) => ({
+    statusIdx: index("sharing_reports_status_idx").on(table.status),
+    periodIdx: index("sharing_reports_period_idx").on(table.periodStart, table.periodEnd),
+}));
+
+export const financeTransactions = sqliteTable("finance_transactions", {
+    id: integer("id").primaryKey(),
+    reportId: integer("report_id").references(() => sharingReports.id, { onDelete: 'set null' }),
+    type: text("type").notNull(),
+    category: text("category").notNull(),
+    title: text("title").notNull(),
+    description: text("description").default("").notNull(),
+    amount: integer("amount").notNull(),
+    currency: text("currency").default("CNY").notNull(),
+    occurredAt: text("occurred_at").notNull(),
+    receiptUrl: text("receipt_url").default("").notNull(),
+    isAnonymous: integer("is_anonymous").default(1).notNull(),
+    status: text("status").default("confirmed").notNull(),
+    createdAt: created_at,
+    updatedAt: updated_at,
+}, (table) => ({
+    reportIdx: index("finance_transactions_report_idx").on(table.reportId),
+    typeDateIdx: index("finance_transactions_type_date_idx").on(table.type, table.occurredAt),
+    statusIdx: index("finance_transactions_status_idx").on(table.status),
+}));
+
+export const financeTransactionsRelations = relations(financeTransactions, ({ one }) => ({
+    report: one(sharingReports, {
+        fields: [financeTransactions.reportId],
+        references: [sharingReports.id],
+    }),
+}));

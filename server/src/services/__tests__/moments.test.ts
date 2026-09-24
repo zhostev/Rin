@@ -159,10 +159,12 @@ describe('MomentsService', () => {
             expect(res.status).toBe(400);
         });
 
-        it('should attach referenced media to the new moment', async () => {
+        it('does not auto-bind media when creating a moment', async () => {
+            // syncMediaForMoment 已随旧媒体模型下线：写动态不再自动绑定/释放资产。
+            // 资产只通过 media_assets.moment_id 显式关联，删除动态时由外键置空。
             sqlite.exec(`
-                INSERT INTO media_assets (id, uid, type, object_key, mime_type, file_size, status)
-                VALUES ('image-1', 1, 'image', 'media/1/image-1.png', 'image/png', 1024, 'ready')
+                INSERT INTO media_assets (kind, source, r2_key, mime)
+                VALUES ('image', 'r2', 'media/1/image-1.png', 'image/png')
             `);
 
             const res = await app.request('/', {
@@ -176,8 +178,9 @@ describe('MomentsService', () => {
 
             expect(res.status).toBe(200);
             const { insertedId } = await res.json() as any;
-            const asset = sqlite.query('SELECT moment_id FROM media_assets WHERE id = ?').get('image-1') as any;
-            expect(asset.moment_id).toBe(insertedId);
+            expect(insertedId).toBeGreaterThan(0);
+            const asset = sqlite.query('SELECT moment_id FROM media_assets WHERE r2_key = ?').get('media/1/image-1.png') as any;
+            expect(asset.moment_id).toBeNull();
         });
     });
 
@@ -212,10 +215,11 @@ describe('MomentsService', () => {
             expect(res.status).toBe(200);
         });
 
-        it('should release media that the edited moment no longer references', async () => {
+        it('does not touch media bindings when editing a moment', async () => {
+            // syncMediaForMoment 已随旧媒体模型下线：编辑动态不再自动释放资产。
             sqlite.exec(`
-                INSERT INTO media_assets (id, uid, moment_id, type, object_key, mime_type, file_size, status)
-                VALUES ('image-1', 1, 1, 'image', 'media/1/image-1.png', 'image/png', 1024, 'ready')
+                INSERT INTO media_assets (kind, source, r2_key, mime, moment_id)
+                VALUES ('image', 'r2', 'media/1/image-1.png', 'image/png', 1)
             `);
 
             const res = await app.request('/1', {
@@ -228,8 +232,8 @@ describe('MomentsService', () => {
             }, env);
 
             expect(res.status).toBe(200);
-            const asset = sqlite.query('SELECT moment_id FROM media_assets WHERE id = ?').get('image-1') as any;
-            expect(asset.moment_id).toBeNull();
+            const asset = sqlite.query('SELECT moment_id FROM media_assets WHERE r2_key = ?').get('media/1/image-1.png') as any;
+            expect(asset.moment_id).toBe(1);
         });
 
         it('should return 404 for non-existent moment', async () => {
@@ -286,10 +290,11 @@ describe('MomentsService', () => {
             expect(moment).toBeNull();
         });
 
-        it('should release media that the edited moment no longer references', async () => {
+        it('does not touch media bindings when editing a moment', async () => {
+            // syncMediaForMoment 已随旧媒体模型下线：编辑动态不再自动释放资产。
             sqlite.exec(`
-                INSERT INTO media_assets (id, uid, moment_id, type, object_key, mime_type, file_size, status)
-                VALUES ('image-1', 1, 1, 'image', 'media/1/image-1.png', 'image/png', 1024, 'ready')
+                INSERT INTO media_assets (kind, source, r2_key, mime, moment_id)
+                VALUES ('image', 'r2', 'media/1/image-1.png', 'image/png', 1)
             `);
 
             const res = await app.request('/1', {
@@ -302,14 +307,14 @@ describe('MomentsService', () => {
             }, env);
 
             expect(res.status).toBe(200);
-            const asset = sqlite.query('SELECT moment_id FROM media_assets WHERE id = ?').get('image-1') as any;
-            expect(asset.moment_id).toBeNull();
+            const asset = sqlite.query('SELECT moment_id FROM media_assets WHERE r2_key = ?').get('media/1/image-1.png') as any;
+            expect(asset.moment_id).toBe(1);
         });
 
         it('should release media used by the deleted moment', async () => {
             sqlite.exec(`
-                INSERT INTO media_assets (id, uid, moment_id, type, object_key, mime_type, file_size, status)
-                VALUES ('image-1', 1, 1, 'image', 'media/1/image-1.png', 'image/png', 1024, 'ready')
+                INSERT INTO media_assets (kind, source, r2_key, mime, moment_id)
+                VALUES ('image', 'r2', 'media/1/image-1.png', 'image/png', 1)
             `);
 
             const res = await app.request('/1', {
@@ -318,7 +323,7 @@ describe('MomentsService', () => {
             }, env);
 
             expect(res.status).toBe(200);
-            const asset = sqlite.query('SELECT moment_id FROM media_assets WHERE id = ?').get('image-1') as any;
+            const asset = sqlite.query('SELECT moment_id FROM media_assets WHERE r2_key = ?').get('media/1/image-1.png') as any;
             expect(asset.moment_id).toBeNull();
         });
 
