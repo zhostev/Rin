@@ -1,5 +1,5 @@
 import { relations, sql } from "drizzle-orm";
-import { index, integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, real, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 
 const created_at = integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`).notNull();
 const updated_at = integer("updated_at", { mode: 'timestamp' }).default(sql`(unixepoch())`).notNull();
@@ -413,3 +413,25 @@ export const aiArtifactsRelations = relations(aiArtifacts, ({ one }) => ({
         references: [aiJobs.id],
     }),
 }));
+
+// Stage 4 · AI Studio 用量记账：每次 AI 调用记一行。
+// job_id 可空（/api/ask 等非 job 调用直接记账）；cost 恒 0，字段为未来预留。
+export const aiUsage = sqliteTable("ai_usage", {
+    id: integer("id").primaryKey(),
+    jobId: integer("job_id").references(() => aiJobs.id, { onDelete: 'set null' }),
+    model: text("model").default("").notNull(),
+    tokensIn: integer("tokens_in").default(0).notNull(),
+    tokensOut: integer("tokens_out").default(0).notNull(),
+    costUsdEst: real("cost_usd_est").default(0).notNull(),
+    createdAt: integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`).notNull(),
+}, (table) => ({
+    createdIdx: index("ai_usage_created_idx").on(table.createdAt),
+    modelIdx: index("ai_usage_model_idx").on(table.model),
+}));
+
+// Stage 4 · AI Studio 总开关与日配额（文本 kv）。
+export const aiSettings = sqliteTable("ai_settings", {
+    key: text("key").primaryKey(),
+    value: text("value").default("").notNull(),
+    updatedAt: updated_at,
+});

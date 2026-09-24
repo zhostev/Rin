@@ -23,6 +23,10 @@ export const WORKER_AI_MODELS: Record<string, string> = {
     "gemma-7b": "@cf/google/gemma-7b-it-lora",
     "deepseek-coder": "@cf/deepseek-ai/deepseek-coder-6.7b-base-awq",
     "qwen-7b": "@cf/qwen/qwen1.5-7b-chat-awq",
+    // Stage 4 · AI Studio：语音转写与文本向量（embedding 维度 768，对齐
+    // Vectorize index s7ea-qa-staging）。
+    "whisper": "@cf/openai/whisper",
+    "bge-base-en": "@cf/baai/bge-base-en-v1.5",
 };
 
 export type AIGenerationOptions = {
@@ -62,7 +66,7 @@ export function buildExternalAIChatCompletionsUrl(
     return `${normalizedApiUrl}/chat/completions`;
 }
 
-function extractAIText(response: unknown): string | null {
+export function extractAIText(response: unknown): string | null {
     if (typeof response === "string") {
         return response;
     }
@@ -111,6 +115,46 @@ async function executeWorkerAI(
     } as any);
 
     return extractAIText(response);
+}
+
+/**
+ * Run a Workers AI model with a raw (non-chat) input and return the raw
+ * response. Used by Stage 4 AI Studio for whisper (audio) and embeddings,
+ * whose input/output shapes are not chat messages.
+ *
+ * Short model names from WORKER_AI_MODELS are accepted ("whisper",
+ * "bge-base-en"); full "@cf/…" IDs pass through unchanged.
+ */
+export async function runWorkerAIModel(
+    env: Env,
+    model: string,
+    input: unknown,
+): Promise<unknown> {
+    if (!env.AI || typeof env.AI.run !== "function") {
+        throw new Error("Workers AI binding is not configured");
+    }
+
+    return env.AI.run(getWorkerAIModelId(model) as any, input as any);
+}
+
+/**
+ * Best-effort extraction of token usage from a Workers AI raw response.
+ * Chat models may return { usage: { prompt_tokens, completion_tokens } };
+ * whisper/embeddings do not — callers record 0 in that case.
+ */
+export function extractAIUsage(response: unknown): { tokensIn: number; tokensOut: number } {
+    if (!response || typeof response !== "object") {
+        return { tokensIn: 0, tokensOut: 0 };
+    }
+    const usage = (response as Record<string, any>).usage;
+    if (!usage || typeof usage !== "object") {
+        return { tokensIn: 0, tokensOut: 0 };
+    }
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0);
+    return {
+        tokensIn: num(usage.prompt_tokens ?? usage.input_tokens),
+        tokensOut: num(usage.completion_tokens ?? usage.output_tokens),
+    };
 }
 
 /**

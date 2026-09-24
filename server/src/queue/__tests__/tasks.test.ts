@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import {
+  AISTUDIO_CHECK_TASK,
+  AISTUDIO_DERIVE_TASK,
+  AISTUDIO_EMBED_TASK,
+  AISTUDIO_RETRIEVAL_TEST_TASK,
+  AISTUDIO_TRANSCRIBE_TASK,
+  createAIStudioTask,
   createFeedAIComposeTask,
   createFeedAISummaryTask,
   FEED_AI_COMPOSE_TASK,
@@ -62,5 +68,33 @@ describe("createFeedAIComposeTask", () => {
 
   it("keeps the summary task type distinct", () => {
     expect(FEED_AI_COMPOSE_TASK).not.toBe(FEED_AI_SUMMARY_TASK);
+  });
+});
+
+describe("AI Studio tasks", () => {
+  it("accepts all five aistudio task types with a jobId payload", () => {
+    for (const type of [
+      AISTUDIO_TRANSCRIBE_TASK,
+      AISTUDIO_DERIVE_TASK,
+      AISTUDIO_CHECK_TASK,
+      AISTUDIO_RETRIEVAL_TEST_TASK,
+      AISTUDIO_EMBED_TASK,
+    ]) {
+      const task = createAIStudioTask(type, { jobId: 42 });
+      expect(task.type).toBe(type);
+      expect(isQueueTask(task)).toBe(true);
+    }
+  });
+
+  it("rejects an aistudio task without jobId", () => {
+    expect(isQueueTask({ type: AISTUDIO_EMBED_TASK, payload: {} })).toBe(false);
+    expect(
+      isQueueTask({ type: AISTUDIO_TRANSCRIBE_TASK, payload: { jobId: "42" } }),
+    ).toBe(false);
+  });
+
+  it("keeps aistudio types distinct from feed task types", () => {
+    expect(AISTUDIO_EMBED_TASK).not.toBe(FEED_AI_SUMMARY_TASK);
+    expect(AISTUDIO_TRANSCRIBE_TASK).not.toBe(FEED_AI_COMPOSE_TASK);
   });
 });

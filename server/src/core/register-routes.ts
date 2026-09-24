@@ -14,6 +14,8 @@ import { AdminMediaService, StreamWebhookService } from "../services/media";
 import { MediaCenterService } from "../features/media-center/media-routes";
 import { SeriesService } from "../features/media-center/series-routes";
 import { EventsService } from "../features/media-center/events-routes";
+import { AIStudioService } from "../features/ai-studio/routes";
+import { AskService } from "../features/ai-studio/ask-routes";
 import { TagService } from "../services/tag";
 import { UserService } from "../services/user";
 
@@ -29,6 +31,8 @@ export function registerRoutes(app: RinApp) {
   app.route("/media", MediaCenterService());
   app.route("/series", SeriesService());
   app.route("/events", EventsService());
+  app.route("/admin/ai-studio", AIStudioService());
+  app.route("/ask", AskService());
   app.route("/wp", WordPressService());
   app.route("/tag", TagService());
   app.route("/comment", CommentService());

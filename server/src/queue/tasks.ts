@@ -3,6 +3,33 @@ import type { ComposeLength } from "@rin/api";
 export const FEED_AI_SUMMARY_TASK = "feed.ai-summary.generate" as const;
 export const FEED_AI_COMPOSE_TASK = "feed.ai-compose.generate" as const;
 
+// Stage 4 · AI Studio 任务（处理函数见 server/src/features/ai-studio/processors.ts）
+export const AISTUDIO_TRANSCRIBE_TASK = "aistudio.transcribe" as const;
+export const AISTUDIO_DERIVE_TASK = "aistudio.derive" as const;
+export const AISTUDIO_CHECK_TASK = "aistudio.check" as const;
+export const AISTUDIO_RETRIEVAL_TEST_TASK = "aistudio.retrieval-test" as const;
+export const AISTUDIO_EMBED_TASK = "aistudio.embed" as const;
+
+export type AIStudioTaskType =
+  | typeof AISTUDIO_TRANSCRIBE_TASK
+  | typeof AISTUDIO_DERIVE_TASK
+  | typeof AISTUDIO_CHECK_TASK
+  | typeof AISTUDIO_RETRIEVAL_TEST_TASK
+  | typeof AISTUDIO_EMBED_TASK;
+
+export interface AIStudioTaskPayload {
+  jobId: number;
+  storyId?: number;
+  assetId?: number;
+  question?: string;
+  params?: Record<string, unknown>;
+}
+
+export interface AIStudioTask {
+  type: AIStudioTaskType;
+  payload: AIStudioTaskPayload;
+}
+
 export type FeedAISummaryStatus =
   | "idle"
   | "pending"
@@ -38,7 +65,7 @@ export interface FeedAIComposeTask {
   payload: FeedAIComposeTaskPayload;
 }
 
-export type QueueTask = FeedAISummaryTask | FeedAIComposeTask;
+export type QueueTask = FeedAISummaryTask | FeedAIComposeTask | AIStudioTask;
 
 export function createFeedAISummaryTask(
   payload: FeedAISummaryTaskPayload,
@@ -54,6 +81,16 @@ export function createFeedAIComposeTask(
 ): FeedAIComposeTask {
   return {
     type: FEED_AI_COMPOSE_TASK,
+    payload,
+  };
+}
+
+export function createAIStudioTask(
+  type: AIStudioTaskType,
+  payload: AIStudioTaskPayload,
+): AIStudioTask {
+  return {
+    type,
     payload,
   };
 }
@@ -88,6 +125,15 @@ function isComposePayload(value: unknown): value is FeedAIComposeTaskPayload {
   );
 }
 
+function isAIStudioPayload(value: unknown): value is AIStudioTaskPayload {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const payload = value as Partial<AIStudioTaskPayload>;
+  return typeof payload.jobId === "number";
+}
+
 export function isQueueTask(value: unknown): value is QueueTask {
   if (!value || typeof value !== "object") {
     return false;
@@ -101,6 +147,16 @@ export function isQueueTask(value: unknown): value is QueueTask {
 
   if (task.type === FEED_AI_COMPOSE_TASK) {
     return isComposePayload(task.payload);
+  }
+
+  if (
+    task.type === AISTUDIO_TRANSCRIBE_TASK ||
+    task.type === AISTUDIO_DERIVE_TASK ||
+    task.type === AISTUDIO_CHECK_TASK ||
+    task.type === AISTUDIO_RETRIEVAL_TEST_TASK ||
+    task.type === AISTUDIO_EMBED_TASK
+  ) {
+    return isAIStudioPayload(task.payload);
   }
 
   return false;
