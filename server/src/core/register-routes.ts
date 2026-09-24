@@ -10,6 +10,7 @@ import { RSSService } from "../services/rss";
 import { SitemapService } from "../services/sitemap";
 import { BlobService, StorageService } from "../services/storage";
 import { AdminStoryService, StoryService } from "../services/story";
+import { AdminMediaService, StreamWebhookService } from "../services/media";
 import { TagService } from "../services/tag";
 import { UserService } from "../services/user";
 
@@ -19,6 +20,8 @@ export function registerRoutes(app: RinApp) {
   app.route("/feed", FeedService());
   app.route("/story", StoryService());
   app.route("/admin/stories", AdminStoryService());
+  app.route("/admin/media", AdminMediaService());
+  app.route("/webhooks", StreamWebhookService());
   app.route("/search", SearchService());
   app.route("/wp", WordPressService());
   app.route("/tag", TagService());

@@ -34,9 +34,15 @@ export type BlockType =
 
 export type AssetKind = "image" | "video" | "audio" | "gallery" | "attachment";
 
+/** Where a media asset is hosted. Matches the Stage 2 backend wire contract. */
+export type MediaSource = "r2" | "stream" | "cloudflare_images" | "external";
+
+export type StreamStatus = "uploading" | "processing" | "ready" | "error";
+
 export interface MediaAsset {
   id: number;
   kind: AssetKind;
+  source?: MediaSource;
   mime?: string;
   duration?: number; // seconds
   width?: number;
@@ -44,6 +50,15 @@ export interface MediaAsset {
   url?: string;
   alt?: string;
   title?: string;
+  // Cloudflare Stream (video) fields
+  stream_uid?: string;
+  stream_status?: StreamStatus;
+  stream_error?: string;
+  thumbnail_url?: string;
+  embed_url?: string;
+  // Cloudflare Images (image) fields
+  images_id?: string;
+  images_variants?: Record<string, string>;
 }
 
 export interface ContentBlock<T = Record<string, unknown>> {
@@ -65,11 +80,18 @@ export interface VideoPayload {
   duration?: number;
 }
 
+export interface AudioChapter {
+  title: string;
+  /** start offset in seconds */
+  start: number;
+}
+
 export interface AudioPayload {
   title?: string;
   asset_id?: number;
   asset?: MediaAsset;
   duration?: number;
+  chapters?: AudioChapter[];
 }
 
 export interface Story {

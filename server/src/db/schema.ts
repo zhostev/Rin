@@ -195,7 +195,7 @@ export const feedHashtagsRelations = relations(feedHashtags, ({ one }) => ({
 export const mediaAssets = sqliteTable("media_assets", {
     id: integer("id").primaryKey(),
     kind: text("kind").default("image").notNull(), // image/video/audio/gallery/attachment
-    source: text("source").default("r2").notNull(), // r2/stream/external
+    source: text("source").default("r2").notNull(), // r2/stream/cloudflare_images/external
     r2Key: text("r2_key"),
     streamUid: text("stream_uid"), // Stream UID，阶段 2 直传/webhook 时启用
     mime: text("mime").default("").notNull(),
@@ -203,10 +203,18 @@ export const mediaAssets = sqliteTable("media_assets", {
     width: integer("width"),
     height: integer("height"),
     altText: text("alt_text").default(""),
+    title: text("title").default(""), // 阶段 2：音频上传标题等展示用标题
+    streamStatus: text("stream_status").default("ready"), // 阶段 2：uploading/processing/ready/error，旧行默认 ready
+    streamError: text("stream_error").default(""),
+    streamMetaJson: text("stream_meta_json").default("{}").notNull(), // duration/thumbnail/readyToStream 等
+    imagesId: text("images_id").default(""), // 阶段 2：Cloudflare Images 图片 ID
+    imagesVariantsJson: text("images_variants_json").default("{}").notNull(), // {thumb,medium,large,public...} 完整 URL
+    uploadSessionJson: text("upload_session_json").default("{}").notNull(), // 直传会话追踪
     createdAt: created_at,
     updatedAt: updated_at,
 }, (table) => ({
     kindIdx: index("media_assets_kind_idx").on(table.kind),
+    streamUidIdx: index("media_assets_stream_uid_idx").on(table.streamUid),
 }));
 
 export const stories = sqliteTable("stories", {

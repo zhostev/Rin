@@ -14,5 +14,12 @@ export {
   formatDuration,
   kindForMime,
   newBlockId,
+  responsiveImageProps,
+  audioProgressKey,
+  findChapterIndex,
+  parseStoredProgress,
+  shouldPersistProgress,
+  AUDIO_PLAYBACK_RATES,
+  AUDIO_PROGRESS_SAVE_INTERVAL_MS,
 } from "./block-utils";
-export type { MediaTab } from "./block-utils";
+export type { MediaTab, GalleryImageLike, ResponsiveImageProps } from "./block-utils";

@@ -1,18 +1,24 @@
-// Story detail page (/story/:slug) — Stage 1.
+// Story detail page (/story/:slug) — Stage 2.
 //
 // Media switcher: only renders tabs for media shapes that actually exist in
-// the story's blocks (read / video / audio). Video & audio blocks render as
-// placeholder cards until Stage 2 wires up Cloudflare Stream / R2 playback.
+// the story's blocks (read / video / audio). Video blocks play through the
+// Cloudflare Stream click-to-load player; audio blocks use the in-site
+// AudioPlayer (speed, chapters, progress memory); gallery images use
+// Cloudflare Images responsive variants with a lightbox.
 // rich_text blocks reuse the same Markdown render chain as feed.tsx.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
+import Lightbox from "yet-another-react-lightbox";
+import Zoom from "yet-another-react-lightbox/plugins/zoom";
 import { Waiting } from "../components/loading";
 import { Markdown } from "../components/markdown";
 import { Tips } from "../components/tips";
 import { Button } from "../components/button";
+import { AudioPlayer } from "../components/audio-player";
+import { StreamPlayer } from "../components/stream-player";
 import { client } from "../app/runtime";
 import { useSiteConfig } from "../hooks/useSiteConfig";
 import { siteName } from "../utils/constants";
@@ -20,13 +26,12 @@ import { timeago } from "../utils/timeago";
 import type {
   AudioPayload,
   ContentBlock,
-  MediaAsset,
   StoryDetailResponse,
   VideoPayload,
 } from "../api/story";
 import {
-  formatDuration,
   mediaTabsForBlocks,
+  responsiveImageProps,
   type MediaTab,
 } from "../components/story-blocks";
 
@@ -88,18 +93,7 @@ function ReadBlock({ block }: { block: ContentBlock }) {
     case "gallery": {
       const items = Array.isArray(payload.items) ? payload.items : [];
       if (items.length === 0) return null;
-      return (
-        <div className="my-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {items.map((item, index) => {
-            const record = asRecord(item);
-            const url = asString(record.url);
-            if (!url) return null;
-            return (
-              <img key={index} src={url} alt={asString(record.alt)} className="aspect-square w-full rounded-xl object-cover" loading="lazy" />
-            );
-          })}
-        </div>
-      );
+      return <GalleryGrid items={items} />;
     }
     case "attachment": {
       const url = asString(payload.url);
@@ -143,55 +137,64 @@ function ReadBlock({ block }: { block: ContentBlock }) {
   }
 }
 
-function VideoPlaceholderCard({ payload }: { payload: VideoPayload }) {
+/** Gallery grid with Cloudflare Images responsive variants + lightbox. */
+function GalleryGrid({ items }: { items: unknown[] }) {
   const { t } = useTranslation();
-  const asset: MediaAsset | undefined = payload.asset;
-  const duration = asset?.duration;
+  const [lightboxIndex, setLightboxIndex] = useState(-1);
 
-  return (
-    <div className="overflow-hidden rounded-2xl border border-black/10 bg-w dark:border-white/10">
-      <div className="flex aspect-video flex-col items-center justify-center gap-2 bg-neutral-900 text-neutral-300">
-        <i className="ri-video-line text-4xl opacity-60" />
-        <p className="px-6 text-center text-sm opacity-80">{t("story.detail.video_stage2_note")}</p>
-      </div>
-      <div className="flex items-center gap-3 p-4">
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-medium t-primary">{payload.title || t("story.detail.untitled_video")}</p>
-          <p className="text-xs text-neutral-500">
-            {[asset?.mime, typeof duration === "number" ? formatDuration(duration) : undefined]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-        </div>
-        <span className="shrink-0 rounded-full bg-secondary px-3 py-1 text-xs t-secondary">
-          {t("story.detail.coming_stage2")}
-        </span>
-      </div>
-    </div>
+  const entries = useMemo(
+    () =>
+      items
+        .map((item) => {
+          const record = asRecord(item);
+          const variants =
+            record.images_variants && typeof record.images_variants === "object"
+              ? (record.images_variants as Record<string, string>)
+              : undefined;
+          return {
+            alt: asString(record.alt),
+            ...responsiveImageProps({ url: asString(record.url), images_variants: variants }),
+          };
+        })
+        .filter((entry) => entry.src),
+    [items],
   );
-}
 
-function AudioPlaceholderCard({ payload }: { payload: AudioPayload }) {
-  const { t } = useTranslation();
-  const asset: MediaAsset | undefined = payload.asset;
-  const duration = payload.duration ?? asset?.duration;
+  if (entries.length === 0) return null;
 
   return (
-    <div className="flex items-center gap-4 rounded-2xl border border-black/10 bg-w p-4 dark:border-white/10">
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-neutral-900 text-neutral-300">
-        <i className="ri-music-2-line text-2xl opacity-70" />
+    <>
+      <div className="my-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {entries.map((entry, index) => (
+          <button
+            key={index}
+            type="button"
+            onClick={() => setLightboxIndex(index)}
+            aria-label={t("story.detail.open_image")}
+            className="overflow-hidden rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-theme"
+          >
+            <img
+              src={entry.src}
+              srcSet={entry.srcSet}
+              sizes="(max-width: 640px) 50vw, 33vw"
+              alt={entry.alt}
+              loading="lazy"
+              className="aspect-square w-full object-cover transition-transform hover:scale-[1.02]"
+            />
+          </button>
+        ))}
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-medium t-primary">{payload.title || t("story.detail.untitled_audio")}</p>
-        <p className="text-xs text-neutral-500">
-          {t("story.detail.duration")}: {formatDuration(duration)}
-        </p>
-        <p className="mt-1 text-xs text-neutral-400">{t("story.detail.audio_stage2_note")}</p>
-      </div>
-      <span className="shrink-0 rounded-full bg-secondary px-3 py-1 text-xs t-secondary">
-        {t("story.detail.coming_stage2")}
-      </span>
-    </div>
+      <Lightbox
+        open={lightboxIndex >= 0}
+        index={Math.max(lightboxIndex, 0)}
+        close={() => setLightboxIndex(-1)}
+        plugins={[Zoom]}
+        slides={entries.map((entry) => ({
+          src: entry.largeSrc ?? entry.src,
+          alt: entry.alt,
+        }))}
+      />
+    </>
   );
 }
 
@@ -316,14 +319,14 @@ export function StoryPage({ slug }: { slug: string }) {
                   {activeTab === "video" && (
                     <div role="tabpanel" className="flex flex-col gap-4">
                       {videoBlocks.map((block, index) => (
-                        <VideoPlaceholderCard key={String(block.id ?? index)} payload={block.payload as VideoPayload} />
+                        <StreamPlayer key={String(block.id ?? index)} payload={block.payload as VideoPayload} />
                       ))}
                     </div>
                   )}
                   {activeTab === "audio" && (
                     <div role="tabpanel" className="flex flex-col gap-3">
                       {audioBlocks.map((block, index) => (
-                        <AudioPlaceholderCard key={String(block.id ?? index)} payload={block.payload as AudioPayload} />
+                        <AudioPlayer key={String(block.id ?? index)} payload={block.payload as AudioPayload} />
                       ))}
                     </div>
                   )}
