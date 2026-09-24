@@ -23,6 +23,8 @@
       "kind_video": "動画",
       "kind_audio": "音声",
       "upload_video": "動画をアップロード",
+      "upload_media": "メディアをアップロード",
+      "upload_unsupported": "サポートされていないファイル形式",
       "uploading": "アップロード中",
       "upload_failed": "アップロードに失敗しました",
       "empty": "メディアがまだありません。",

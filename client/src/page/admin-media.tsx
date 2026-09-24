@@ -3,7 +3,9 @@
 //
 // - Kind filter tabs (all / image / video / audio) backed by GET
 //   /api/admin/media?kind=...&page=...&limit=...
-// - Video upload goes through the R2 chain (POST /api/admin/media/video).
+// - Upload accepts image/video/audio through the unified R2 presigned
+//   direct-upload helper (mint → PUT → complete); the media type is
+//   auto-detected from the picked file.
 // - Deletion is guarded by the backend reference check; a 409 surfaces the
 //   "in use" message with the referencing entity.
 
@@ -13,7 +15,7 @@ import { client } from "../app/runtime";
 import { useAlert, useConfirm } from "../components/dialog";
 import { Waiting } from "../components/loading";
 import type { AssetKind, MediaAsset } from "../api/story";
-import { probeMediaFile } from "../utils/media-probe";
+import { detectMediaType, uploadMediaFile } from "../utils/media-upload";
 import { formatDuration } from "../components/story-blocks/block-utils";
 
 type KindFilter = "all" | AssetKind;
@@ -277,24 +279,20 @@ export function AdminMediaLibraryPage() {
     void fetchAssets(1, false);
   }, [kind, fetchAssets]);
 
-  async function handleVideoFile(file: File) {
+  async function handlePickedFile(file: File) {
+    const type = detectMediaType(file);
+    if (!type) {
+      showAlert(t("admin.media_library.upload_unsupported"));
+      return;
+    }
     setUploading(true);
     setUploadProgress(0);
     try {
-      const probed = await probeMediaFile(file).catch(() => null);
-      const created = await client.media.uploadVideo(
-        file,
-        (loaded, total) => {
-          if (total > 0) setUploadProgress(Math.round((loaded / total) * 100));
-        },
-        {
-          title: file.name,
-          duration: probed?.duration,
-          width: probed?.width,
-          height: probed?.height,
-        },
-      );
-      setAssets((prev) => [created, ...prev]);
+      const { asset } = await uploadMediaFile(file, type, {
+        t,
+        onProgress: (p) => setUploadProgress(p),
+      });
+      setAssets((prev) => [asset, ...prev]);
     } catch (err) {
       showAlert(err instanceof Error ? err.message : t("admin.media_library.upload_failed"));
     } finally {
@@ -331,17 +329,17 @@ export function AdminMediaLibraryPage() {
             className="rounded-full bg-theme px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-theme-hover disabled:opacity-60"
           >
             <i className="ri-upload-cloud-2-line mr-1" />
-            {uploading ? t("admin.media_library.uploading") : t("admin.media_library.upload_video")}
+            {uploading ? t("admin.media_library.uploading") : t("admin.media_library.upload_media")}
           </button>
           <input
             ref={fileRef}
             type="file"
-            accept="video/*"
+            accept="image/*,video/*,audio/*"
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
               e.target.value = "";
-              if (file) void handleVideoFile(file);
+              if (file) void handlePickedFile(file);
             }}
           />
         </div>

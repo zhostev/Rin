@@ -23,6 +23,8 @@
       "kind_video": "影片",
       "kind_audio": "音訊",
       "upload_video": "上傳影片",
+      "upload_media": "上傳媒體",
+      "upload_unsupported": "不支援的檔案類型",
       "uploading": "上傳中",
       "upload_failed": "上傳失敗",
       "empty": "還沒有媒體資源。",

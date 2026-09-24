@@ -23,6 +23,8 @@
       "kind_video": "视频",
       "kind_audio": "音频",
       "upload_video": "上传视频",
+      "upload_media": "上传媒体",
+      "upload_unsupported": "不支持的文件类型",
       "uploading": "上传中",
       "upload_failed": "上传失败",
       "empty": "还没有媒体资源。",

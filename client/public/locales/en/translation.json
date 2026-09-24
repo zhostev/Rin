@@ -23,6 +23,8 @@
       "kind_video": "Videos",
       "kind_audio": "Audio",
       "upload_video": "Upload video",
+      "upload_media": "Upload media",
+      "upload_unsupported": "Unsupported file type",
       "uploading": "Uploading",
       "upload_failed": "Upload failed",
       "empty": "No media assets yet.",
