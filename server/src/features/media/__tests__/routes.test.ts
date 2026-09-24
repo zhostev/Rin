@@ -561,6 +561,52 @@ describe('R2 video chain', () => {
         expect(puts).toContain(`media/original/${withSubs.subtitles_asset_id}/cap.vtt`);
     });
 
+    it('POST /video/:id/subtitles keeps an existing poster_url', async () => {
+        await setup({ R2_BUCKET: r2Mock() });
+        const video = await (await uploadVideo()).json() as any;
+
+        const posterForm = new FormData();
+        posterForm.append('file', new File(['png'], 'cover.png', { type: 'image/png' }));
+        const posterRes = await app.request(`/video/${video.id}/poster`, {
+            method: 'POST', headers: ADMIN_HEADERS, body: posterForm,
+        }, env);
+        const withPoster = await posterRes.json() as any;
+        expect(withPoster.poster_url).toContain('cover.png');
+
+        const subForm = new FormData();
+        subForm.append('file', new File(['WEBVTT\\n\\n00:00.000 --> 00:01.000\\nHi'], 'cap.vtt', { type: 'text/vtt' }));
+        const subRes = await app.request(`/video/${video.id}/subtitles`, {
+            method: 'POST', headers: ADMIN_HEADERS, body: subForm,
+        }, env);
+        expect(subRes.status).toBe(200);
+        const both = await subRes.json() as any;
+        expect(both.poster_url).toBe(withPoster.poster_url);
+        expect(both.subtitles_url).toContain('cap.vtt');
+    });
+
+    it('POST /video/:id/poster keeps an existing subtitles_url', async () => {
+        await setup({ R2_BUCKET: r2Mock() });
+        const video = await (await uploadVideo()).json() as any;
+
+        const subForm = new FormData();
+        subForm.append('file', new File(['WEBVTT\\n\\n00:00.000 --> 00:01.000\\nHi'], 'cap.vtt', { type: 'text/vtt' }));
+        const subRes = await app.request(`/video/${video.id}/subtitles`, {
+            method: 'POST', headers: ADMIN_HEADERS, body: subForm,
+        }, env);
+        const withSubs = await subRes.json() as any;
+        expect(withSubs.subtitles_url).toContain('cap.vtt');
+
+        const posterForm = new FormData();
+        posterForm.append('file', new File(['png'], 'cover.png', { type: 'image/png' }));
+        const posterRes = await app.request(`/video/${video.id}/poster`, {
+            method: 'POST', headers: ADMIN_HEADERS, body: posterForm,
+        }, env);
+        expect(posterRes.status).toBe(200);
+        const both = await posterRes.json() as any;
+        expect(both.subtitles_url).toBe(withSubs.subtitles_url);
+        expect(both.poster_url).toContain('cover.png');
+    });
+
     it('POST /video/:id/subtitles rejects non-vtt files', async () => {
         await setup({ R2_BUCKET: r2Mock() });
         const video = await (await uploadVideo()).json() as any;

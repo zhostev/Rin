@@ -604,7 +604,9 @@ export function AdminMediaService(): HonoApp {
         if (!updated || !poster) {
             return c.text('Failed to load media asset', 500);
         }
-        return c.json(serializeMediaAsset(updated, { poster }));
+        // 同时带上已有的字幕关联，避免挂字幕后再换封面时字幕 URL 丢失
+        const linked = await loadLinkedAssetRows(db, [updated]);
+        return c.json(serializeMediaAsset(updated, linked.get(updated.id)));
     }));
 
     // POST /admin/media/video/:id/subtitles —— 上传字幕并关联到视频
@@ -686,7 +688,9 @@ export function AdminMediaService(): HonoApp {
         if (!updated || !subtitles) {
             return c.text('Failed to load media asset', 500);
         }
-        return c.json(serializeMediaAsset(updated, { subtitles }));
+        // 同时带上已有的封面关联，避免挂封面后再加字幕时封面 URL 丢失
+        const linked = await loadLinkedAssetRows(db, [updated]);
+        return c.json(serializeMediaAsset(updated, linked.get(updated.id)));
     }));
 
     // DELETE /admin/media/video/:id/poster —— 解除封面关联并删除封面资产（行 + R2 对象）
