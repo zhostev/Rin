@@ -68,3 +68,40 @@ describe('migration 0014.sql (stage2 media stack)', () => {
         expect(sql).toContain(`UPDATE \`info\` SET \`value\` = '14'`);
     });
 });
+
+describe('migration 0023.sql (R2 video chain: poster/subtitles refs)', () => {
+    it('adds poster_asset_id/subtitles_asset_id columns + indexes', () => {
+        const sqlite = freshDb();
+        sqlite.exec(readFileSync(join(SQL_DIR, '0014.sql'), 'utf8'));
+        sqlite.exec(readFileSync(join(SQL_DIR, '0023.sql'), 'utf8'));
+
+        const columns = sqlite.query(`PRAGMA table_info(media_assets)`).all() as Array<{ name: string }>;
+        const names = new Set(columns.map((c) => c.name));
+        expect(names.has('poster_asset_id')).toBe(true);
+        expect(names.has('subtitles_asset_id')).toBe(true);
+
+        const indexes = sqlite.query(
+            `SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='media_assets'`
+        ).all() as Array<{ name: string }>;
+        expect(indexes.map((i) => i.name)).toContain('media_assets_poster_idx');
+        expect(indexes.map((i) => i.name)).toContain('media_assets_subtitles_idx');
+
+        const version = sqlite.query(`SELECT value FROM info WHERE key='migration_version'`).get() as { value: string };
+        expect(version.value).toBe('23');
+
+        sqlite.close();
+    });
+
+    it('keeps pre-existing rows usable: old rows have NULL refs', () => {
+        const sqlite = freshDb();
+        sqlite.exec(`INSERT INTO media_assets (kind, source, mime) VALUES ('video', 'r2', 'video/mp4')`);
+        sqlite.exec(readFileSync(join(SQL_DIR, '0014.sql'), 'utf8'));
+        sqlite.exec(readFileSync(join(SQL_DIR, '0023.sql'), 'utf8'));
+
+        const row = sqlite.query(`SELECT poster_asset_id, subtitles_asset_id FROM media_assets`).get() as Record<string, unknown>;
+        expect(row.poster_asset_id).toBeNull();
+        expect(row.subtitles_asset_id).toBeNull();
+
+        sqlite.close();
+    });
+});

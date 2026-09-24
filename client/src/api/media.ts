@@ -97,6 +97,65 @@ export class MediaAPI {
   constructor(private http: StoryHttp) {}
 
   /**
+   * Generic multipart upload over raw XMLHttpRequest (progress events).
+   * The backend responds 201/200 with the MediaAsset itself.
+   * Rejects with MediaUploadError (carries .status) on HTTP failures.
+   */
+  private postMultipart(
+    path: string,
+    file: File,
+    fields: Record<string, string> = {},
+    onProgress?: (loaded: number, total: number) => void,
+  ): Promise<MediaAsset> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${endpoint}${path}`);
+      const token = getAuthToken();
+      if (token) {
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      }
+      const formData = new FormData();
+      formData.append("file", file, file.name);
+      for (const [key, value] of Object.entries(fields)) {
+        formData.append(key, value);
+      }
+      if (onProgress) {
+        xhr.upload.addEventListener("progress", (event) => {
+          if (event.lengthComputable) {
+            onProgress(event.loaded, event.total);
+          }
+        });
+      }
+      xhr.addEventListener("load", () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const body = JSON.parse(xhr.responseText) as
+              | { asset?: MediaAsset }
+              | MediaAsset;
+            const asset = (body as { asset?: MediaAsset }).asset ?? (body as MediaAsset);
+            if (!asset || typeof asset.id !== "number" || typeof asset.kind !== "string") {
+              reject(new MediaUploadError(`Invalid response from ${path}`, xhr.status));
+              return;
+            }
+            resolve(asset);
+          } catch {
+            reject(new MediaUploadError(`Invalid response from ${path}`, xhr.status));
+          }
+        } else if (xhr.status === 503) {
+          reject(
+            new MediaUploadError("Upload service is not configured on the server", xhr.status),
+          );
+        } else {
+          reject(new MediaUploadError(`Upload failed (HTTP ${xhr.status})`, xhr.status));
+        }
+      });
+      xhr.addEventListener("error", () => reject(new MediaUploadError("Upload network error", 0)));
+      xhr.addEventListener("abort", () => reject(new MediaUploadError("Upload aborted", 0)));
+      xhr.send(formData);
+    });
+  }
+
+  /**
    * Mint a Stream direct-upload session: POSTs { filename, ... } and gets
    * back the provisional asset plus the one-time TUS uploadURL. The browser
    * then TUS-uploads the file to uploadURL and polls getStreamAsset(uid).
@@ -164,52 +223,81 @@ export class MediaAPI {
     onProgress?: (loaded: number, total: number) => void,
     title?: string,
   ): Promise<MediaAsset> {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${endpoint}/api/admin/media/audio`);
-      const token = getAuthToken();
-      if (token) {
-        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-      }
-      const formData = new FormData();
-      formData.append("file", file, file.name);
-      if (title) {
-        formData.append("title", title);
-      }
-      if (onProgress) {
-        xhr.upload.addEventListener("progress", (event) => {
-          if (event.lengthComputable) {
-            onProgress(event.loaded, event.total);
-          }
-        });
-      }
-      xhr.addEventListener("load", () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            const body = JSON.parse(xhr.responseText) as
-              | { asset?: MediaAsset }
-              | MediaAsset;
-            const asset = (body as { asset?: MediaAsset }).asset ?? (body as MediaAsset);
-            if (!asset || typeof asset.id !== "number" || typeof asset.kind !== "string") {
-              reject(new MediaUploadError("Invalid response from /api/admin/media/audio", xhr.status));
-              return;
-            }
-            resolve(asset);
-          } catch {
-            reject(new MediaUploadError("Invalid response from /api/admin/media/audio", xhr.status));
-          }
-        } else if (xhr.status === 503) {
-          reject(
-            new MediaUploadError("Upload service is not configured on the server", xhr.status),
-          );
-        } else {
-          reject(new MediaUploadError(`Audio upload failed (HTTP ${xhr.status})`, xhr.status));
-        }
-      });
-      xhr.addEventListener("error", () => reject(new MediaUploadError("Audio upload network error", 0)));
-      xhr.addEventListener("abort", () => reject(new MediaUploadError("Audio upload aborted", 0)));
-      xhr.send(formData);
-    });
+    const fields: Record<string, string> = {};
+    if (title) fields.title = title;
+    return this.postMultipart("/api/admin/media/audio", file, fields, onProgress);
+  }
+
+  /**
+   * Upload a video file to R2 as multipart/form-data with progress events.
+   * Backend: POST /api/admin/media/video (fields file*, title?, duration?,
+   * width?, height?). Rejects with MediaUploadError (carries .status).
+   */
+  uploadVideo(
+    file: File,
+    onProgress?: (loaded: number, total: number) => void,
+    options: { title?: string; duration?: number; width?: number; height?: number } = {},
+  ): Promise<MediaAsset> {
+    const fields: Record<string, string> = {};
+    if (options.title) fields.title = options.title;
+    if (typeof options.duration === "number" && Number.isFinite(options.duration)) {
+      fields.duration = String(options.duration);
+    }
+    if (typeof options.width === "number" && Number.isFinite(options.width)) {
+      fields.width = String(Math.round(options.width));
+    }
+    if (typeof options.height === "number" && Number.isFinite(options.height)) {
+      fields.height = String(Math.round(options.height));
+    }
+    return this.postMultipart("/api/admin/media/video", file, fields, onProgress);
+  }
+
+  /**
+   * Attach a poster image to a video asset (replaces any existing poster).
+   * Backend: POST /api/admin/media/video/:id/poster (multipart file*).
+   */
+  attachPoster(
+    videoId: number | string,
+    file: File,
+    onProgress?: (loaded: number, total: number) => void,
+  ): Promise<MediaAsset> {
+    return this.postMultipart(
+      `/api/admin/media/video/${encodeURIComponent(String(videoId))}/poster`,
+      file,
+      {},
+      onProgress,
+    );
+  }
+
+  /**
+   * Attach a WebVTT subtitles file to a video asset (replaces any existing).
+   * Backend: POST /api/admin/media/video/:id/subtitles (multipart file*).
+   */
+  attachSubtitles(
+    videoId: number | string,
+    file: File,
+    onProgress?: (loaded: number, total: number) => void,
+  ): Promise<MediaAsset> {
+    return this.postMultipart(
+      `/api/admin/media/video/${encodeURIComponent(String(videoId))}/subtitles`,
+      file,
+      {},
+      onProgress,
+    );
+  }
+
+  /** Remove the poster from a video asset (also deletes the poster asset). */
+  async detachPoster(videoId: number | string): Promise<ApiResponse<string>> {
+    return this.http.delete<string>(
+      `/api/admin/media/video/${encodeURIComponent(String(videoId))}/poster`,
+    );
+  }
+
+  /** Remove the subtitles from a video asset (also deletes the subtitles asset). */
+  async detachSubtitles(videoId: number | string): Promise<ApiResponse<string>> {
+    return this.http.delete<string>(
+      `/api/admin/media/video/${encodeURIComponent(String(videoId))}/subtitles`,
+    );
   }
 }
 

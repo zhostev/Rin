@@ -1,30 +1,27 @@
 // VideoBlock: metadata form for a video content block.
 //
-// Upload flow (Stage 2):
-//   1. POST /api/admin/media/stream/direct-upload { filename } mints a
-//      one-time TUS URL (+ the provisional asset with stream_uid). The
-//      browser TUS-uploads the file straight to Cloudflare Stream
-//      (tus-js-client, resumable, progress bar).
-//   2. The client polls GET /api/admin/media/stream/{stream_uid} until
-//      Stream reports "ready", then writes the final asset (with embed_url /
-//      thumbnail_url) into the payload. The provisional asset is written
-//      first so the story shows a "transcoding" state even if the editor is
-//      closed early.
-// Existing Stream assets can also be picked via MediaPicker.
+// Upload flow (R2):
+//   1. Probe the file client-side (duration / dimensions) via probeMediaFile.
+//   2. POST /api/admin/media/video (multipart, progress bar) creates the asset;
+//      R2 is ready immediately — no transcoding poll.
+//   3. Optionally attach a poster image (POST .../poster) and a WebVTT file
+//      (POST .../subtitles); each can be replaced or removed.
+// Existing assets (R2 or Stream) can also be picked via MediaPicker.
+// A stream_uid can still be entered manually for Cloudflare Stream assets,
+// which keep playing through the StreamPlayer.
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { client } from "../../app/runtime";
 import type { MediaAsset, VideoPayload } from "../../api/story";
-import { pollStreamUntilReady, isNotConfiguredError } from "../../api/media";
-import { startStreamUpload, type StreamUploadHandle } from "../../utils/stream-upload";
+import { probeMediaFile } from "../../utils/media-probe";
 import { MediaPicker } from "./media-picker";
 import { formatDuration } from "./block-utils";
 
 const inputClassName =
   "w-full rounded-xl border border-black/10 bg-w px-4 py-2.5 text-sm t-primary dark:border-white/10";
 
-type UploadPhase = "idle" | "minting" | "uploading" | "processing" | "error";
+type UploadPhase = "idle" | "uploading" | "error";
 
 interface UploadState {
   phase: UploadPhase;
@@ -44,17 +41,18 @@ export function VideoBlock({
   const { t } = useTranslation();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [upload, setUpload] = useState<UploadState>(IDLE_UPLOAD);
+  const [busy, setBusy] = useState<"poster" | "subtitles" | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const activeUploadRef = useRef<StreamUploadHandle | null>(null);
+  const posterRef = useRef<HTMLInputElement>(null);
+  const subtitlesRef = useRef<HTMLInputElement>(null);
   const cancelledRef = useRef(false);
   const asset = payload.asset;
+  const isR2Video = !!asset && asset.kind === "video" && asset.source !== "stream" && !asset.stream_uid;
 
   useEffect(() => {
     cancelledRef.current = false;
     return () => {
       cancelledRef.current = true;
-      activeUploadRef.current?.abort();
-      activeUploadRef.current = null;
     };
   }, []);
 
@@ -67,95 +65,100 @@ export function VideoBlock({
   }
 
   async function handleFile(file: File) {
-    if (upload.phase === "minting" || upload.phase === "uploading" || upload.phase === "processing") {
-      return;
-    }
-    setUpload({ phase: "minting", progress: 0 });
+    if (upload.phase === "uploading") return;
+    setUpload({ phase: "uploading", progress: 0 });
     try {
-      const { data, error } = await client.media.createStreamDirectUpload({ filename: file.name });
-      if (error || !data?.uploadURL) {
-        throw new Error(
-          isNotConfiguredError(error)
-            ? t("story.editor.picker.not_configured")
-            : typeof error?.value === "string"
-              ? error.value
-              : t("story.editor.stream_failed"),
-        );
-      }
-      const uploadURL = data.uploadURL;
-      // Provisional asset: the backend already created the row with
-      // stream_uid and stream_status "uploading"; playback keys off the
-      // asset's embed_url once the transcode finishes. Keeping the
-      // provisional asset in the payload means the story shows a
-      // "transcoding" state even if the editor is closed early.
-      const provisional: MediaAsset = {
-        ...data.asset,
-        title: data.asset.title || file.name,
-        mime: data.asset.mime || file.type || undefined,
-        stream_status: data.asset.stream_status ?? "uploading",
-      };
-      const assetId = provisional.id;
-      const streamUid = provisional.stream_uid;
-      if (!streamUid) {
-        throw new Error(t("story.editor.stream_failed"));
-      }
-      if (!cancelledRef.current) {
-        onChange({ asset: provisional, asset_id: assetId, stream_uid: provisional.stream_uid });
-        setUpload({ phase: "uploading", progress: 0 });
-      }
-
-      const handle = startStreamUpload(file, uploadURL, {
-        onProgress: (bytesUploaded, bytesTotal) => {
-          if (!cancelledRef.current && bytesTotal > 0) {
-            setUpload({ phase: "uploading", progress: bytesUploaded / bytesTotal });
+      const probed = await probeMediaFile(file);
+      if (cancelledRef.current) return;
+      const created = await client.media.uploadVideo(
+        file,
+        (loaded, total) => {
+          if (!cancelledRef.current && total > 0) {
+            setUpload({ phase: "uploading", progress: loaded / total });
           }
         },
-      });
-      activeUploadRef.current = handle;
-      await handle.done;
-      activeUploadRef.current = null;
+        {
+          title: payload.title || file.name,
+          duration: probed.duration,
+          width: probed.width,
+          height: probed.height,
+        },
+      );
       if (cancelledRef.current) return;
-
-      setUpload({ phase: "processing", progress: 1 });
-      try {
-        const ready = await pollStreamUntilReady(
-          (uid) => client.media.getStreamAsset(uid),
-          streamUid,
-        );
-        if (cancelledRef.current) return;
-        const finalAsset: MediaAsset = { ...ready, title: ready.title || file.name };
-        onChange({ asset: finalAsset, asset_id: assetId, stream_uid: finalAsset.stream_uid });
-        setUpload(IDLE_UPLOAD);
-      } catch (pollError) {
-        // Transcoding takes longer than the poll budget: the provisional
-        // asset stays in the payload and Stream's webhook finishes it.
-        if (cancelledRef.current) return;
-        setUpload({
-          phase: "error",
-          progress: 1,
-          message: pollError instanceof Error ? pollError.message : String(pollError),
-        });
-      }
+      onChange({ asset: created, asset_id: created.id || undefined, stream_uid: undefined });
+      setUpload(IDLE_UPLOAD);
     } catch (err) {
       if (cancelledRef.current) return;
       setUpload({
         phase: "error",
         progress: 0,
-        message: err instanceof Error ? err.message : t("story.editor.stream_failed"),
+        message: err instanceof Error ? err.message : t("story.editor.video_upload_failed"),
       });
     }
   }
 
+  async function handlePosterFile(file: File) {
+    if (!asset?.id || busy) return;
+    setBusy("poster");
+    try {
+      const updated = await client.media.attachPoster(asset.id, file);
+      if (cancelledRef.current) return;
+      onChange({ asset: updated });
+    } finally {
+      if (!cancelledRef.current) setBusy(null);
+    }
+  }
+
+  async function handleSubtitlesFile(file: File) {
+    if (!asset?.id || busy) return;
+    setBusy("subtitles");
+    try {
+      const updated = await client.media.attachSubtitles(asset.id, file);
+      if (cancelledRef.current) return;
+      onChange({ asset: updated });
+    } finally {
+      if (!cancelledRef.current) setBusy(null);
+    }
+  }
+
+  async function handleRemovePoster() {
+    if (!asset?.id || busy) return;
+    setBusy("poster");
+    try {
+      const { error } = await client.media.detachPoster(asset.id);
+      if (cancelledRef.current) return;
+      if (!error) {
+        onChange({
+          asset: { ...asset, poster_asset_id: undefined, poster_url: undefined },
+        });
+      }
+    } finally {
+      if (!cancelledRef.current) setBusy(null);
+    }
+  }
+
+  async function handleRemoveSubtitles() {
+    if (!asset?.id || busy) return;
+    setBusy("subtitles");
+    try {
+      const { error } = await client.media.detachSubtitles(asset.id);
+      if (cancelledRef.current) return;
+      if (!error) {
+        onChange({
+          asset: { ...asset, subtitles_asset_id: undefined, subtitles_url: undefined },
+        });
+      }
+    } finally {
+      if (!cancelledRef.current) setBusy(null);
+    }
+  }
+
   const uploadLabel =
-    upload.phase === "minting"
-      ? t("story.editor.stream_minting")
-      : upload.phase === "uploading"
-        ? t("story.editor.stream_uploading", { percent: Math.round(upload.progress * 100) })
-        : upload.phase === "processing"
-          ? t("story.editor.stream_transcoding")
-          : upload.phase === "error"
-            ? upload.message || t("story.editor.stream_failed")
-            : "";
+    upload.phase === "uploading"
+      ? t("story.editor.video_uploading", { percent: Math.round(upload.progress * 100) })
+      : upload.phase === "error"
+        ? upload.message || t("story.editor.video_upload_failed")
+        : "";
 
   return (
     <div className="flex flex-col gap-3">
@@ -181,11 +184,11 @@ export function VideoBlock({
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              disabled={upload.phase !== "idle" && upload.phase !== "error"}
+              disabled={upload.phase === "uploading"}
               className="rounded-full bg-theme px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-theme-hover disabled:opacity-60"
             >
               <i className="ri-upload-cloud-2-line mr-1" />
-              {t("story.editor.upload_to_stream")}
+              {t("story.editor.upload_video")}
             </button>
             <button
               type="button"
@@ -230,8 +233,12 @@ export function VideoBlock({
 
         {asset ? (
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-black/10 dark:bg-white/10">
-              <i className="ri-video-line text-xl text-neutral-500 dark:text-neutral-400" />
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/10 dark:bg-white/10">
+              {asset.poster_url ? (
+                <img src={asset.poster_url} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <i className="ri-video-line text-xl text-neutral-500 dark:text-neutral-400" />
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium t-primary">{asset.title || asset.url}</p>
@@ -254,6 +261,89 @@ export function VideoBlock({
           </div>
         ) : (
           <p className="text-xs text-neutral-500 dark:text-neutral-400">{t("story.editor.no_asset")}</p>
+        )}
+
+        {isR2Video && (
+          <div className="flex flex-col gap-2 border-t border-black/5 pt-2 dark:border-white/5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                {t("story.editor.poster")}
+              </span>
+              <div className="flex items-center gap-2">
+                {asset.poster_url && (
+                  <button
+                    type="button"
+                    onClick={() => void handleRemovePoster()}
+                    disabled={busy === "poster"}
+                    className="text-xs text-neutral-400 hover:text-red-500 disabled:opacity-60"
+                  >
+                    {t("story.editor.remove_poster")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => posterRef.current?.click()}
+                  disabled={busy === "poster"}
+                  className="rounded-full border border-black/10 px-3 py-1 text-xs font-medium t-secondary transition-colors hover:border-theme/40 hover:text-theme disabled:opacity-60 dark:border-white/10"
+                >
+                  {busy === "poster" ? t("story.editor.uploading") : t("story.editor.upload_poster")}
+                </button>
+              </div>
+            </div>
+            <input
+              ref={posterRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void handlePosterFile(file);
+              }}
+            />
+
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                {t("story.editor.subtitles")}
+              </span>
+              <div className="flex items-center gap-2">
+                {asset.subtitles_url && (
+                  <span className="max-w-32 truncate text-xs text-neutral-400">
+                    {decodeURIComponent(asset.subtitles_url.split("/").pop() ?? "")}
+                  </span>
+                )}
+                {asset.subtitles_url && (
+                  <button
+                    type="button"
+                    onClick={() => void handleRemoveSubtitles()}
+                    disabled={busy === "subtitles"}
+                    className="text-xs text-neutral-400 hover:text-red-500 disabled:opacity-60"
+                  >
+                    {t("story.editor.remove_subtitles")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => subtitlesRef.current?.click()}
+                  disabled={busy === "subtitles"}
+                  className="rounded-full border border-black/10 px-3 py-1 text-xs font-medium t-secondary transition-colors hover:border-theme/40 hover:text-theme disabled:opacity-60 dark:border-white/10"
+                >
+                  {busy === "subtitles" ? t("story.editor.uploading") : t("story.editor.upload_subtitles")}
+                </button>
+              </div>
+            </div>
+            <input
+              ref={subtitlesRef}
+              type="file"
+              accept=".vtt,text/vtt"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void handleSubtitlesFile(file);
+              }}
+            />
+          </div>
         )}
       </div>
 

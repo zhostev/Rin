@@ -5,8 +5,10 @@
 // to every kind: theme (story dropdown), year, duration range, updated.
 // Only media assets are shown; body text is never copied here.
 //
-// Video cards reuse the Stage 2 StreamPlayer (click-to-load iframe): an
-// asset whose streamStatus is not ready degrades to a poster + transcoding
+// Video cards render by asset source: R2 assets use the click-to-play
+// R2VideoPlayer (native <video> with poster, subtitles track, and LocalStorage
+// resume); Stream assets keep the Stage 2 StreamPlayer (click-to-load iframe).
+// An asset whose streamStatus is not ready degrades to a poster + transcoding
 // card, never a white screen. Audio reuses the Stage 2 AudioPlayer
 // (queue + playback speed + progress memory). Images browse by story with
 // a lightbox and per-image captions.
@@ -19,6 +21,7 @@ import Lightbox from "yet-another-react-lightbox";
 import Zoom from "yet-another-react-lightbox/plugins/zoom";
 import { client } from "../app/runtime";
 import { AudioPlayer } from "../components/audio-player";
+import { R2VideoPlayer } from "../components/r2-video-player";
 import { StreamPlayer } from "../components/stream-player";
 import { Waiting } from "../components/loading";
 import { Tips } from "../components/tips";
@@ -81,7 +84,8 @@ function videoPayloadFor(item: MediaCenterItem): VideoPayload {
   const asset: MediaAsset = {
     id: numericId,
     kind: "video",
-    source: item.streamUid ? "stream" : "external",
+    source:
+      item.source === "r2" ? "r2" : item.source === "stream" || item.streamUid ? "stream" : "external",
     title: item.title,
     duration: item.duration,
     width: item.width,
@@ -90,6 +94,8 @@ function videoPayloadFor(item: MediaCenterItem): VideoPayload {
     stream_uid: item.streamUid,
     stream_status: mapStreamStatus(item.streamStatus),
     thumbnail_url: item.thumbnailUrl,
+    poster_url: item.posterUrl,
+    subtitles_url: item.subtitlesUrl,
   };
   return {
     title: item.title,
@@ -207,9 +213,11 @@ function VideoCard({ item }: { item: MediaCenterItem }) {
   const { t } = useTranslation();
   const payload = useMemo(() => videoPayloadFor(item), [item]);
   const chapters: MediaCenterChapter[] = Array.isArray(item.chapters) ? item.chapters : [];
+  const isStream = payload.asset?.source === "stream";
 
   function handleReveal() {
     trackEvent.track({ type: "video_play", assetId: item.id, storyId: item.storyId });
+    if (!isStream) return; // R2VideoPlayer persists its own timeupdate records.
     // The Stream iframe exposes no time API, so the progress record is a
     // best-effort bookmark: keep the last known seconds, refresh updatedAt.
     const previous = loadVideoProgress(item.id);
@@ -223,7 +231,11 @@ function VideoCard({ item }: { item: MediaCenterItem }) {
 
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl bg-w">
-      <StreamPlayer payload={payload} onReveal={handleReveal} />
+      {isStream ? (
+        <StreamPlayer payload={payload} onReveal={handleReveal} />
+      ) : (
+        <R2VideoPlayer payload={payload} storySlug={item.storySlug} onReveal={handleReveal} />
+      )}
       <div className="flex flex-col gap-1.5 p-4 pt-3">
         <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
           {typeof item.duration === "number" && (

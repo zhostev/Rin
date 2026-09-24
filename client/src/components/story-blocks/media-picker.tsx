@@ -19,8 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { client } from "../../app/runtime";
 import type { AssetKind, MediaAsset } from "../../api/story";
-import { pollStreamUntilReady, isNotConfiguredError } from "../../api/media";
-import { startStreamUpload } from "../../utils/stream-upload";
+import { isNotConfiguredError } from "../../api/media";
 import { uploadFileRaw } from "../../utils/upload-xhr";
 import { probeMediaFile } from "../../utils/media-probe";
 import { formatDuration, kindForMime } from "./block-utils";
@@ -203,44 +202,25 @@ export function MediaPicker({
     };
   }
 
-  /** video: Cloudflare Stream direct-upload (TUS), poll until ready. */
+  /** video: R2 multipart upload (progress events); playable immediately. */
   async function uploadVideo(file: File): Promise<MediaAsset> {
-    const { data, error } = await client.media.createStreamDirectUpload({ filename: file.name });
-    if (error || !data?.uploadURL) {
-      throw new Error(
-        isNotConfiguredError(error)
-          ? t("story.editor.picker.not_configured")
-          : typeof error?.value === "string"
-            ? error.value
-            : t("story.editor.picker.upload_failed"),
-      );
-    }
-    const provisional: MediaAsset = {
-      ...data.asset,
-      title: data.asset.title || file.name,
-      mime: data.asset.mime || file.type || undefined,
-      stream_status: data.asset.stream_status ?? "uploading",
-    };
-    const streamUid = provisional.stream_uid;
-    if (!streamUid) {
-      throw new Error(t("story.editor.picker.upload_failed"));
-    }
-    const handle = startStreamUpload(file, data.uploadURL, {
-      onProgress: (loaded, total) => {
+    const probed = await probeMediaFile(file).catch(() => null);
+    const asset = await client.media.uploadVideo(
+      file,
+      (loaded, total) => {
         reportProgress(loaded, total);
-        setUploadLabel(t("story.editor.stream_uploading", { percent: Math.round((total > 0 ? loaded / total : 0) * 100) }));
+        setUploadLabel(
+          t("story.editor.video_uploading", { percent: Math.round((total > 0 ? loaded / total : 0) * 100) }),
+        );
       },
-    });
-    await handle.done;
-    setUploadLabel(t("story.editor.stream_transcoding"));
-    try {
-      const asset = await pollStreamUntilReady((uid) => client.media.getStreamAsset(uid), streamUid);
-      return { ...asset, title: asset.title || file.name };
-    } catch {
-      // Transcoding continues in the background; hand back the provisional
-      // asset so the editor can keep working.
-      return provisional;
-    }
+      {
+        title: file.name,
+        duration: probed?.duration,
+        width: probed?.width,
+        height: probed?.height,
+      },
+    );
+    return { ...asset, title: asset.title || file.name };
   }
 
   /** audio: multipart POST with progress. */

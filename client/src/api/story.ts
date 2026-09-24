@@ -59,6 +59,11 @@ export interface MediaAsset {
   // Cloudflare Images (image) fields
   images_id?: string;
   images_variants?: Record<string, string>;
+  // R2 video chain: poster / subtitles references (asset ids + derived urls)
+  poster_asset_id?: number;
+  poster_url?: string;
+  subtitles_asset_id?: number;
+  subtitles_url?: string;
 }
 
 export interface ContentBlock<T = Record<string, unknown>> {

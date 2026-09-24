@@ -3,10 +3,10 @@ import { join } from "node:path";
 import type { Database } from "bun:sqlite";
 
 /**
- * 将 Stage 2 媒体栈增量迁移（server/sql/0013.sql、0014.sql）应用到测试库。
+ * 将媒体栈增量迁移（server/sql/0013.sql、0014.sql、0023.sql）应用到测试库。
  *
- * 0014 是 0013 的增量（ALTER TABLE media_assets），因此先应用 0013 建表，
- * 再应用 0014 加列——与生产迁移顺序一致。`--> statement-breakpoint`
+ * 0014 是 0013 的增量（ALTER TABLE media_assets），0023 再增 poster/subtitles
+ * 引用列；因此先应用 0013 建表，再依次应用 0014、0023——与生产迁移顺序一致。`--> statement-breakpoint`
  * 行会被 SQLite 当作 `--` 行注释忽略，可直接整体执行。
  *
  * 注意：createMockDB 建的 media_assets 已是新模型（与 0013+0014+0018 对齐），
@@ -18,7 +18,7 @@ import type { Database } from "bun:sqlite";
 export function applyMediaMigration(sqlite: Database) {
     const dir = join(import.meta.dir, "../../sql");
     ensureMediaAssetsColumns(sqlite);
-    for (const file of ["0013.sql", "0014.sql"]) {
+    for (const file of ["0013.sql", "0014.sql", "0023.sql"]) {
         execMigrationLenient(sqlite, readFileSync(join(dir, file), "utf8"));
     }
 }

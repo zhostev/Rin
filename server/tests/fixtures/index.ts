@@ -40,9 +40,9 @@ export function createMockDB() {
         );
 
         -- media_assets：Stage 2 新模型，与 server/sql/0013.sql（建表）+
-        -- 0014.sql（增列）+ 0018.sql（moment_id）及 drizzle schema 对齐。
-        -- 旧 Stage 1 模型（TEXT 主键、uid/type/object_key…列）已下线，
-        -- fixture 不再保留旧列。
+        -- 0014.sql（增列）+ 0018.sql（moment_id）+ 0023.sql（poster/subtitles 引用）
+        -- 及 drizzle schema 对齐。旧 Stage 1 模型（TEXT 主键、uid/type/object_key…列）
+        -- 已下线，fixture 不再保留旧列。
         CREATE TABLE IF NOT EXISTS media_assets (
             id INTEGER PRIMARY KEY,
             kind TEXT DEFAULT 'image' NOT NULL,

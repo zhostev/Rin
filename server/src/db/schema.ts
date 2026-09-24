@@ -223,11 +223,15 @@ export const mediaAssets = sqliteTable("media_assets", {
     imagesId: text("images_id").default(""), // 阶段 2：Cloudflare Images 图片 ID
     imagesVariantsJson: text("images_variants_json").default("{}").notNull(), // {thumb,medium,large,public...} 完整 URL
     uploadSessionJson: text("upload_session_json").default("{}").notNull(), // 直传会话追踪
+    posterAssetId: integer("poster_asset_id"), // R2 视频链路：封面图资产行 id（kind=image）
+    subtitlesAssetId: integer("subtitles_asset_id"), // R2 视频链路：字幕资产行 id（kind=attachment，text/vtt）
     createdAt: created_at,
     updatedAt: updated_at,
 }, (table) => ({
     kindIdx: index("media_assets_kind_idx").on(table.kind),
     streamUidIdx: index("media_assets_stream_uid_idx").on(table.streamUid),
+    posterIdx: index("media_assets_poster_idx").on(table.posterAssetId),
+    subtitlesIdx: index("media_assets_subtitles_idx").on(table.subtitlesAssetId),
 }));
 
 export const stories = sqliteTable("stories", {

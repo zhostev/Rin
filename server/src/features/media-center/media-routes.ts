@@ -20,7 +20,7 @@
  */
 import { Hono } from "hono";
 import type { AppContext, Variables } from "../../core/hono-types";
-import { serializeMediaAsset } from "../media/asset";
+import { serializeMediaAsset, loadLinkedAssetRows } from "../media/asset";
 import type { MediaAssetRow } from "../media/repository";
 import { parseOptionalInteger, parsePositiveInteger, parseUpdatedFlag } from "./params";
 import {
@@ -66,10 +66,15 @@ export interface MediaCenterItem {
     duration: number | null;
     width: number | null;
     height: number | null;
+    /** 资产来源：r2 | stream | cloudflare_images | external（前端据此选择播放器） */
+    source: string;
     streamUid: string | null;
     streamStatus: string | null;
     thumbnailUrl: string | null;
     publicUrl: string | null;
+    /** R2 视频封面 / 字幕派生地址（无关联资产时为 null） */
+    posterUrl: string | null;
+    subtitlesUrl: string | null;
     storyId: number;
     storySlug: string;
     storyTitle: string | null;
@@ -77,8 +82,12 @@ export interface MediaCenterItem {
     updatedAt: string;
 }
 
-function serializeItem(row: MediaAssetRow, info: AssetStoryInfo): MediaCenterItem {
-    const wire = serializeMediaAsset(row);
+function serializeItem(
+    row: MediaAssetRow,
+    info: AssetStoryInfo,
+    linked?: { poster?: MediaAssetRow; subtitles?: MediaAssetRow },
+): MediaCenterItem {
+    const wire = serializeMediaAsset(row, linked);
     const imageLike = row.kind === "image" || row.kind === "gallery";
     return {
         id: row.id,
@@ -87,11 +96,14 @@ function serializeItem(row: MediaAssetRow, info: AssetStoryInfo): MediaCenterIte
         duration: row.duration ?? null,
         width: row.width ?? null,
         height: row.height ?? null,
+        source: row.source,
         streamUid: row.streamUid || null,
         // 非 stream 源的资产没有转码状态概念，透传 null 而不是 DB 默认的 'ready'
         streamStatus: row.source === "stream" ? (wire.stream_status ?? null) : null,
         thumbnailUrl: wire.thumbnail_url ?? (imageLike ? (wire.url ?? null) : null),
         publicUrl: wire.url ?? null,
+        posterUrl: wire.poster_url ?? null,
+        subtitlesUrl: wire.subtitles_url ?? null,
         storyId: info.storyId,
         storySlug: info.storySlug,
         storyTitle: info.storyTitle,
@@ -153,10 +165,13 @@ export function MediaCenterService(): HonoApp {
             maxDuration,
         });
 
+        // 封面/字幕关联行一次查出，避免 N+1
+        const linked = await loadLinkedAssetRows(db, rows);
+
         let items = rows
             .map((row) => ({ row, info: storyMap.get(row.id)! }))
             .filter(({ info }) => info !== undefined)
-            .map(({ row, info }) => ({ item: serializeItem(row, info), row, info }));
+            .map(({ row, info }) => ({ item: serializeItem(row, info, linked.get(row.id)), row, info }));
 
         if (year !== undefined) {
             items = items.filter(({ item }) => item.year === year);

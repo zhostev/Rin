@@ -30,7 +30,8 @@ import { Settings } from "../page/settings";
 import { StoryPage } from "../page/story";
 import { StoriesPage } from "../page/stories";
 import { StoryEditorPage } from "../page/story-editor";
-import { MaintenancePage, MediaLibraryPage, SeriesPage } from "../page/admin-placeholders";
+import { MaintenancePage, SeriesPage } from "../page/admin-placeholders";
+import { AdminMediaLibraryPage } from "../page/admin-media";
 import { AIStudioPage } from "../page/ai-studio";
 import { AskPage } from "../page/ask";
 import { TimelinePage } from "../page/timeline";
@@ -112,8 +113,8 @@ export function AppRoutes() {
         {({ id }) => <StoryEditorPage storyKey={id || ""} />}
       </AdminRoute>
 
-      <AdminRoute path="/admin/media" requirePermission title={t("story.nav.media")} description={t("admin.media_description")}>
-        <MediaLibraryPage />
+      <AdminRoute path="/admin/media" requirePermission title={t("admin.media_library.title")} description={t("admin.media_description")}>
+        <AdminMediaLibraryPage />
       </AdminRoute>
 
       <AdminRoute path="/admin/series" requirePermission title={t("story.nav.series")} description={t("admin.series_description")}>

@@ -13,11 +13,18 @@
  *   502 <op>_failed —— 上游 Cloudflare API 调用失败（附 upstreamStatus）
  *   500 stream_webhook_secret_not_configured —— webhook secret 未配置（拒绝验签，不静默通过）
  *   401 webhook_signature_missing / webhook_signature_invalid
+ *
+ * R2 视频链路（用户决策：视频走 R2，Stream 暂不开通）：
+ *   POST /video —— multipart 上传视频（video/*，≤100MB），R2 binding 优先否则 S3
+ *   POST /video/:id/poster —— 上传封面图并关联（image/*，≤10MB；重复上传替换旧封面）
+ *   POST /video/:id/subtitles —— 上传字幕并关联（.vtt，≤1MB；重复上传替换旧字幕）
+ *   DELETE /video/:id/poster ｜ DELETE /video/:id/subtitles —— 解除关联并删除对应资产
+ *   DELETE /:id 删除视频时级联删除其封面/字幕资产行与 R2 对象。
  */
 import { Hono } from "hono";
-import type { AppContext, Variables } from "../core/hono-types";
+import type { AppContext, DB, Variables } from "../core/hono-types";
 import { adminOnly } from "../core/route-boundaries";
-import { serializeMediaAsset } from "../features/media/asset";
+import { loadLinkedAssetRows, serializeMediaAsset } from "../features/media/asset";
 import { uploadAudioObject } from "../features/media/audio";
 import {
     CloudflareApiError,
@@ -36,8 +43,16 @@ import {
     isMediaKind,
     listMediaAssets,
     updateMediaAssetById,
+    type MediaAssetRow,
     type MediaKind,
 } from "../features/media/repository";
+import {
+    parseProbedNumber,
+    uploadVideoObject,
+    validateUploadFile,
+    VIDEO_MAX_BYTES,
+    type VideoUploadKind,
+} from "../features/media/video";
 import {
     CloudflareStreamClient,
     computeStreamSync,
@@ -128,6 +143,43 @@ function parseDirectUploadBody(value: unknown): { filename: string; maxDurationS
     }
 
     return { filename, maxDurationSeconds, meta };
+}
+
+/** R2/S3 存储可用性检查：不可用时返回 503 响应，可用时返回 null。 */
+function requireStorage(c: AppContext, what: string): Response | null {
+    const env = c.get('env');
+    if (env.R2_BUCKET) {
+        return null;
+    }
+    const missing = ['S3_ENDPOINT', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_BUCKET']
+        .filter((key) => !(env as unknown as Record<string, unknown>)[key]);
+    if (missing.length > 0) {
+        return c.json({
+            error: {
+                code: 'storage_not_configured',
+                message: `${what} storage is not configured (missing: ${missing.join(', ')})`,
+            },
+        }, 503);
+    }
+    return null;
+}
+
+/** 删远端对象（R2，失败只记日志不阻断）+ 删 D1 行：级联删除与上传回滚共用。 */
+async function deleteAssetWithObject(db: DB, env: Env, row: MediaAssetRow): Promise<void> {
+    if (row.source === 'r2' && row.r2Key && env.R2_BUCKET) {
+        try {
+            await env.R2_BUCKET.delete(row.r2Key);
+        } catch (error) {
+            console.error(`[media] failed to delete r2 object ${row.r2Key}:`, error);
+        }
+    }
+    await deleteMediaAssetById(db, row.id);
+}
+
+/** 校验结果 → 400/413 JSON 错误响应（code 直接透传 validateUploadFile 的 code）。 */
+function invalidUploadFile(c: AppContext, validation: { code?: string; message?: string }): Response {
+    const status = validation.code === 'video_too_large' ? 413 : 400;
+    return c.json({ error: { code: validation.code ?? 'video_invalid_mime', message: validation.message ?? 'Invalid file' } }, status);
 }
 
 /**
@@ -400,6 +452,293 @@ export function AdminMediaService(): HonoApp {
         return c.json(serializeMediaAsset(row), 201);
     }));
 
+    // POST /admin/media/video —— multipart 上传视频到 R2
+    //   fields: file*（video/*，≤100MB）、title?、duration?、width?、height?
+    //   （duration/width/height 由客户端 probeMediaFile 探测后上报，非法值忽略）
+    //   201 -> MediaAsset（asset.url 为站内 /api/blob/<key>）
+    app.post('/video', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+
+        let form: Record<string, string | File>;
+        try {
+            form = await c.req.parseBody() as Record<string, string | File>;
+        } catch {
+            return c.text('Invalid multipart body', 400);
+        }
+
+        const validation = validateUploadFile(form['file'], 'video');
+        if (!validation.ok) {
+            return invalidUploadFile(c, validation);
+        }
+        const file = form['file'] as File;
+        const title = typeof form['title'] === 'string' ? form['title'] : '';
+
+        const storageError = requireStorage(c, 'Video upload');
+        if (storageError) {
+            return storageError;
+        }
+
+        const now = new Date();
+        const inserted = await insertMediaAsset(db, {
+            kind: 'video',
+            source: 'r2',
+            mime: file.type || '',
+            title,
+            duration: parseProbedNumber(form['duration']),
+            width: (() => { const n = parseProbedNumber(form['width']); return n === undefined ? undefined : Math.round(n); })(),
+            height: (() => { const n = parseProbedNumber(form['height']); return n === undefined ? undefined : Math.round(n); })(),
+            createdAt: now,
+            updatedAt: now,
+        });
+        if (!inserted) {
+            return c.text('Failed to insert media asset', 500);
+        }
+        const assetId = inserted.insertedId;
+
+        let uploadedKey: string | undefined;
+        try {
+            const result = await uploadVideoObject(env, assetId, file, file.name, file.type || undefined);
+            uploadedKey = result.key;
+            await updateMediaAssetById(db, assetId, {
+                r2Key: result.key,
+                updatedAt: new Date(),
+            });
+        } catch (error) {
+            // 回滚：R2 对象已上传则删除，避免 R2 孤儿对象；再删 D1 孤儿行
+            if (uploadedKey && env.R2_BUCKET) {
+                try {
+                    await env.R2_BUCKET.delete(uploadedKey);
+                } catch (deleteError) {
+                    console.error(`[media] failed to roll back r2 object ${uploadedKey}:`, deleteError);
+                }
+            }
+            await deleteMediaAssetById(db, assetId);
+            return upstreamError(c, error, 'video_upload_failed');
+        }
+
+        const row = await findMediaAssetById(db, assetId);
+        if (!row) {
+            return c.text('Failed to load media asset', 500);
+        }
+        return c.json(serializeMediaAsset(row), 201);
+    }));
+
+    // POST /admin/media/video/:id/poster —— 上传封面图并关联到视频
+    //   fields: file*（image/*，≤10MB）。重复上传替换旧封面（旧资产行 + R2 对象一并删除）。
+    //   200 -> MediaAsset（带 poster_asset_id / poster_url）
+    app.post('/video/:id/poster', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const id = parseMediaId(c.req.param('id'));
+        if (id === null) {
+            return c.text('Not found', 404);
+        }
+
+        const video = await findMediaAssetById(db, id);
+        if (!video || video.kind !== 'video') {
+            return c.text('Not found', 404);
+        }
+
+        let form: Record<string, string | File>;
+        try {
+            form = await c.req.parseBody() as Record<string, string | File>;
+        } catch {
+            return c.text('Invalid multipart body', 400);
+        }
+
+        const validation = validateUploadFile(form['file'], 'poster');
+        if (!validation.ok) {
+            return invalidUploadFile(c, validation);
+        }
+        const file = form['file'] as File;
+
+        const storageError = requireStorage(c, 'Poster upload');
+        if (storageError) {
+            return storageError;
+        }
+
+        const now = new Date();
+        const inserted = await insertMediaAsset(db, {
+            kind: 'image',
+            source: 'r2',
+            mime: file.type || '',
+            title: typeof form['title'] === 'string' ? form['title'] : file.name,
+            createdAt: now,
+            updatedAt: now,
+        });
+        if (!inserted) {
+            return c.text('Failed to insert media asset', 500);
+        }
+        const posterId = inserted.insertedId;
+
+        let uploadedKey: string | undefined;
+        try {
+            const result = await uploadVideoObject(env, posterId, file, file.name, file.type || undefined);
+            uploadedKey = result.key;
+            await updateMediaAssetById(db, posterId, { r2Key: result.key, updatedAt: new Date() });
+        } catch (error) {
+            if (uploadedKey && env.R2_BUCKET) {
+                try {
+                    await env.R2_BUCKET.delete(uploadedKey);
+                } catch (deleteError) {
+                    console.error(`[media] failed to roll back r2 object ${uploadedKey}:`, deleteError);
+                }
+            }
+            await deleteMediaAssetById(db, posterId);
+            return upstreamError(c, error, 'poster_upload_failed');
+        }
+
+        // 替换旧封面：先挂新引用，再删旧资产（旧资产删除失败不阻断）
+        const oldPosterId = video.posterAssetId;
+        await updateMediaAssetById(db, video.id, { posterAssetId: posterId, updatedAt: new Date() });
+        if (oldPosterId && oldPosterId !== posterId) {
+            const oldRow = await findMediaAssetById(db, oldPosterId);
+            if (oldRow) {
+                await deleteAssetWithObject(db, env, oldRow);
+            }
+        }
+
+        const updated = await findMediaAssetById(db, video.id);
+        const poster = await findMediaAssetById(db, posterId);
+        if (!updated || !poster) {
+            return c.text('Failed to load media asset', 500);
+        }
+        return c.json(serializeMediaAsset(updated, { poster }));
+    }));
+
+    // POST /admin/media/video/:id/subtitles —— 上传字幕并关联到视频
+    //   fields: file*（.vtt，≤1MB）。重复上传替换旧字幕。
+    //   200 -> MediaAsset（带 subtitles_asset_id / subtitles_url）
+    app.post('/video/:id/subtitles', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const id = parseMediaId(c.req.param('id'));
+        if (id === null) {
+            return c.text('Not found', 404);
+        }
+
+        const video = await findMediaAssetById(db, id);
+        if (!video || video.kind !== 'video') {
+            return c.text('Not found', 404);
+        }
+
+        let form: Record<string, string | File>;
+        try {
+            form = await c.req.parseBody() as Record<string, string | File>;
+        } catch {
+            return c.text('Invalid multipart body', 400);
+        }
+
+        const validation = validateUploadFile(form['file'], 'subtitles');
+        if (!validation.ok) {
+            return invalidUploadFile(c, validation);
+        }
+        const file = form['file'] as File;
+
+        const storageError = requireStorage(c, 'Subtitles upload');
+        if (storageError) {
+            return storageError;
+        }
+
+        const now = new Date();
+        const inserted = await insertMediaAsset(db, {
+            kind: 'attachment',
+            source: 'r2',
+            mime: 'text/vtt',
+            title: typeof form['title'] === 'string' ? form['title'] : file.name,
+            createdAt: now,
+            updatedAt: now,
+        });
+        if (!inserted) {
+            return c.text('Failed to insert media asset', 500);
+        }
+        const subtitlesId = inserted.insertedId;
+
+        let uploadedKey: string | undefined;
+        try {
+            const result = await uploadVideoObject(env, subtitlesId, file, file.name, 'text/vtt');
+            uploadedKey = result.key;
+            await updateMediaAssetById(db, subtitlesId, { r2Key: result.key, updatedAt: new Date() });
+        } catch (error) {
+            if (uploadedKey && env.R2_BUCKET) {
+                try {
+                    await env.R2_BUCKET.delete(uploadedKey);
+                } catch (deleteError) {
+                    console.error(`[media] failed to roll back r2 object ${uploadedKey}:`, deleteError);
+                }
+            }
+            await deleteMediaAssetById(db, subtitlesId);
+            return upstreamError(c, error, 'subtitles_upload_failed');
+        }
+
+        const oldSubtitlesId = video.subtitlesAssetId;
+        await updateMediaAssetById(db, video.id, { subtitlesAssetId: subtitlesId, updatedAt: new Date() });
+        if (oldSubtitlesId && oldSubtitlesId !== subtitlesId) {
+            const oldRow = await findMediaAssetById(db, oldSubtitlesId);
+            if (oldRow) {
+                await deleteAssetWithObject(db, env, oldRow);
+            }
+        }
+
+        const updated = await findMediaAssetById(db, video.id);
+        const subtitles = await findMediaAssetById(db, subtitlesId);
+        if (!updated || !subtitles) {
+            return c.text('Failed to load media asset', 500);
+        }
+        return c.json(serializeMediaAsset(updated, { subtitles }));
+    }));
+
+    // DELETE /admin/media/video/:id/poster —— 解除封面关联并删除封面资产（行 + R2 对象）
+    app.delete('/video/:id/poster', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const id = parseMediaId(c.req.param('id'));
+        if (id === null) {
+            return c.text('Not found', 404);
+        }
+
+        const video = await findMediaAssetById(db, id);
+        if (!video || video.kind !== 'video') {
+            return c.text('Not found', 404);
+        }
+        if (!video.posterAssetId) {
+            return c.text('Not found', 404);
+        }
+
+        const poster = await findMediaAssetById(db, video.posterAssetId);
+        await updateMediaAssetById(db, video.id, { posterAssetId: null, updatedAt: new Date() });
+        if (poster) {
+            await deleteAssetWithObject(db, env, poster);
+        }
+        return c.text('Deleted');
+    }));
+
+    // DELETE /admin/media/video/:id/subtitles —— 解除字幕关联并删除字幕资产（行 + R2 对象）
+    app.delete('/video/:id/subtitles', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const id = parseMediaId(c.req.param('id'));
+        if (id === null) {
+            return c.text('Not found', 404);
+        }
+
+        const video = await findMediaAssetById(db, id);
+        if (!video || video.kind !== 'video') {
+            return c.text('Not found', 404);
+        }
+        if (!video.subtitlesAssetId) {
+            return c.text('Not found', 404);
+        }
+
+        const subtitles = await findMediaAssetById(db, video.subtitlesAssetId);
+        await updateMediaAssetById(db, video.id, { subtitlesAssetId: null, updatedAt: new Date() });
+        if (subtitles) {
+            await deleteAssetWithObject(db, env, subtitles);
+        }
+        return c.text('Deleted');
+    }));
+
     // GET /admin/media —— 媒体列表（?kind=video|audio|image，供媒体选择器用）
     app.get('/', adminOnly(async (c) => {
         const db = c.get('db');
@@ -421,14 +760,17 @@ export function AdminMediaService(): HonoApp {
             offset: page * limit,
         });
 
+        const linked = await loadLinkedAssetRows(db, result.rows);
+
         return c.json({
             size: result.size,
-            data: result.rows.map(serializeMediaAsset),
+            data: result.rows.map((row) => serializeMediaAsset(row, linked.get(row.id))),
             hasNext: result.hasNext,
         });
     }));
 
     // DELETE /admin/media/:id —— 删远端（失败只记日志不阻断）再删 D1 行
+    //   视频资产：先级联删除其封面/字幕资产（行 + R2 对象），再删自身。
     app.delete('/:id', adminOnly(async (c) => {
         const db = c.get('db');
         const env = c.get('env');
@@ -459,6 +801,21 @@ export function AdminMediaService(): HonoApp {
                 await env.R2_BUCKET.delete(row.r2Key);
             } catch (error) {
                 console.error(`[media] failed to delete r2 object ${row.r2Key}:`, error);
+            }
+        }
+
+        // 视频资产：级联删除其封面/字幕资产（行 + R2 对象）；单个失败只记日志不阻断
+        if (row.kind === 'video') {
+            for (const linkedId of [row.posterAssetId, row.subtitlesAssetId]) {
+                if (!linkedId) continue;
+                try {
+                    const linkedRow = await findMediaAssetById(db, linkedId);
+                    if (linkedRow) {
+                        await deleteAssetWithObject(db, env, linkedRow);
+                    }
+                } catch (error) {
+                    console.error(`[media] failed to cascade-delete linked asset ${linkedId}:`, error);
+                }
             }
         }
 

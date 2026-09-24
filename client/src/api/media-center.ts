@@ -56,6 +56,11 @@ export interface MediaCenterItem {
   /** e.g. "uploading" | "processing" | "ready" | "error"; absent => treat as ready when playable */
   streamStatus?: string;
   thumbnailUrl?: string;
+  /** "r2" | "stream" | "external" — tells the player which renderer to use */
+  source?: string;
+  /** R2 video chain: poster / subtitles derived URLs */
+  posterUrl?: string;
+  subtitlesUrl?: string;
   /** public playback / full-size URL */
   publicUrl?: string;
   storyId?: number | string;

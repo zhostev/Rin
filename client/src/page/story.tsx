@@ -19,6 +19,7 @@ import { Tips } from "../components/tips";
 import { Button } from "../components/button";
 import { AudioPlayer } from "../components/audio-player";
 import { StreamPlayer } from "../components/stream-player";
+import { R2VideoPlayer } from "../components/r2-video-player";
 import { client } from "../app/runtime";
 import { useSiteConfig } from "../hooks/useSiteConfig";
 import { siteName } from "../utils/constants";
@@ -371,10 +372,25 @@ export function StoryPage({ slug }: { slug: string }) {
                       {videoBlocks.map((block, index) => {
                         const payload = block.payload as VideoPayload;
                         const assetId = payload.asset_id ?? payload.asset?.id;
-                        return (
+                        const isStream =
+                          payload.asset?.source === "stream" || !!payload.asset?.stream_uid;
+                        return isStream ? (
                           <StreamPlayer
                             key={String(block.id ?? index)}
                             payload={payload}
+                            onReveal={() =>
+                              getSharedEventTracker().track({
+                                type: "video_play",
+                                assetId,
+                                storyId: story.id,
+                              })
+                            }
+                          />
+                        ) : (
+                          <R2VideoPlayer
+                            key={String(block.id ?? index)}
+                            payload={payload}
+                            storySlug={story.slug}
                             onReveal={() =>
                               getSharedEventTracker().track({
                                 type: "video_play",

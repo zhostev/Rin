@@ -5,6 +5,9 @@
  * GET /api/story/:slug 原样返回。前后端共同遵守，改动时需同步前端。
  */
 import type { MediaAssetRow } from "./repository";
+import { inArray } from "drizzle-orm";
+import type { DB } from "../../core/hono-types";
+import { mediaAssets } from "../../db/schema";
 
 export interface MediaAsset {
     id: number;
@@ -18,6 +21,12 @@ export interface MediaAsset {
     url?: string;
     alt?: string;
     title?: string;
+    /** R2 视频链路：封面图资产行 id；poster_url 为其派生播放地址 */
+    poster_asset_id?: number;
+    poster_url?: string;
+    /** R2 视频链路：字幕资产行 id（text/vtt）；subtitles_url 为其派生地址 */
+    subtitles_asset_id?: number;
+    subtitles_url?: string;
     stream_uid?: string;
     stream_status?: "uploading" | "processing" | "ready" | "error";
     stream_error?: string;
@@ -73,8 +82,15 @@ export function pickImagesUrl(variants: Record<string, string>): string | undefi
  * DB 行 → wire MediaAsset。
  * 纯函数：所有派生 URL（embed/thumbnail/manifest、/api/blob、变体回退）都在这里集中计算，
  * 路由与 webhook 只负责读写 DB，不重复拼 URL。
+ *
+ * linked：可选的关联资产行（封面/字幕），由调用方批量查出后传入；
+ * 不传则只透出 *_asset_id，不派生 URL。递归序列化关联行时不再向下展开，
+ * 避免循环引用。
  */
-export function serializeMediaAsset(row: MediaAssetRow): MediaAsset {
+export function serializeMediaAsset(
+    row: MediaAssetRow,
+    linked?: { poster?: MediaAssetRow | null; subtitles?: MediaAssetRow | null },
+): MediaAsset {
     const asset: MediaAsset = {
         id: row.id,
         kind: row.kind as MediaAsset["kind"],
@@ -130,5 +146,61 @@ export function serializeMediaAsset(row: MediaAssetRow): MediaAsset {
         asset.url = `/api/blob/${encodeBlobKey(row.r2Key)}`;
     }
 
+    if (row.posterAssetId) {
+        asset.poster_asset_id = row.posterAssetId;
+        const posterUrl = linked?.poster ? serializeMediaAsset(linked.poster).url : undefined;
+        if (posterUrl) {
+            asset.poster_url = posterUrl;
+        }
+    }
+    if (row.subtitlesAssetId) {
+        asset.subtitles_asset_id = row.subtitlesAssetId;
+        const subtitlesUrl = linked?.subtitles ? serializeMediaAsset(linked.subtitles).url : undefined;
+        if (subtitlesUrl) {
+            asset.subtitles_url = subtitlesUrl;
+        }
+    }
+
     return asset;
+}
+
+/**
+ * 批量查出若干资产行的封面/字幕关联行，返回 assetId -> {poster, subtitles}。
+ * 调用方（列表路由）用一次查询代替 N+1。
+ */
+export async function loadLinkedAssetRows(
+    db: DB,
+    rows: MediaAssetRow[],
+): Promise<Map<number, { poster?: MediaAssetRow; subtitles?: MediaAssetRow }>> {
+    const ids = new Set<number>();
+    for (const row of rows) {
+        if (row.posterAssetId) ids.add(row.posterAssetId);
+        if (row.subtitlesAssetId) ids.add(row.subtitlesAssetId);
+    }
+    const result = new Map<number, { poster?: MediaAssetRow; subtitles?: MediaAssetRow }>();
+    if (ids.size === 0) {
+        return result;
+    }
+    const linked = await db.query.mediaAssets.findMany({
+        where: inArray(mediaAssets.id, [...ids]),
+    });
+    const byId = new Map<number, MediaAssetRow>();
+    for (const row of linked) {
+        byId.set(row.id, row);
+    }
+    for (const row of rows) {
+        const entry: { poster?: MediaAssetRow; subtitles?: MediaAssetRow } = {};
+        if (row.posterAssetId) {
+            const poster = byId.get(row.posterAssetId);
+            if (poster) entry.poster = poster;
+        }
+        if (row.subtitlesAssetId) {
+            const subtitles = byId.get(row.subtitlesAssetId);
+            if (subtitles) entry.subtitles = subtitles;
+        }
+        if (entry.poster || entry.subtitles) {
+            result.set(row.id, entry);
+        }
+    }
+    return result;
 }

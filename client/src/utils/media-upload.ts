@@ -5,24 +5,22 @@
 //   image → POST /api/admin/media/images/direct-upload (mint) → PUT bytes to
 //           uploadURL → POST /api/admin/media/images/:id/finalize
 //   audio → POST /api/admin/media/audio (multipart XHR, progress events)
-//   video → POST /api/admin/media/stream/direct-upload (mint) → TUS upload to
-//           uploadURL → provisional asset (transcode continues server-side)
+//   video → POST /api/admin/media/video (R2 multipart XHR, progress events)
 //
 // File bytes never pass through the JSON HttpClient.
+// Cloudflare Stream TUS upload code is kept in ./stream-upload.ts as a manual
+// fallback, but it is no longer the default upload path.
 
 import type { MediaType } from "@rin/api";
 import type { MediaAsset } from "../api/story";
 import { client } from "../app/runtime";
 import { endpoint } from "../config";
 import { generateImageMetadata, type UploadedImageResult } from "./image-upload";
-import { startStreamUpload } from "./stream-upload";
+import { probeMediaFile } from "./media-probe";
 import { uploadFileRaw } from "./upload-xhr";
 
 export const R2_MEDIA_MAX_BYTES = 100 * 1024 * 1024;
-export const MAX_STREAM_VIDEO_BYTES = 1024 * 1024 * 1024;
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-
-const STREAM_UPLOAD_ATTEMPTS = 3;
 
 export type UploadedMediaResult = {
   asset: MediaAsset;
@@ -41,43 +39,6 @@ export function detectMediaType(file: File): MediaType | null {
   if (file.type.startsWith("video/")) return "video";
   if (file.type.startsWith("image/")) return "image";
   return null;
-}
-
-async function uploadStreamVideo(file: File, { t, onProgress }: UploadMediaOptions): Promise<MediaAsset> {
-  let uploadedAsset: MediaAsset | undefined;
-  let lastUploadError: Error | undefined;
-
-  for (let attempt = 1; attempt <= STREAM_UPLOAD_ATTEMPTS && !uploadedAsset; attempt += 1) {
-    // POST /api/admin/media/stream/direct-upload mints a one-time TUS URL plus
-    // the provisional asset (stream_status "uploading"); the browser uploads
-    // straight to Cloudflare Stream.
-    const minted = await client.media.createStreamDirectUpload({ filename: file.name });
-    if (minted.error || !minted.data?.uploadURL) {
-      throw new Error(minted.error?.value || t("upload.media.stream_unavailable"));
-    }
-    const provisional = minted.data.asset;
-    try {
-      const handle = startStreamUpload(file, minted.data.uploadURL, {
-        onProgress: (bytesUploaded, bytesTotal) => {
-          if (bytesTotal > 0) {
-            onProgress?.(Math.round((bytesUploaded / bytesTotal) * 100));
-          }
-        },
-      });
-      await handle.done;
-      uploadedAsset = provisional;
-    } catch (error) {
-      lastUploadError = error instanceof Error ? error : new Error(t("upload.failed"));
-    }
-    // Best-effort cleanup so failed attempts don't pile up provisional assets.
-    if (!uploadedAsset) {
-      await client.media.remove(provisional.id);
-    }
-    if (!uploadedAsset && attempt < STREAM_UPLOAD_ATTEMPTS) onProgress?.(0);
-  }
-
-  if (!uploadedAsset) throw lastUploadError || new Error(t("upload.failed"));
-  return uploadedAsset;
 }
 
 async function uploadImageDirect(file: File, { t, onProgress }: UploadMediaOptions): Promise<MediaAsset> {
@@ -140,12 +101,28 @@ export async function uploadMediaFile(
     return { asset, provider: "r2" };
   }
 
-  // video: Cloudflare Stream direct upload (TUS), regardless of size —
-  // the transcode continues server-side after the bytes land.
-  if (file.size > MAX_STREAM_VIDEO_BYTES) {
-    throw new Error(t("upload.media.too_large"));
+  // video: R2 multipart upload (multipart XHR keeps upload progress events).
+  // Duration/dimensions are probed client-side and sent along so the backend
+  // can store them without server-side transcoding.
+  if (file.size > R2_MEDIA_MAX_BYTES) {
+    throw new Error(t("upload.failed$size", { size: R2_MEDIA_MAX_BYTES / 1024 / 1024 }));
   }
-  return { asset: await uploadStreamVideo(file, options), provider: "stream" };
+  const probed = await probeMediaFile(file).catch(() => null);
+  const asset = await client.media.uploadVideo(
+    file,
+    (loaded, total) => {
+      if (total > 0) {
+        onProgress?.(Math.round((loaded / total) * 100));
+      }
+    },
+    {
+      title: file.name,
+      duration: probed?.duration,
+      width: probed?.width,
+      height: probed?.height,
+    },
+  );
+  return { asset, provider: "r2" };
 }
 
 /** Absolute playback URL, so content stays valid in RSS and other off-site renderers. */
