@@ -1,0 +1,179 @@
+# 环境变量配置指南
+
+Rin 部署需要配置两类环境变量：**Variables（明文变量）**和**Secrets（加密变量）**。
+
+## 快速区分
+
+| 类型 | 存储方式 | 用途 | 示例 |
+|------|---------|------|------|
+| **Variables** | 明文存储在 `wrangler.toml` | 配置参数、开关选项 | 存储桶名称、缓存模式 |
+| **Secrets** | 加密存储在 Cloudflare | 敏感凭证、密钥 | API 密钥、密码、Token |
+
+---
+
+## Variables（明文变量）
+
+这些变量在 `wrangler.toml` 中明文存储，用于配置功能开关和基本参数。
+
+### 站点配置
+
+| 变量名 | 必填 | 描述 | 默认值 | 配置键名 |
+|--------|------|------|--------|----------|
+| `NAME` | 否 | 网站名称 | Rin | `site.name` |
+| `DESCRIPTION` | 否 | 网站描述 | A lightweight personal blogging system | `site.description` |
+| `AVATAR` | 否 | 网站头像 URL | - | `site.avatar` |
+| `PAGE_SIZE` | 否 | 默认分页大小 | 5 | `site.page_size` |
+| `RSS_ENABLE` | 否 | 启用 RSS 链接 | false | `rss` |
+
+:::tip
+站点配置可在部署后通过**设置页面**修改，环境变量仅作为初始值。
+:::
+
+### 存储配置
+
+| 变量名 | 必填 | 描述 | 默认值 | 示例 |
+|--------|------|------|--------|------|
+| `S3_FOLDER` | 是 | 图片存储路径 | images/ | `images/` |
+| `S3_CACHE_FOLDER` | 否 | 缓存文件路径 | cache/ | `cache/` |
+| `S3_BUCKET` | 是 | S3 存储桶名称 | - | `my-bucket` |
+| `S3_REGION` | 是 | S3 区域（R2 填 auto） | - | `auto` |
+| `S3_ENDPOINT` | 是 | S3 接入点地址 | - | `https://xxx.r2.cloudflarestorage.com` |
+| `S3_ACCESS_HOST` | 否 | 对外访问地址 | 同 S3_ENDPOINT | `https://cdn.example.com` |
+| `S3_FORCE_PATH_STYLE` | 否 | 强制路径样式 | false | `false` |
+
+### Cloudflare Stream（可选）
+
+大于 100 MB 的视频会通过 Cloudflare Stream 直传；当前直传接口支持最大 200 MB。
+
+启用方式：设置 `ENABLE_STREAM=true`（或任意一个 Stream 相关变量），部署时会自动向生成的 `wrangler.toml` 写入：
+
+```toml
+[stream]
+binding = "STREAM"
+```
+
+::: warning
+不要手动编辑仓库根目录的 `wrangler.toml`——部署时该文件会被整个重新生成，手改的绑定会丢失。同理，仅在 Cloudflare 面板上设置的 Stream 绑定和变量也会在下次部署时被覆盖。
+:::
+
+Stream 播放默认使用 Cloudflare 的 iframe 播放地址。如需使用自定义 Stream 播放域名，可配置 `STREAM_PUBLIC_HOST`（例如 `https://customer-xxx.cloudflarestream.com`）。未配置 Stream 时，普通音视频和 100 MB 以内的视频仍可通过 R2/S3 使用。
+
+如需接收异步处理状态更新，请将 Stream Webhook 地址配置为 `https://<你的 Worker 域名>/api/media/stream/webhook`，并将 Worker Secret `STREAM_WEBHOOK_SECRET` 设置为 Cloudflare Stream 中配置的同一个值。接口会校验 Cloudflare 的 `Webhook-Signature`；未配置密钥时，Webhook 处理保持关闭。
+
+### 功能开关
+
+| 变量名 | 必填 | 描述 | 默认值 | 推荐值 |
+|--------|------|------|--------|--------|
+| `CACHE_STORAGE_MODE` | 否 | 缓存模式：s3/database | s3 | **database** |
+| `WEBHOOK_URL` | 否 | 评论通知 Webhook | - | - |
+| `RSS_TITLE` | 否 | RSS 标题 | - | - |
+| `RSS_DESCRIPTION` | 否 | RSS 描述 | - | - |
+
+:::tip 新用户推荐
+建议将 `CACHE_STORAGE_MODE` 设为 `database`，无需额外配置 S3 缓存即可使用，降低部署复杂度。
+:::
+
+---
+
+## Secrets（加密变量）
+
+这些敏感信息必须作为 **Cloudflare Workers Secrets** 配置，部署时通过命令行输入或提前设置。
+
+### 认证相关（至少配置一种）
+
+| 变量名 | 用途 | 获取方式 |
+|--------|------|----------|
+| `RIN_GITHUB_CLIENT_ID` | GitHub OAuth 客户端 ID | GitHub OAuth App 设置 |
+| `RIN_GITHUB_CLIENT_SECRET` | GitHub OAuth 客户端密钥 | GitHub OAuth App 设置 |
+| `ADMIN_USERNAME` | 账号密码登录用户名 | 自行设定 |
+| `ADMIN_PASSWORD` | 账号密码登录密码 | 自行设定 |
+| `JWT_SECRET` | JWT 签名密钥（任意随机字符串） | 自行生成 |
+
+:::warning 认证要求
+必须配置 **GitHub OAuth** 或 **账号密码** 其中一种登录方式，否则无法登录后台。
+:::
+
+### S3 存储凭证
+
+| 变量名 | 用途 | 获取方式 |
+|--------|------|----------|
+| `S3_ACCESS_KEY_ID` | S3 访问密钥 ID | R2 API Token ID |
+| `S3_SECRET_ACCESS_KEY` | S3 访问密钥 | R2 API Token |
+
+### Cloudflare 部署凭证
+
+| 变量名 | 用途 | 获取方式 |
+|--------|------|----------|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API 访问令牌 | Cloudflare 面板 → 我的个人资料 → API 令牌 |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户 ID | Cloudflare 面板右侧 sidebar |
+| `STREAM_API_TOKEN` | Cloudflare Stream 专用令牌（可选），用于 >100MB 视频的 TUS 直传。未设置时回退到 `CLOUDFLARE_API_TOKEN` | 新建令牌，权限只需 账户 → Stream → Edit |
+
+---
+
+## GitHub Actions 变量配置
+
+使用 GitHub Actions 自动部署时，需在 Repository 设置中配置以下变量：
+
+### Repository Variables（Settings → Secrets and variables → Variables）
+
+```
+NAME              # 网站名称
+DESCRIPTION       # 网站描述
+AVATAR            # 网站头像
+PAGE_SIZE         # 分页大小
+RSS_ENABLE        # 是否启用 RSS
+CACHE_STORAGE_MODE # 缓存模式（推荐 database）
+R2_BUCKET_NAME    # 使用 R2 时生产部署必填。缺失会导致生成的 wrangler.toml 不含 [[r2_buckets]]，重新部署会覆盖掉远端 R2_BUCKET 绑定（/api/blob 500）。仅纯 S3 部署可设 ALLOW_DEPLOY_WITHOUT_R2=true。
+WORKER_NAME       # Worker 名称（可选）
+DB_NAME           # D1 数据库名称（可选）
+ENABLE_STREAM     # 设为 true 向生成的 wrangler.toml 写入 [stream] 绑定（可选）
+STREAM_PUBLIC_HOST # 自定义 Stream 播放域名（可选，留空用 Cloudflare 默认 iframe 地址）
+```
+
+### Repository Secrets（Settings → Secrets and variables → Secrets）
+
+```
+CLOUDFLARE_API_TOKEN      # Cloudflare API 令牌
+CLOUDFLARE_ACCOUNT_ID     # Cloudflare 账户 ID
+STREAM_API_TOKEN          # Stream 专用令牌（可选，仅需 Stream:Edit）
+STREAM_WEBHOOK_SECRET     # Stream Webhook 签名密钥（可选）
+S3_ENDPOINT               # S3/R2 接入点
+S3_ACCESS_HOST            # S3/R2 访问域名
+S3_BUCKET                 # S3 存储桶名称
+S3_ACCESS_KEY_ID          # S3 访问密钥 ID
+S3_SECRET_ACCESS_KEY      # S3 访问密钥
+RIN_GITHUB_CLIENT_ID      # GitHub OAuth ID（可选）
+RIN_GITHUB_CLIENT_SECRET  # GitHub OAuth Secret（可选）
+ADMIN_USERNAME            # 管理员用户名（可选）
+ADMIN_PASSWORD            # 管理员密码（可选）
+JWT_SECRET                # JWT 密钥
+```
+
+---
+
+## 本地开发环境变量
+
+本地开发使用 `.env` 文件，参考 `.env.example`：
+
+```bash
+# 站点配置
+NAME="My Blog"
+DESCRIPTION="A personal blog"
+
+# S3 存储（使用 R2 或 MinIO）
+S3_ENDPOINT=https://xxx.r2.cloudflarestorage.com
+S3_BUCKET=my-bucket
+S3_ACCESS_KEY_ID=xxx
+S3_SECRET_ACCESS_KEY=xxx
+
+# 认证（GitHub 或账号密码）
+RIN_GITHUB_CLIENT_ID=xxx
+RIN_GITHUB_CLIENT_SECRET=xxx
+# 或
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=secure_password
+
+# 其他
+JWT_SECRET=random_secret_key
+CACHE_STORAGE_MODE=database
+```

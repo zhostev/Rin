@@ -1,0 +1,546 @@
+/**
+ * Stage 2 · 媒体栈路由。
+ *
+ * AdminMediaService（挂载到 /admin/media → 对外 /api/admin/media）：
+ *   全部路由走 adminOnly 守卫（未授权默认 401），模式沿用 AdminStoryService。
+ * StreamWebhookService（挂载到 /webhooks → 对外 /api/webhooks/stream）：
+ *   公开路由，靠 STREAM_WEBHOOK_SECRET 做 HMAC 验签。
+ *
+ * 错误码约定：
+ *   503 stream_not_configured / images_not_configured / storage_not_configured
+ *       —— 服务端未配置凭据/存储（当前 Cloudflare 凭据无 Stream/Images 权限，
+ *          账户侧开通前这些接口会返回 503，不崩溃）
+ *   502 <op>_failed —— 上游 Cloudflare API 调用失败（附 upstreamStatus）
+ *   500 stream_webhook_secret_not_configured —— webhook secret 未配置（拒绝验签，不静默通过）
+ *   401 webhook_signature_missing / webhook_signature_invalid
+ */
+import { Hono } from "hono";
+import type { AppContext, Variables } from "../core/hono-types";
+import { adminOnly } from "../core/route-boundaries";
+import { serializeMediaAsset } from "../features/media/asset";
+import { uploadAudioObject } from "../features/media/audio";
+import {
+    CloudflareApiError,
+    MediaNotConfiguredError,
+} from "../features/media/client";
+import {
+    buildVariantsRecord,
+    CloudflareImagesClient,
+} from "../features/media/images";
+import {
+    deleteMediaAssetById,
+    findMediaAssetById,
+    findMediaAssetByImagesId,
+    findMediaAssetByStreamUid,
+    insertMediaAsset,
+    isMediaKind,
+    listMediaAssets,
+    updateMediaAssetById,
+    type MediaKind,
+} from "../features/media/repository";
+import {
+    CloudflareStreamClient,
+    computeStreamSync,
+} from "../features/media/stream";
+import {
+    applyStreamWebhook,
+    verifyStreamWebhookSignature,
+    WebhookConfigError,
+} from "../features/media/webhook";
+
+type HonoApp = Hono<{
+    Bindings: Env;
+    Variables: Variables;
+}>;
+
+function parsePositiveInteger(value: string | undefined, fallback: number, maximum?: number) {
+    if (!value) {
+        return fallback;
+    }
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return fallback;
+    }
+    return maximum ? Math.min(parsed, maximum) : parsed;
+}
+
+function parseMediaId(value: string): number | null {
+    if (!/^[1-9]\d*$/.test(value)) {
+        return null;
+    }
+    const id = Number(value);
+    return Number.isSafeInteger(id) ? id : null;
+}
+
+/** 503：服务端未配置凭据（token 全部走环境变量读取，缺失绝不崩溃） */
+function notConfigured(c: AppContext, error: unknown): Response {
+    if (error instanceof MediaNotConfiguredError) {
+        return c.json({ error: { code: error.code, message: error.message } }, 503);
+    }
+    console.error("[media] unexpected error while resolving config", error);
+    return c.json({ error: { code: "media_internal_error", message: "Internal error" } }, 500);
+}
+
+/** 502：上游 Cloudflare API 失败 → 清晰错误码 + 日志，不抛裸异常 */
+function upstreamError(c: AppContext, error: unknown, code: string): Response {
+    if (error instanceof CloudflareApiError) {
+        console.error(`[media] ${code}: upstream HTTP ${error.status}: ${error.message}`);
+        return c.json({
+            error: {
+                code,
+                message: error.message,
+                ...(error.status ? { upstreamStatus: error.status } : {}),
+            },
+        }, 502);
+    }
+    console.error(`[media] ${code}: unexpected error`, error);
+    return c.json({ error: { code, message: "Internal error" } }, 500);
+}
+
+interface DirectUploadBody {
+    filename?: unknown;
+    maxDurationSeconds?: unknown;
+    meta?: unknown;
+}
+
+function parseDirectUploadBody(value: unknown): { filename: string; maxDurationSeconds?: number; meta: Record<string, string> } | { error: string } {
+    if (!value || typeof value !== "object") {
+        return { error: "Invalid JSON body" };
+    }
+    const body = value as DirectUploadBody;
+    const filename = typeof body.filename === "string" ? body.filename : "";
+
+    let maxDurationSeconds: number | undefined;
+    if (body.maxDurationSeconds !== undefined) {
+        if (!Number.isInteger(body.maxDurationSeconds) || (body.maxDurationSeconds as number) <= 0) {
+            return { error: "maxDurationSeconds must be a positive integer" };
+        }
+        maxDurationSeconds = body.maxDurationSeconds as number;
+    }
+
+    const meta: Record<string, string> = {};
+    if (body.meta && typeof body.meta === "object" && !Array.isArray(body.meta)) {
+        for (const [key, val] of Object.entries(body.meta as Record<string, unknown>)) {
+            if (typeof val === "string") {
+                meta[key] = val;
+            }
+        }
+    }
+
+    return { filename, maxDurationSeconds, meta };
+}
+
+/**
+ * 管理端媒体服务（挂载到 /admin/media → 对外 /api/admin/media）。
+ */
+export function AdminMediaService(): HonoApp {
+    const app = new Hono<{
+        Bindings: Env;
+        Variables: Variables;
+    }>();
+
+    // POST /admin/media/stream/direct-upload —— 创建 Stream 直接上传会话 + 建 media_assets 行
+    app.post('/stream/direct-upload', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+
+        let raw: unknown;
+        try {
+            raw = await c.req.json();
+        } catch {
+            return c.text('Invalid JSON body', 400);
+        }
+        const parsed = parseDirectUploadBody(raw);
+        if ("error" in parsed) {
+            return c.text(parsed.error, 400);
+        }
+
+        let client: CloudflareStreamClient;
+        try {
+            client = CloudflareStreamClient.fromEnv(env);
+        } catch (error) {
+            return notConfigured(c, error);
+        }
+
+        let upload: { uid: string; uploadURL: string };
+        try {
+            upload = await client.createDirectUpload({
+                maxDurationSeconds: parsed.maxDurationSeconds,
+                meta: parsed.meta,
+            });
+        } catch (error) {
+            return upstreamError(c, error, 'stream_direct_upload_failed');
+        }
+
+        const now = new Date();
+        const inserted = await insertMediaAsset(db, {
+            kind: 'video',
+            source: 'stream',
+            title: parsed.filename,
+            streamUid: upload.uid,
+            streamStatus: 'uploading',
+            uploadSessionJson: JSON.stringify({
+                uploadURL: upload.uploadURL,
+                createdAt: now.toISOString(),
+                maxDurationSeconds: parsed.maxDurationSeconds ?? null,
+                meta: parsed.meta,
+            }),
+            createdAt: now,
+            updatedAt: now,
+        });
+        if (!inserted) {
+            return c.text('Failed to insert media asset', 500);
+        }
+
+        const row = await findMediaAssetById(db, inserted.insertedId);
+        if (!row) {
+            return c.text('Failed to load media asset', 500);
+        }
+        // uploadURL 必须返回给浏览器做直传（一次性 URL）；asset 供编辑器嵌入 payload。
+        return c.json({ asset: serializeMediaAsset(row), uploadURL: upload.uploadURL }, 201);
+    }));
+
+    // GET /admin/media/stream/:uid —— 调 Stream getVideo 同步 D1 状态后返回 asset
+    app.get('/stream/:uid', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const uid = c.req.param('uid');
+        if (!uid) {
+            return c.text('Not found', 404);
+        }
+
+        const row = await findMediaAssetByStreamUid(db, uid);
+        if (!row) {
+            return c.text('Not found', 404);
+        }
+
+        let client: CloudflareStreamClient;
+        try {
+            client = CloudflareStreamClient.fromEnv(env);
+        } catch (error) {
+            return notConfigured(c, error);
+        }
+
+        let video: {
+            status?: { state?: string; pctComplete?: string; errorReasonCode?: string; errorReasonText?: string };
+            duration?: number;
+            thumbnail?: string;
+            readyToStream?: boolean;
+        };
+        try {
+            video = await client.getVideo(uid);
+        } catch (error) {
+            return upstreamError(c, error, 'stream_get_video_failed');
+        }
+
+        const decision = computeStreamSync(row.streamStatus, row.streamMetaJson, {
+            state: video.status?.state ?? null,
+            errorReasonCode: video.status?.errorReasonCode ?? null,
+            errorReasonText: video.status?.errorReasonText ?? null,
+            duration: typeof video.duration === "number" ? video.duration : null,
+            thumbnail: typeof video.thumbnail === "string" ? video.thumbnail : null,
+            readyToStream: typeof video.readyToStream === "boolean" ? video.readyToStream : null,
+            pctComplete: typeof video.status?.pctComplete === "string" ? video.status.pctComplete : null,
+        });
+        if (decision.changed) {
+            await updateMediaAssetById(db, row.id, {
+                ...decision.patch,
+                updatedAt: new Date(),
+            });
+        }
+
+        const updated = await findMediaAssetById(db, row.id);
+        return c.json(serializeMediaAsset(updated ?? row));
+    }));
+
+    // POST /admin/media/images/direct-upload —— 创建 Images 直接上传会话 + 建行
+    app.post('/images/direct-upload', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+
+        let client: CloudflareImagesClient;
+        try {
+            client = CloudflareImagesClient.fromEnv(env);
+        } catch (error) {
+            return notConfigured(c, error);
+        }
+
+        let upload: { id: string; uploadURL: string };
+        try {
+            upload = await client.createDirectUpload();
+        } catch (error) {
+            return upstreamError(c, error, 'images_direct_upload_failed');
+        }
+
+        const now = new Date();
+        const inserted = await insertMediaAsset(db, {
+            kind: 'image',
+            source: 'cloudflare_images',
+            imagesId: upload.id,
+            uploadSessionJson: JSON.stringify({
+                uploadURL: upload.uploadURL,
+                createdAt: now.toISOString(),
+            }),
+            createdAt: now,
+            updatedAt: now,
+        });
+        if (!inserted) {
+            return c.text('Failed to insert media asset', 500);
+        }
+
+        const row = await findMediaAssetById(db, inserted.insertedId);
+        if (!row) {
+            return c.text('Failed to load media asset', 500);
+        }
+        return c.json({ asset: serializeMediaAsset(row), uploadURL: upload.uploadURL }, 201);
+    }));
+
+    // POST /admin/media/images/:id/finalize —— 直传完成后拉取 variants 并更新行
+    app.post('/images/:id/finalize', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const id = c.req.param('id');
+        if (!id) {
+            return c.text('Not found', 404);
+        }
+
+        const row = await findMediaAssetByImagesId(db, id);
+        if (!row) {
+            return c.text('Not found', 404);
+        }
+
+        let client: CloudflareImagesClient;
+        try {
+            client = CloudflareImagesClient.fromEnv(env);
+        } catch (error) {
+            return notConfigured(c, error);
+        }
+
+        let image: { variants?: string[] };
+        try {
+            image = await client.getImage(id);
+        } catch (error) {
+            return upstreamError(c, error, 'images_get_failed');
+        }
+
+        // 变体 URL 直接采用 API 返回的完整 URL；变体名默认 thumb/medium/large，
+        // 缺失时序列化层回退 public 变体（见 serializeMediaAsset）。
+        const variants = buildVariantsRecord(image.variants);
+        await updateMediaAssetById(db, row.id, {
+            imagesVariantsJson: JSON.stringify(variants),
+            updatedAt: new Date(),
+        });
+
+        const updated = await findMediaAssetById(db, row.id);
+        return c.json(serializeMediaAsset(updated ?? row));
+    }));
+
+    // POST /admin/media/audio —— multipart 上传音频（R2 binding 优先，否则 S3）
+    app.post('/audio', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+
+        let form: Record<string, string | File>;
+        try {
+            form = await c.req.parseBody() as Record<string, string | File>;
+        } catch {
+            return c.text('Invalid multipart body', 400);
+        }
+
+        const file = form['file'];
+        if (!(file instanceof File)) {
+            return c.json({ error: { code: 'audio_file_required', message: 'multipart field "file" is required' } }, 400);
+        }
+        const title = typeof form['title'] === 'string' ? form['title'] : '';
+
+        // 无 R2 binding 时走 S3：先校验配置，避免建出孤儿行
+        if (!env.R2_BUCKET) {
+            const missing = ['S3_ENDPOINT', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_BUCKET']
+                .filter((key) => !(env as unknown as Record<string, unknown>)[key]);
+            if (missing.length > 0) {
+                return c.json({
+                    error: {
+                        code: 'storage_not_configured',
+                        message: `Audio upload storage is not configured (missing: ${missing.join(', ')})`,
+                    },
+                }, 503);
+            }
+        }
+
+        const now = new Date();
+        const inserted = await insertMediaAsset(db, {
+            kind: 'audio',
+            source: 'r2',
+            mime: file.type || '',
+            title,
+            createdAt: now,
+            updatedAt: now,
+        });
+        if (!inserted) {
+            return c.text('Failed to insert media asset', 500);
+        }
+        const assetId = inserted.insertedId;
+
+        try {
+            const result = await uploadAudioObject(env, assetId, file, file.name, file.type || undefined);
+            await updateMediaAssetById(db, assetId, {
+                r2Key: result.key,
+                updatedAt: new Date(),
+            });
+        } catch (error) {
+            // 上传失败：清理孤儿行
+            await deleteMediaAssetById(db, assetId);
+            return upstreamError(c, error, 'audio_upload_failed');
+        }
+
+        const row = await findMediaAssetById(db, assetId);
+        if (!row) {
+            return c.text('Failed to load media asset', 500);
+        }
+        return c.json(serializeMediaAsset(row), 201);
+    }));
+
+    // GET /admin/media —— 媒体列表（?kind=video|audio|image，供媒体选择器用）
+    app.get('/', adminOnly(async (c) => {
+        const db = c.get('db');
+        const kindParam = c.req.query('kind');
+        let kind: MediaKind | undefined;
+        if (kindParam !== undefined) {
+            if (!isMediaKind(kindParam)) {
+                return c.text('Invalid kind (expected image|video|audio|gallery|attachment)', 400);
+            }
+            kind = kindParam;
+        }
+
+        const page = parsePositiveInteger(c.req.query('page'), 1) - 1;
+        const limit = parsePositiveInteger(c.req.query('limit'), 20, 100);
+
+        const result = await listMediaAssets(db, {
+            kind,
+            limit,
+            offset: page * limit,
+        });
+
+        return c.json({
+            size: result.size,
+            data: result.rows.map(serializeMediaAsset),
+            hasNext: result.hasNext,
+        });
+    }));
+
+    // DELETE /admin/media/:id —— 删远端（失败只记日志不阻断）再删 D1 行
+    app.delete('/:id', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const id = parseMediaId(c.req.param('id'));
+        if (id === null) {
+            return c.text('Not found', 404);
+        }
+
+        const row = await findMediaAssetById(db, id);
+        if (!row) {
+            return c.text('Not found', 404);
+        }
+
+        if (row.source === 'stream' && row.streamUid) {
+            try {
+                await CloudflareStreamClient.fromEnv(env).deleteVideo(row.streamUid);
+            } catch (error) {
+                console.error(`[media] failed to delete stream video ${row.streamUid}:`, error);
+            }
+        } else if (row.source === 'cloudflare_images' && row.imagesId) {
+            try {
+                await CloudflareImagesClient.fromEnv(env).deleteImage(row.imagesId);
+            } catch (error) {
+                console.error(`[media] failed to delete images image ${row.imagesId}:`, error);
+            }
+        } else if (row.source === 'r2' && row.r2Key && env.R2_BUCKET) {
+            try {
+                await env.R2_BUCKET.delete(row.r2Key);
+            } catch (error) {
+                console.error(`[media] failed to delete r2 object ${row.r2Key}:`, error);
+            }
+        }
+
+        await deleteMediaAssetById(db, id);
+        return c.text('Deleted');
+    }));
+
+    return app;
+}
+
+/**
+ * Stream webhook 服务（挂载到 /webhooks → 对外 /api/webhooks/stream）。
+ * 公开路由：靠 STREAM_WEBHOOK_SECRET 做 HMAC-SHA256 验签。
+ */
+export function StreamWebhookService(): HonoApp {
+    const app = new Hono<{
+        Bindings: Env;
+        Variables: Variables;
+    }>();
+
+    app.post('/stream', async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+
+        // secret 未配置：拒绝并报 500 级清晰错误，不静默通过
+        const secret = env.STREAM_WEBHOOK_SECRET;
+        if (!secret) {
+            console.error('[media] rejecting stream webhook: STREAM_WEBHOOK_SECRET is not set');
+            return c.json({
+                error: {
+                    code: new WebhookConfigError().code,
+                    message: 'Stream webhook secret is not configured',
+                },
+            }, 500);
+        }
+
+        const signature = c.req.header('webhook-signature');
+        if (!signature) {
+            return c.json({ error: { code: 'webhook_signature_missing', message: 'Missing Webhook-Signature header' } }, 401);
+        }
+
+        // 验签需要原始 body（不能先 JSON.parse 再 stringify，空白/键序会改变 digest）
+        const rawBody = await c.req.text();
+        let valid: boolean;
+        try {
+            valid = await verifyStreamWebhookSignature(rawBody, signature, secret);
+        } catch (error) {
+            if (error instanceof WebhookConfigError) {
+                return c.json({ error: { code: error.code, message: error.message } }, 500);
+            }
+            console.error('[media] webhook signature verification error', error);
+            return c.json({ error: { code: 'webhook_verify_error', message: 'Internal error' } }, 500);
+        }
+        if (!valid) {
+            return c.json({ error: { code: 'webhook_signature_invalid', message: 'Invalid webhook signature' } }, 401);
+        }
+
+        let payload: unknown;
+        try {
+            payload = JSON.parse(rawBody);
+        } catch {
+            return c.json({ error: { code: 'webhook_invalid_payload', message: 'Invalid JSON payload' } }, 400);
+        }
+
+        const result = await applyStreamWebhook(db, payload);
+        if (!result.handled) {
+            if (result.reason === 'unknown_uid') {
+                console.warn('[media] stream webhook for unknown uid; acked to avoid retries');
+            } else {
+                console.warn(`[media] stream webhook ignored: ${result.reason}`);
+            }
+            return c.json({ ok: true, ignored: result.reason });
+        }
+
+        return c.json({
+            ok: true,
+            assetId: result.assetId,
+            from: result.from,
+            to: result.to,
+            deduped: result.deduped,
+        });
+    });
+
+    return app;
+}
