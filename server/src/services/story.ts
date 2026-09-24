@@ -18,7 +18,7 @@ import type { Variables } from "../core/hono-types";
 import { adminOnly, withJsonBody } from "../core/route-boundaries";
 import { profileAsync } from "../core/server-timing";
 import { transcripts } from "../db/schema";
-import { deleteChunks } from "../features/ai-studio/embed";
+import { clearStoryVectorIds, deleteChunks, getStoryVectorIds } from "../features/ai-studio/embed";
 import { extractAssetIds } from "../features/ai-studio/chunk";
 import { buildStoryChunks } from "../features/ai-studio/processors";
 import {
@@ -348,24 +348,31 @@ export function AdminStoryService(): Hono<{
             return c.text('Not found', 404);
         }
 
-        // 同步清理该 story 在向量索引中的块：避免删除后问答仍引用已删内容，
-        // 也避免 SQLite 复用 id 时新 story 与旧向量碰撞。失败不阻塞删除。
+        // 同步清理该 story 在向量索引中的块：优先按向量清单删除（含历史版本遗留的
+        // 孤儿 id），清单缺失时回退到按当前内容推导 chunk id。失败不阻塞删除。
         try {
-            const assetIds = new Set<number>();
-            for (const block of story.blocks) {
-                for (const aid of extractAssetIds(block.payloadJson)) assetIds.add(aid);
+            const manifestIds = await profileAsync(c, 'story_delete_vectors_manifest', () =>
+                getStoryVectorIds(db, id));
+            const ids = new Set<string>(manifestIds);
+            if (ids.size === 0) {
+                const assetIds = new Set<number>();
+                for (const block of story.blocks) {
+                    for (const aid of extractAssetIds(block.payloadJson)) assetIds.add(aid);
+                }
+                const trs = assetIds.size > 0
+                    ? await db.query.transcripts.findMany({
+                        where: inArray(transcripts.assetId, [...assetIds]),
+                    })
+                    : [];
+                const chunks = buildStoryChunks(
+                    { story, blocks: story.blocks, transcripts: trs },
+                    `/story/${story.slug}`,
+                );
+                for (const chunk of chunks) ids.add(chunk.id);
             }
-            const trs = assetIds.size > 0
-                ? await db.query.transcripts.findMany({
-                    where: inArray(transcripts.assetId, [...assetIds]),
-                })
-                : [];
-            const chunks = buildStoryChunks(
-                { story, blocks: story.blocks, transcripts: trs },
-                `/story/${story.slug}`,
-            );
             await profileAsync(c, 'story_delete_vectors', () =>
-                deleteChunks(c.env as Env, chunks.map((chunk) => chunk.id)));
+                deleteChunks(c.env as Env, [...ids]));
+            await clearStoryVectorIds(db, id);
         } catch {
             // 向量清理失败不阻塞 story 删除
         }

@@ -24,7 +24,7 @@ import {
     stripReasoningTags,
 } from "../../utils/ai";
 import { chunkText, extractAssetIds, extractBlockText, extractUrls } from "./chunk";
-import { deleteChunks, embedOne, embedTexts, querySimilar, upsertChunks, type VectorChunk } from "./embed";
+import { clearStoryVectorIds, deleteChunks, embedOne, embedTexts, getStoryVectorIds, querySimilar, setStoryVectorIds, upsertChunks, type VectorChunk } from "./embed";
 import { checkAIGuard, recordUsage } from "./guard";
 import {
     loadAudioAsset,
@@ -540,13 +540,31 @@ async function processEmbed(env: Env, db: DB, payload: AIStudioTaskPayload): Pro
         onBatch: ({ batchSize }) => recordUsage(db, { jobId, model, tokensIn: batchSize }),
     });
 
-    // 先删后写：避免同 ID 向量残留旧 metadata（SQLite 删除后 ID 可能被复用）
-    await deleteChunks(env, chunks.map((c) => c.id));
+    // 先删后写：按向量清单删除该批 story 的旧向量（含历史版本遗留的孤儿 id），
+    // 再删本批 chunk id（双保险），避免同 ID 向量残留旧 metadata。
+    const storyIds = [...new Set(chunks.map((c) => c.storyId))];
+    const oldIds = new Set<string>();
+    for (const sid of storyIds) {
+        for (const vid of await getStoryVectorIds(db, sid)) oldIds.add(vid);
+    }
+    for (const c of chunks) oldIds.add(c.id);
+    await deleteChunks(env, [...oldIds]);
 
     const upserted = await upsertChunks(
         env,
         chunks.map((chunk, i) => ({ chunk, vector: vectors[i]! })),
     );
+
+    // 覆盖写入向量清单：记录本次实际写入的 id，供下次重建/删除时清理
+    const idsByStory = new Map<number, string[]>();
+    for (const c of chunks) {
+        const arr = idsByStory.get(c.storyId) ?? [];
+        arr.push(c.id);
+        idsByStory.set(c.storyId, arr);
+    }
+    for (const [sid, ids] of idsByStory) {
+        await setStoryVectorIds(db, sid, ids);
+    }
 
     await saveArtifact(db, jobId, {
         kind: "embed",

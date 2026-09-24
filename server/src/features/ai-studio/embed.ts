@@ -8,6 +8,9 @@
  * metadata: { storyId, storySlug, title, blockId|null, kind, text(片段), url }
  */
 import { getWorkerAIModelId, runWorkerAIModel } from "../../utils/ai";
+import type { DB } from "../../core/hono-types";
+import { eq } from "drizzle-orm";
+import { storyVectors } from "../../db/schema";
 import {
     ASK_TOPK_FULL,
     ASK_TOPK_QUICK,
@@ -106,6 +109,41 @@ export async function deleteChunks(env: Env, ids: string[]): Promise<number> {
         done += Math.min(VECTORIZE_UPSERT_BATCH_SIZE, ids.length - i);
     }
     return done;
+}
+
+// ---------------------------------------------------------------------------
+// 向量清单 manifest：story_id -> 实际写入的 vector id 列表
+// ---------------------------------------------------------------------------
+
+/** 读取某 story 上次 embed 实际写入的 vector id 清单（无记录返回 []） */
+export async function getStoryVectorIds(db: DB, storyId: number): Promise<string[]> {
+    const row = await db.query.storyVectors.findFirst({
+        where: eq(storyVectors.storyId, storyId),
+    });
+    if (!row) return [];
+    try {
+        const parsed: unknown = JSON.parse(row.vectorIdsJson);
+        return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+    } catch {
+        return [];
+    }
+}
+
+/** 覆盖写入某 story 的向量清单 */
+export async function setStoryVectorIds(db: DB, storyId: number, ids: string[]): Promise<void> {
+    const now = new Date();
+    await db
+        .insert(storyVectors)
+        .values({ storyId, vectorIdsJson: JSON.stringify(ids), updatedAt: now })
+        .onConflictDoUpdate({
+            target: storyVectors.storyId,
+            set: { vectorIdsJson: JSON.stringify(ids), updatedAt: now },
+        });
+}
+
+/** 删除某 story 的向量清单记录 */
+export async function clearStoryVectorIds(db: DB, storyId: number): Promise<void> {
+    await db.delete(storyVectors).where(eq(storyVectors.storyId, storyId));
 }
 
 /** 向量 + metadata 批量 upsert（按 VECTORIZE_UPSERT_BATCH_SIZE 分批） */

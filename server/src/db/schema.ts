@@ -347,6 +347,13 @@ export const aiArtifacts = sqliteTable("ai_artifacts", {
     jobIdx: index("ai_artifacts_job_idx").on(table.jobId),
 }));
 
+/** 向量清单：story_id -> 本次 embed 实际写入 Vectorize 的 vector id 列表（JSON 数组） */
+export const storyVectors = sqliteTable("story_vectors", {
+    storyId: integer("story_id").primaryKey(),
+    vectorIdsJson: text("vector_ids_json").default("[]").notNull(),
+    updatedAt: updated_at,
+});
+
 export const storiesRelations = relations(stories, ({ many, one }) => ({
     blocks: many(contentBlocks),
     revisions: many(revisions),
