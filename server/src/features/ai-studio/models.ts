@@ -7,7 +7,7 @@
 // Workers AI 模型（短名，见 server/src/utils/ai.ts WORKER_AI_MODELS）
 export const WHISPER_MODEL = "whisper"; // @cf/openai/whisper
 export const EMBED_MODEL = "bge-base-en"; // @cf/baai/bge-base-en-v1.5
-export const CHAT_MODEL = "llama-3-1-8b"; // @cf/meta/llama-3.1-8b-instruct
+export const CHAT_MODEL = "llama-3-1-8b-fp8"; // @cf/meta/llama-3.1-8b-instruct-fp8（llama-3.1-8b-instruct 已于 2026-05-30 下线）
 
 /** bge-base-en-v1.5 的向量维度；Vectorize index s7ea-qa-staging 按此建 */
 export const EMBEDDING_DIMENSIONS = 768;

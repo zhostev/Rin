@@ -313,6 +313,33 @@ describe("POST /artifacts/:id/accept", () => {
         const res = await post(app, "/artifacts/999/accept");
         expect(res.status).toBe(404);
     });
+
+    it("refuses error artifacts without marking accepted", async () => {
+        const { app, ops } = buildApp({
+            artifact: {
+                ...transcriptArtifact,
+                outputJson: JSON.stringify({ kind: "error", message: "boom" }),
+            },
+        });
+        const res = await post(app, "/artifacts/11/accept");
+        expect(res.status).toBe(400);
+        expect((await res.json()) as any).toEqual({
+            error: { code: "accept_failed", message: "Cannot accept an error artifact" },
+        });
+        expect(ops.some((o) => o.op === "update" && o.table === "ai_artifacts")).toBe(false);
+    });
+
+    it("refuses unknown kinds without marking accepted", async () => {
+        const { app, ops } = buildApp({
+            artifact: {
+                ...transcriptArtifact,
+                outputJson: JSON.stringify({ kind: "mystery" }),
+            },
+        });
+        const res = await post(app, "/artifacts/11/accept");
+        expect(res.status).toBe(400);
+        expect(ops.some((o) => o.op === "update" && o.table === "ai_artifacts")).toBe(false);
+    });
 });
 
 describe("POST /artifacts/:id/reject", () => {

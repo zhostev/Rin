@@ -96,6 +96,18 @@ function getVectorize(env: Env): VectorizeIndex {
     return env.VECTORIZE;
 }
 
+/** 向量按 VECTORIZE_UPSERT_BATCH_SIZE 分批删除（deleteByIds） */
+export async function deleteChunks(env: Env, ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const index = getVectorize(env);
+    let done = 0;
+    for (let i = 0; i < ids.length; i += VECTORIZE_UPSERT_BATCH_SIZE) {
+        await index.deleteByIds(ids.slice(i, i + VECTORIZE_UPSERT_BATCH_SIZE));
+        done += Math.min(VECTORIZE_UPSERT_BATCH_SIZE, ids.length - i);
+    }
+    return done;
+}
+
 /** 向量 + metadata 批量 upsert（按 VECTORIZE_UPSERT_BATCH_SIZE 分批） */
 export async function upsertChunks(
     env: Env,

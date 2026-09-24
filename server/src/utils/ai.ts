@@ -15,7 +15,7 @@ const AI_PROVIDER_URLS: Record<string, string> = {
 // Cloudflare Worker AI models mapping (short name -> full model ID)
 export const WORKER_AI_MODELS: Record<string, string> = {
     "llama-3-8b": "@cf/meta/llama-3-8b-instruct",
-    "llama-3-1-8b": "@cf/meta/llama-3.1-8b-instruct",
+    "llama-3-1-8b-fp8": "@cf/meta/llama-3.1-8b-instruct-fp8",
     "llama-2-7b": "@cf/meta/llama-2-7b-chat-int8",
     "mistral-7b": "@cf/mistral/mistral-7b-instruct-v0.1",
     "mistral-7b-v2": "@cf/mistral/mistral-7b-instruct-v0.2-lora",

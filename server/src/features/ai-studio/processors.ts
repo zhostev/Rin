@@ -24,7 +24,7 @@ import {
     stripReasoningTags,
 } from "../../utils/ai";
 import { chunkText, extractAssetIds, extractBlockText, extractUrls } from "./chunk";
-import { embedOne, embedTexts, querySimilar, upsertChunks, type VectorChunk } from "./embed";
+import { deleteChunks, embedOne, embedTexts, querySimilar, upsertChunks, type VectorChunk } from "./embed";
 import { checkAIGuard, recordUsage } from "./guard";
 import {
     loadAudioAsset,
@@ -407,6 +407,68 @@ async function processRetrievalTest(env: Env, db: DB, payload: AIStudioTaskPaylo
 
 const VISIBLE_STORY_STATUSES = ["published", "updated"];
 
+/** 构造某 story 的全部索引块（与 embed 任务共用同一确定性 ID 规则）。 */
+export interface StoryChunkSource {
+    story: { id: number; slug: string; title: string | null; summary: string | null };
+    blocks: Array<{ id: number; payloadJson: string | null }>;
+    transcripts: Array<{ assetId: number; text: string | null }>;
+}
+
+export function buildStoryChunks(src: StoryChunkSource, url: string): VectorChunk[] {
+    const { story } = src;
+    const chunks: VectorChunk[] = [];
+    // story 头：标题 + 摘要
+    const headerText = `${story.title ?? ""}\n${story.summary ?? ""}`.trim();
+    for (const c of chunkText(headerText)) {
+        chunks.push({
+            id: `s${story.id}h${c.chunkIndex}`,
+            storyId: story.id,
+            storySlug: story.slug,
+            title: story.title ?? "",
+            blockId: null,
+            kind: "header",
+            text: c.text,
+            url,
+        });
+    }
+
+    const assetIds = new Set<number>();
+    for (const block of src.blocks) {
+        for (const c of chunkText(extractBlockText(block.payloadJson))) {
+            chunks.push({
+                id: `s${story.id}b${block.id}c${c.chunkIndex}`,
+                storyId: story.id,
+                storySlug: story.slug,
+                title: story.title ?? "",
+                blockId: block.id,
+                kind: "block",
+                text: c.text,
+                url,
+            });
+        }
+        for (const aid of extractAssetIds(block.payloadJson)) assetIds.add(aid);
+    }
+
+    // 转录文本：按块引用的 asset 归属到 story
+    for (const tr of src.transcripts) {
+        if (!assetIds.has(tr.assetId)) continue;
+        if (!tr.text?.trim()) continue;
+        for (const c of chunkText(tr.text)) {
+            chunks.push({
+                id: `s${story.id}t${tr.assetId}c${c.chunkIndex}`,
+                storyId: story.id,
+                storySlug: story.slug,
+                title: story.title ?? "",
+                blockId: null,
+                kind: "transcript",
+                text: c.text,
+                url,
+            });
+        }
+    }
+    return chunks;
+}
+
 async function processEmbed(env: Env, db: DB, payload: AIStudioTaskPayload): Promise<void> {
     const { jobId } = payload;
     const onlyIds = Array.isArray(payload.params?.storyIds)
@@ -424,63 +486,20 @@ async function processEmbed(env: Env, db: DB, payload: AIStudioTaskPayload): Pro
     const chunks: VectorChunk[] = [];
     for (const story of storyRows) {
         const url = storyUrl(env, story.slug);
-        // story 头：标题 + 摘要
-        const headerText = `${story.title ?? ""}\n${story.summary ?? ""}`.trim();
-        for (const c of chunkText(headerText)) {
-            chunks.push({
-                id: `s${story.id}h${c.chunkIndex}`,
-                storyId: story.id,
-                storySlug: story.slug,
-                title: story.title ?? "",
-                blockId: null,
-                kind: "header",
-                text: c.text,
-                url,
-            });
-        }
-
         const blocks = await db.query.contentBlocks.findMany({
             where: eq(contentBlocks.storyId, story.id),
             orderBy: asc(contentBlocks.position),
         });
         const assetIds = new Set<number>();
         for (const block of blocks) {
-            for (const c of chunkText(extractBlockText(block.payloadJson))) {
-                chunks.push({
-                    id: `s${story.id}b${block.id}c${c.chunkIndex}`,
-                    storyId: story.id,
-                    storySlug: story.slug,
-                    title: story.title ?? "",
-                    blockId: block.id,
-                    kind: "block",
-                    text: c.text,
-                    url,
-                });
-            }
             for (const aid of extractAssetIds(block.payloadJson)) assetIds.add(aid);
         }
-
-        // 转录文本：按块引用的 asset 归属到 story
-        if (assetIds.size > 0) {
-            const trs = await db.query.transcripts.findMany({
+        const trs = assetIds.size > 0
+            ? await db.query.transcripts.findMany({
                 where: inArray(transcripts.assetId, [...assetIds]),
-            });
-            for (const tr of trs) {
-                if (!tr.text?.trim()) continue;
-                for (const c of chunkText(tr.text)) {
-                    chunks.push({
-                        id: `s${story.id}t${tr.assetId}c${c.chunkIndex}`,
-                        storyId: story.id,
-                        storySlug: story.slug,
-                        title: story.title ?? "",
-                        blockId: null,
-                        kind: "transcript",
-                        text: c.text,
-                        url,
-                    });
-                }
-            }
-        }
+            })
+            : [];
+        chunks.push(...buildStoryChunks({ story, blocks, transcripts: trs }, url));
     }
 
     if (chunks.length === 0) {
@@ -493,6 +512,9 @@ async function processEmbed(env: Env, db: DB, payload: AIStudioTaskPayload): Pro
     const vectors = await embedTexts(env, chunks.map((c) => c.text), {
         onBatch: ({ batchSize }) => recordUsage(db, { jobId, model, tokensIn: batchSize }),
     });
+
+    // 先删后写：避免同 ID 向量残留旧 metadata（SQLite 删除后 ID 可能被复用）
+    await deleteChunks(env, chunks.map((c) => c.id));
 
     const upserted = await upsertChunks(
         env,

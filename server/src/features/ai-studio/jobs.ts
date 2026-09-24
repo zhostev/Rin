@@ -241,6 +241,10 @@ export async function acceptArtifact(
         }
         await db.update(stories).set({ summary }).where(eq(stories.id, storyId));
         // sections / platformCopy 为参考素材，无目标表可写，保留在 artifact 中
+    } else if (kind === "error") {
+        return { ok: false, error: "Cannot accept an error artifact" };
+    } else if (kind !== "check" && kind !== "retrieval-test" && kind !== "embed") {
+        return { ok: false, error: `Artifact kind '${kind ?? "unknown"}' cannot be accepted` };
     }
     // kind: check / retrieval-test / embed：产物本身即最终形态，无正文写入
 
