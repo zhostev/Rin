@@ -58,6 +58,15 @@ import {
     computeStreamSync,
 } from "../features/media/stream";
 import {
+    buildDirectUploadKey,
+    presignR2PutUrl,
+    R2DirectNotConfiguredError,
+    resolveR2DirectConfig,
+    validateDirectUploadRequest,
+    type R2DirectKind,
+} from "../features/media/r2-direct";
+import { headStorageObject } from "../utils/storage";
+import {
     applyStreamWebhook,
     verifyStreamWebhookSignature,
     WebhookConfigError,
@@ -384,6 +393,139 @@ export function AdminMediaService(): HonoApp {
         });
 
         const updated = await findMediaAssetById(db, row.id);
+        return c.json(serializeMediaAsset(updated ?? row));
+    }));
+
+    // POST /admin/media/r2/direct-upload —— R2 presigned 直传建单（图片/视频/音频）
+    //   JSON body: { kind*, filename?, mimeType*, size*, title?, duration?, width?, height? }
+    //   201 -> { asset, uploadURL, key }；浏览器随后直接 PUT 文件到 uploadURL，
+    //   再调 POST /r2/:id/complete 收尾。413 = 超过直传上限，503 = 未配置 S3 凭证。
+    app.post('/r2/direct-upload', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+
+        let body: Record<string, unknown>;
+        try {
+            body = await c.req.json() as Record<string, unknown>;
+        } catch {
+            return c.json({ error: { code: 'invalid_json', message: 'Request body must be JSON' } }, 400);
+        }
+
+        const kind = body['kind'];
+        const validation = validateDirectUploadRequest({
+            kind,
+            mimeType: body['mimeType'],
+            size: body['size'],
+        });
+        if (!validation.ok) {
+            const status = validation.code === 'direct_too_large' ? 413 : 400;
+            return c.json({ error: { code: validation.code, message: validation.message } }, status);
+        }
+        const directKind = kind as R2DirectKind;
+
+        // 先校验 S3 凭证配置，避免建出孤儿行（503 时前端回退旧中转链路）
+        try {
+            resolveR2DirectConfig(env);
+        } catch (error) {
+            if (error instanceof R2DirectNotConfiguredError) {
+                return c.json({ error: { code: error.code, message: error.message } }, 503);
+            }
+            throw error;
+        }
+
+        const now = new Date();
+        const filename = typeof body['filename'] === 'string' ? body['filename'] : '';
+        const mimeType = typeof body['mimeType'] === 'string' ? body['mimeType'] : '';
+        const title = typeof body['title'] === 'string' ? body['title'].slice(0, 200) : '';
+        const duration = parseProbedNumber(body['duration']);
+        const width = parseProbedNumber(body['width']);
+        const height = parseProbedNumber(body['height']);
+
+        const inserted = await insertMediaAsset(db, {
+            kind: directKind,
+            source: 'r2',
+            mime: mimeType,
+            title,
+            duration: duration ?? undefined,
+            width: width ?? undefined,
+            height: height ?? undefined,
+            streamStatus: 'uploading',
+            uploadSessionJson: JSON.stringify({ directUpload: true, createdAt: now.toISOString() }),
+            createdAt: now,
+            updatedAt: now,
+        });
+        if (!inserted) {
+            return c.text('Failed to insert media asset', 500);
+        }
+        const assetId = inserted.insertedId;
+        const key = buildDirectUploadKey(assetId, filename);
+
+        let uploadURL: string;
+        try {
+            uploadURL = await presignR2PutUrl(env, key);
+        } catch (error) {
+            await deleteMediaAssetById(db, assetId);
+            if (error instanceof R2DirectNotConfiguredError) {
+                return c.json({ error: { code: error.code, message: error.message } }, 503);
+            }
+            return upstreamError(c, error, 'r2_direct_upload_sign_failed');
+        }
+
+        await updateMediaAssetById(db, assetId, {
+            r2Key: key,
+            uploadSessionJson: JSON.stringify({
+                directUpload: true,
+                key,
+                createdAt: now.toISOString(),
+            }),
+            updatedAt: new Date(),
+        });
+
+        const row = await findMediaAssetById(db, assetId);
+        if (!row) {
+            return c.text('Failed to load media asset', 500);
+        }
+        return c.json({ asset: serializeMediaAsset(row), uploadURL, key }, 201);
+    }));
+
+    // POST /admin/media/r2/:id/complete —— 直传收尾：HEAD 确认 R2 对象存在后置 ready
+    //   404 = 资产不存在，410 = 文件尚未上传（可重试），200 -> MediaAsset
+    app.post('/r2/:id/complete', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+        const id = parseMediaId(c.req.param('id') ?? '');
+        if (id === null) {
+            return c.text('Not found', 404);
+        }
+
+        const row = await findMediaAssetById(db, id);
+        if (!row) {
+            return c.text('Not found', 404);
+        }
+        if (!row.r2Key) {
+            return c.json({
+                error: { code: 'no_direct_upload_session', message: 'Asset has no direct upload session' },
+            }, 400);
+        }
+
+        let head: Response | null;
+        try {
+            head = await headStorageObject(env, row.r2Key);
+        } catch (error) {
+            return upstreamError(c, error, 'r2_direct_upload_verify_failed');
+        }
+        if (!head) {
+            return c.json({
+                error: { code: 'upload_incomplete', message: 'Object not found in storage yet' },
+            }, 410);
+        }
+
+        await updateMediaAssetById(db, id, {
+            streamStatus: 'ready',
+            updatedAt: new Date(),
+        });
+
+        const updated = await findMediaAssetById(db, id);
         return c.json(serializeMediaAsset(updated ?? row));
     }));
 

@@ -55,6 +55,24 @@ export interface ImageDirectUploadResponse {
   uploadURL: string;
 }
 
+/** Body for POST /api/admin/media/r2/direct-upload. */
+export interface R2DirectUploadRequest {
+  kind: "image" | "video" | "audio";
+  filename: string;
+  mimeType: string;
+  size: number;
+  title?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+}
+
+export interface R2DirectUploadResponse {
+  asset: MediaAsset;
+  uploadURL: string;
+  key: string;
+}
+
 export interface MediaListResponse {
   size: number;
   data: MediaAsset[];
@@ -183,6 +201,31 @@ export class MediaAPI {
   /** Mint a Cloudflare Images direct-upload URL; the browser then PUTs the file to uploadURL. */
   async createImageDirectUpload(): Promise<ApiResponse<ImageDirectUploadResponse>> {
     return this.http.post<ImageDirectUploadResponse>("/api/admin/media/images/direct-upload");
+  }
+
+  /**
+   * Mint an R2 presigned direct-upload URL (image/video/audio); the browser
+   * PUTs the raw file bytes to uploadURL, then calls completeR2DirectUpload.
+   * 201 -> { asset, uploadURL, key }. 413 when the file exceeds the direct
+   * limit, 503 (r2_direct_upload_not_configured) when S3 credentials are
+   * missing server-side — callers should fall back to the legacy proxied
+   * upload in that case.
+   */
+  async createR2DirectUpload(
+    body: R2DirectUploadRequest,
+  ): Promise<ApiResponse<R2DirectUploadResponse>> {
+    return this.http.post<R2DirectUploadResponse>("/api/admin/media/r2/direct-upload", body);
+  }
+
+  /**
+   * Tell the backend the R2 direct upload finished (after the PUT to
+   * uploadURL); the backend HEADs the object and marks the asset ready.
+   * 410 upload_incomplete when the object is not in storage yet.
+   */
+  async completeR2DirectUpload(assetId: number | string): Promise<ApiResponse<MediaAsset>> {
+    return this.http.post<MediaAsset>(
+      `/api/admin/media/r2/${encodeURIComponent(String(assetId))}/complete`,
+    );
   }
 
   /**

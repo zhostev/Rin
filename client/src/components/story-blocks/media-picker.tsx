@@ -1,15 +1,12 @@
 // MediaPicker: unified media selector for story blocks (Stage 2).
 //
 // Tabs:
-//   1. Upload — kind-aware direct-upload flows:
-//        image/gallery -> POST /api/admin/media/images/direct-upload,
-//                         browser PUTs bytes to uploadURL, then
-//                         POST /api/admin/media/images/{images_id}/finalize;
-//        video         -> POST /api/admin/media/stream/direct-upload
-//                         { filename }, browser TUS-uploads to uploadURL,
-//                         then the client polls GET
-//                         /api/admin/media/stream/{stream_uid} until ready;
-//        audio         -> multipart POST /api/admin/media/audio;
+//   1. Upload — kind-aware R2 presigned direct-upload flows
+//        (utils/media-upload.ts: mint → browser PUTs bytes straight to R2 →
+//        complete; no 100MB Worker cap; Cloudflare Stream/Images stay disabled):
+//        image/gallery -> R2 direct upload;
+//        video         -> R2 direct upload (duration/dimensions probed client-side);
+//        audio         -> R2 direct upload;
 //        attachment    -> legacy POST /api/storage.
 //   2. Link   — paste an external URL (Stream / R2 / CDN).
 //   3. Library — browse server-side assets (GET /api/admin/media?kind=).
@@ -20,8 +17,8 @@ import { useTranslation } from "react-i18next";
 import { client } from "../../app/runtime";
 import type { AssetKind, MediaAsset } from "../../api/story";
 import { isNotConfiguredError } from "../../api/media";
-import { uploadFileRaw } from "../../utils/upload-xhr";
 import { probeMediaFile } from "../../utils/media-probe";
+import { uploadMediaFile } from "../../utils/media-upload";
 import { formatDuration, kindForMime } from "./block-utils";
 
 const RECENT_KEY = "s7ea.story.media.recent.v1";
@@ -155,46 +152,25 @@ export function MediaPicker({
     return err instanceof Error ? err.message : fallback;
   }
 
-  /** image/gallery: Cloudflare Images direct-upload (PUT bytes, then finalize). */
-  async function uploadImage(file: File): Promise<MediaAsset> {
-    const { data, error } = await client.media.createImageDirectUpload();
-    if (error || !data?.uploadURL) {
-      throw new Error(
-        isNotConfiguredError(error)
-          ? t("story.editor.picker.not_configured")
-          : typeof error?.value === "string"
-            ? error.value
-            : t("story.editor.picker.upload_failed"),
-      );
-    }
-    const imagesId = data.asset.images_id;
-    if (!imagesId) {
-      throw new Error(t("story.editor.picker.upload_failed"));
-    }
-    setUploadLabel(t("story.editor.image_uploading", { percent: 0 }));
-    const { status } = await uploadFileRaw(data.uploadURL, file, {
-      method: "PUT",
-      headers: file.type ? { "Content-Type": file.type } : undefined,
-      onProgress: (loaded, total) => {
-        reportProgress(loaded, total);
-        setUploadLabel(t("story.editor.image_uploading", { percent: Math.round((total > 0 ? loaded / total : 0) * 100) }));
+  /**
+   * Upload via the shared R2 presigned direct-upload flow
+   * (utils/media-upload.ts): mint → PUT bytes straight to R2 → complete.
+   * Falls back to the legacy Worker-proxied upload when the backend has no
+   * S3 credentials (audio/video only). Cloudflare Images stays disabled.
+   */
+  async function uploadPickedFile(
+    file: File,
+    mediaType: "image" | "video" | "audio",
+    labelKey: string,
+  ): Promise<MediaAsset> {
+    const { asset } = await uploadMediaFile(file, mediaType, {
+      t,
+      onProgress: (percent) => {
+        if (percent === null || cancelledRef.current) return;
+        reportProgress(percent / 100, 1);
+        setUploadLabel(t(labelKey, { percent }));
       },
     });
-    if (status < 200 || status >= 300) {
-      throw new Error(t("story.editor.picker.upload_failed"));
-    }
-    setUploadLabel(t("story.editor.image_finalizing"));
-    const finalized = await client.media.finalizeImage(imagesId);
-    if (finalized.error || !finalized.data) {
-      throw new Error(
-        isNotConfiguredError(finalized.error)
-          ? t("story.editor.picker.not_configured")
-          : typeof finalized.error?.value === "string"
-            ? finalized.error.value
-            : t("story.editor.picker.upload_failed"),
-      );
-    }
-    const asset = finalized.data;
     return {
       ...asset,
       title: asset.title || file.name,
@@ -202,33 +178,19 @@ export function MediaPicker({
     };
   }
 
-  /** video: R2 multipart upload (progress events); playable immediately. */
-  async function uploadVideo(file: File): Promise<MediaAsset> {
-    const probed = await probeMediaFile(file).catch(() => null);
-    const asset = await client.media.uploadVideo(
-      file,
-      (loaded, total) => {
-        reportProgress(loaded, total);
-        setUploadLabel(
-          t("story.editor.video_uploading", { percent: Math.round((total > 0 ? loaded / total : 0) * 100) }),
-        );
-      },
-      {
-        title: file.name,
-        duration: probed?.duration,
-        width: probed?.width,
-        height: probed?.height,
-      },
-    );
-    return { ...asset, title: asset.title || file.name };
+  /** image/gallery: R2 presigned direct upload. */
+  function uploadImage(file: File): Promise<MediaAsset> {
+    return uploadPickedFile(file, "image", "story.editor.image_uploading");
   }
 
-  /** audio: multipart POST with progress. */
-  async function uploadAudio(file: File): Promise<MediaAsset> {
-    return client.media.uploadAudio(file, (loaded, total) => {
-      reportProgress(loaded, total);
-      setUploadLabel(t("story.editor.audio_uploading", { percent: Math.round((total > 0 ? loaded / total : 0) * 100) }));
-    });
+  /** video: R2 presigned direct upload (progress events); playable immediately. */
+  function uploadVideo(file: File): Promise<MediaAsset> {
+    return uploadPickedFile(file, "video", "story.editor.video_uploading");
+  }
+
+  /** audio: R2 presigned direct upload (progress events). */
+  function uploadAudio(file: File): Promise<MediaAsset> {
+    return uploadPickedFile(file, "audio", "story.editor.audio_uploading");
   }
 
   async function handleFile(file: File) {

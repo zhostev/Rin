@@ -721,6 +721,7 @@
   "upload": {
     "failed": "Upload failed",
     "failed$size": "Upload failed, file size cannot exceed {{size}} MB",
+    "failed$sizeGB": "Upload failed, file size cannot exceed {{size}} GB",
     "image": {
       "clear": "Clear image",
       "drag_drop": "Drag an image here, or click to choose one",

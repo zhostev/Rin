@@ -289,3 +289,36 @@ describe("uploadAudio (multipart XHR)", () => {
     (globalThis as Record<string, unknown>).XMLHttpRequest = realXHR;
   });
 });
+
+describe("MediaAPI R2 direct upload", () => {
+  it("mints an R2 direct upload with kind/filename/mimeType/size", async () => {
+    const asset = sampleAsset({ kind: "video", source: "r2" });
+    fakeHttp.post.mockResolvedValue(ok({ asset, uploadURL: "https://r2.example/put", key: "media/original/7/a.mp4" }));
+    const { data, error } = await api.createR2DirectUpload({
+      kind: "video",
+      filename: "a.mp4",
+      mimeType: "video/mp4",
+      size: 1234,
+      title: "a.mp4",
+    });
+    expect(error).toBeUndefined();
+    expect(fakeHttp.post).toHaveBeenCalledWith("/api/admin/media/r2/direct-upload", {
+      kind: "video",
+      filename: "a.mp4",
+      mimeType: "video/mp4",
+      size: 1234,
+      title: "a.mp4",
+    });
+    expect(data?.uploadURL).toBe("https://r2.example/put");
+    expect(data?.key).toBe("media/original/7/a.mp4");
+  });
+
+  it("completes an R2 direct upload by asset id", async () => {
+    const asset = sampleAsset({ kind: "video", source: "r2" });
+    fakeHttp.post.mockResolvedValue(ok(asset));
+    const { data, error } = await api.completeR2DirectUpload(7);
+    expect(error).toBeUndefined();
+    expect(fakeHttp.post).toHaveBeenCalledWith("/api/admin/media/r2/7/complete");
+    expect(data).toEqual(asset);
+  });
+});

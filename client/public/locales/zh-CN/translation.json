@@ -721,6 +721,7 @@
   "upload": {
     "failed": "上传失败",
     "failed$size": "上传失败，文件大小不能超过 {{size}} MB",
+    "failed$sizeGB": "上传失败，文件大小不能超过 {{size}} GB",
     "image": {
       "clear": "清空图片",
       "drag_drop": "拖拽图片到这里，或点击选择图片",

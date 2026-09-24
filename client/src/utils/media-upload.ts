@@ -1,11 +1,17 @@
-// Media upload helpers for the Markdown editor (paste/drop).
+// Media upload helpers for the Markdown editor (paste/drop) and the media picker.
 //
-// Wired to the Stage 2 media stack (client/src/api/media.ts):
+// Upload strategy (R2-first; Cloudflare Stream/Images stay disabled per user decision):
 //
-//   image → POST /api/admin/media/images/direct-upload (mint) → PUT bytes to
-//           uploadURL → POST /api/admin/media/images/:id/finalize
-//   audio → POST /api/admin/media/audio (multipart XHR, progress events)
-//   video → POST /api/admin/media/video (R2 multipart XHR, progress events)
+//   image/video/audio → POST /api/admin/media/r2/direct-upload (mint a
+//           one-time presigned PUT URL + provisional asset) → PUT bytes
+//           straight to R2 → POST /api/admin/media/r2/:id/complete
+//
+//   The browser PUT bypasses the Worker, so the 100MB Worker request-body cap
+//   no longer applies (video ≤ 5GB, audio ≤ 1GB, image ≤ 10MB).
+//
+//   When the backend has no S3 credentials (503 r2_direct_upload_not_configured),
+//   audio/video fall back to the legacy Worker-proxied multipart upload
+//   (POST /api/admin/media/audio|video, ≤100MB). Images have no legacy R2 path.
 //
 // File bytes never pass through the JSON HttpClient.
 // Cloudflare Stream TUS upload code is kept in ./stream-upload.ts as a manual
@@ -14,6 +20,7 @@
 import type { MediaType } from "@rin/api";
 import type { MediaAsset } from "../api/story";
 import { client } from "../app/runtime";
+import { isNotConfiguredError } from "../api/media";
 import { endpoint } from "../config";
 import { generateImageMetadata, type UploadedImageResult } from "./image-upload";
 import { probeMediaFile } from "./media-probe";
@@ -21,6 +28,15 @@ import { uploadFileRaw } from "./upload-xhr";
 
 export const R2_MEDIA_MAX_BYTES = 100 * 1024 * 1024;
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+/** R2 presigned direct-upload caps (R2 single PUT max is 5GB). */
+export const R2_DIRECT_MAX_BYTES = {
+  image: 10 * 1024 * 1024,
+  video: 5 * 1024 * 1024 * 1024,
+  audio: 1024 * 1024 * 1024,
+} as const;
+
+export type R2DirectUploadKind = keyof typeof R2_DIRECT_MAX_BYTES;
 
 export type UploadedMediaResult = {
   asset: MediaAsset;
@@ -34,6 +50,13 @@ type UploadMediaOptions = {
   onProgress?: (percent: number | null) => void;
 };
 
+export interface R2DirectUploadFileOptions extends UploadMediaOptions {
+  title?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+}
+
 export function detectMediaType(file: File): MediaType | null {
   if (file.type.startsWith("audio/")) return "audio";
   if (file.type.startsWith("video/")) return "video";
@@ -41,74 +64,97 @@ export function detectMediaType(file: File): MediaType | null {
   return null;
 }
 
-async function uploadImageDirect(file: File, { t, onProgress }: UploadMediaOptions): Promise<MediaAsset> {
-  // POST /api/admin/media/images/direct-upload mints a one-time PUT URL plus
-  // the provisional asset; the browser PUTs the bytes, then finalizes.
-  const minted = await client.media.createImageDirectUpload();
-  if (minted.error || !minted.data?.uploadURL) {
-    throw new Error(minted.error?.value || t("upload.failed"));
-  }
-  const imagesId = minted.data.asset.images_id;
-  if (!imagesId) {
-    throw new Error(t("upload.failed"));
-  }
-  const { status } = await uploadFileRaw(minted.data.uploadURL, file, {
-    method: "PUT",
-    headers: file.type ? { "Content-Type": file.type } : undefined,
-    onProgress: (loaded, total) => {
-      if (total > 0) {
-        onProgress?.(Math.round((loaded / total) * 100));
-      }
-    },
-  });
-  if (status < 200 || status >= 300) {
-    await client.media.remove(minted.data.asset.id);
-    throw new Error(t("upload.failed"));
-  }
-  const finalized = await client.media.finalizeImage(imagesId);
-  if (finalized.error || !finalized.data) {
-    throw new Error(finalized.error?.value || t("upload.failed"));
-  }
-  return finalized.data;
+/** Build an Error that carries the HTTP status (for 503 → legacy fallback). */
+function httpStatusError(message: string, status?: number): Error {
+  const error = new Error(message);
+  (error as { status?: number }).status = status;
+  return error;
 }
 
-export async function uploadMediaFile(
+function sizeLimitMessage(t: Translate, capBytes: number): string {
+  if (capBytes >= 1024 * 1024 * 1024) {
+    return t("upload.failed$sizeGB", { size: capBytes / 1024 / 1024 / 1024 });
+  }
+  return t("upload.failed$size", { size: capBytes / 1024 / 1024 });
+}
+
+/**
+ * Shared R2 presigned direct upload: mint → PUT bytes straight to R2 →
+ * complete. Throws on any step; a failed PUT/complete deletes the provisional
+ * asset row (the DELETE route also removes the R2 object when present).
+ */
+export async function uploadR2DirectFile(
   file: File,
-  type: MediaType,
-  options: UploadMediaOptions,
-): Promise<UploadedMediaResult> {
-  const { t, onProgress } = options;
-
-  if (type === "image" && file.size > MAX_IMAGE_BYTES) {
-    throw new Error(t("upload.failed$size", { size: MAX_IMAGE_BYTES / 1024 / 1024 }));
+  kind: R2DirectUploadKind,
+  options: R2DirectUploadFileOptions,
+): Promise<MediaAsset> {
+  const { t, onProgress, title, duration, width, height } = options;
+  const cap = R2_DIRECT_MAX_BYTES[kind];
+  if (file.size > cap) {
+    throw new Error(sizeLimitMessage(t, cap));
   }
 
-  if (type === "image") {
-    return { asset: await uploadImageDirect(file, options), provider: "r2" };
+  // 1. mint a one-time PUT URL + provisional asset row (stream_status=uploading)
+  const minted = await client.media.createR2DirectUpload({
+    kind,
+    filename: file.name,
+    mimeType: file.type,
+    size: file.size,
+    ...(title ? { title } : {}),
+    ...(typeof duration === "number" ? { duration } : {}),
+    ...(typeof width === "number" ? { width } : {}),
+    ...(typeof height === "number" ? { height } : {}),
+  });
+  if (minted.error || !minted.data?.uploadURL) {
+    throw httpStatusError(
+      typeof minted.error?.value === "string" ? minted.error.value : t("upload.failed"),
+      minted.error?.status,
+    );
   }
+  const assetId = minted.data.asset.id;
 
-  if (type === "audio") {
-    // multipart XHR keeps upload progress events (JSON HttpClient can't).
-    const asset = await client.media.uploadAudio(
-      file,
-      (loaded, total) => {
+  // 2. PUT the bytes straight to R2 (bypasses the Worker: no 100MB cap)
+  let putStatus = 0;
+  try {
+    const { status } = await uploadFileRaw(minted.data.uploadURL, file, {
+      method: "PUT",
+      headers: file.type ? { "Content-Type": file.type } : undefined,
+      onProgress: (loaded, total) => {
         if (total > 0) {
           onProgress?.(Math.round((loaded / total) * 100));
         }
       },
-      file.name,
-    );
-    return { asset, provider: "r2" };
+    });
+    putStatus = status;
+  } catch {
+    putStatus = 0;
+  }
+  if (putStatus < 200 || putStatus >= 300) {
+    await client.media.remove(assetId).catch(() => {});
+    throw new Error(t("upload.failed"));
   }
 
-  // video: R2 multipart upload (multipart XHR keeps upload progress events).
-  // Duration/dimensions are probed client-side and sent along so the backend
-  // can store them without server-side transcoding.
+  // 3. complete: backend HEADs the object and marks the asset ready
+  const completed = await client.media.completeR2DirectUpload(assetId);
+  if (completed.error || !completed.data) {
+    await client.media.remove(assetId).catch(() => {});
+    throw httpStatusError(
+      typeof completed.error?.value === "string" ? completed.error.value : t("upload.failed"),
+      completed.error?.status,
+    );
+  }
+  return completed.data;
+}
+
+/** Legacy Worker-proxied video upload (multipart XHR, progress events). */
+async function legacyUploadVideo(file: File, { t, onProgress }: UploadMediaOptions): Promise<MediaAsset> {
   if (file.size > R2_MEDIA_MAX_BYTES) {
     throw new Error(t("upload.failed$size", { size: R2_MEDIA_MAX_BYTES / 1024 / 1024 }));
   }
+  // Duration/dimensions are probed client-side and sent along so the backend
+  // can store them without server-side transcoding.
   const probed = await probeMediaFile(file).catch(() => null);
-  const asset = await client.media.uploadVideo(
+  return client.media.uploadVideo(
     file,
     (loaded, total) => {
       if (total > 0) {
@@ -122,7 +168,62 @@ export async function uploadMediaFile(
       height: probed?.height,
     },
   );
-  return { asset, provider: "r2" };
+}
+
+/** Legacy Worker-proxied audio upload (multipart XHR, progress events). */
+async function legacyUploadAudio(file: File, { t, onProgress }: UploadMediaOptions): Promise<MediaAsset> {
+  if (file.size > R2_MEDIA_MAX_BYTES) {
+    throw new Error(t("upload.failed$size", { size: R2_MEDIA_MAX_BYTES / 1024 / 1024 }));
+  }
+  return client.media.uploadAudio(
+    file,
+    (loaded, total) => {
+      if (total > 0) {
+        onProgress?.(Math.round((loaded / total) * 100));
+      }
+    },
+    file.name,
+  );
+}
+
+export async function uploadMediaFile(
+  file: File,
+  type: MediaType,
+  options: UploadMediaOptions,
+): Promise<UploadedMediaResult> {
+  // R2 presigned direct upload first (no 100MB Worker cap). When the backend
+  // reports 503 (no S3 credentials), fall back to the legacy proxied upload
+  // for audio/video; images have no legacy R2 path (Images stays disabled).
+  try {
+    if (type === "video") {
+      const probed = await probeMediaFile(file).catch(() => null);
+      const asset = await uploadR2DirectFile(file, "video", {
+        ...options,
+        title: file.name,
+        duration: probed?.duration,
+        width: probed?.width,
+        height: probed?.height,
+      });
+      return { asset, provider: "r2" };
+    }
+    if (type === "audio") {
+      const asset = await uploadR2DirectFile(file, "audio", { ...options, title: file.name });
+      return { asset, provider: "r2" };
+    }
+    const asset = await uploadR2DirectFile(file, "image", { ...options, title: file.name });
+    return { asset, provider: "r2" };
+  } catch (error) {
+    if (!isNotConfiguredError(error as { status?: number })) {
+      throw error;
+    }
+    if (type === "video") {
+      return { asset: await legacyUploadVideo(file, options), provider: "r2" };
+    }
+    if (type === "audio") {
+      return { asset: await legacyUploadAudio(file, options), provider: "r2" };
+    }
+    throw error;
+  }
 }
 
 /** Absolute playback URL, so content stays valid in RSS and other off-site renderers. */
