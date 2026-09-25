@@ -1,5 +1,6 @@
 import QRCode from "qrcode";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export type SharePosterData = {
   title: string;
@@ -679,14 +680,10 @@ export function SharePosterModal({
     return () => window.clearTimeout(timer.current);
   }, [saved]);
 
-  // lock body scroll while open
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
+  // NOTE: do NOT lock scroll via `document.body.style.overflow = "hidden"`.
+  // On iOS Safari that breaks `position: fixed` (it lays out against the full
+  // document height), pushing the centered card off-screen. The inner image
+  // area keeps `touch-action: pan-y` + `overscroll-contain` for scrolling.
 
   function handleSave() {
     if (!imgUrl) return;
@@ -707,7 +704,7 @@ export function SharePosterModal({
       .catch(() => setError(true));
   }
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       role="dialog"
@@ -751,7 +748,7 @@ export function SharePosterModal({
             </button>
           ))}
         </div>
-        <div className="flex max-h-[62vh] items-center justify-center overflow-auto bg-gray-100 px-4 py-4">
+        <div className="flex max-h-[62vh] touch-pan-y items-center justify-center overflow-auto overscroll-contain bg-gray-100 px-4 py-4">
           {imgUrl ? (
             <img src={imgUrl} alt={COPY.title} className="w-full rounded-lg shadow" />
           ) : error ? (
@@ -782,6 +779,7 @@ export function SharePosterModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
