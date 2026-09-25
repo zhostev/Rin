@@ -66,6 +66,8 @@ CONFIG = {
 
 _token_cache: dict = {}
 _token_lock = threading.Lock()
+# 上次「强制刷新」的时间戳：微信限强制刷新 20 次/天、连续使用间隔 ≥30s
+_last_force_refresh: float = 0.0
 
 
 def log(msg: str) -> None:
@@ -84,7 +86,19 @@ def _read_wechat_config() -> dict:
 
 
 def get_access_token(force_refresh: bool = False) -> str:
-    """取 access_token，内存缓存，过期前 5 分钟自动刷新。"""
+    """取 access_token，内存缓存，过期前 5 分钟自动刷新。
+
+    走 /cgi-bin/stable_token（普通模式），不走 /cgi-bin/token：微信文档明确
+    「重复获取将导致上次获取的 access_token 失效」（业务侧表现为 40001
+    invalid credential）。ECS 上每日 cron（daily_quant_article_v4/v5.py）用
+    /cgi-bin/token + ~/.wechat_access_token.json 缓存，若本服务也用 /cgi-bin/token，
+    两边会互相把对方的 token 刷失效；stable_token 与 /cgi-bin/token 互相隔离，
+    普通模式重复调用也不刷新 token，因此不会踢掉 cron。
+
+    强制刷新（force_refresh=True，仅供 40001 兜底）微信限 20 次/天且间隔 ≥30s，
+    故加 30s 冷却；冷却期内退化为普通模式（返回当前有效 token，不报错）。
+    """
+    global _last_force_refresh
     with _token_lock:
         if (
             not force_refresh
@@ -92,17 +106,27 @@ def get_access_token(force_refresh: bool = False) -> str:
             and _token_cache.get("expires_at", 0) > time.time() + 300
         ):
             return _token_cache["token"]
+        force = bool(force_refresh) and (time.time() - _last_force_refresh >= 30)
     cfg = _read_wechat_config()
-    params = urllib.parse.urlencode(
-        {"grant_type": "client_credential", "appid": cfg["app_id"], "secret": cfg["app_secret"]}
+    body = {
+        "grant_type": "client_credential",
+        "appid": cfg["app_id"],
+        "secret": cfg["app_secret"],
+        "force_refresh": force,
+    }
+    resp = _http_json(
+        f"{WECHAT_API}/stable_token",
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"},
     )
-    resp = _http_json(f"{WECHAT_API}/token?{params}")
     token = resp.get("access_token")
     if not token:
         raise RuntimeError(f"微信 token 获取失败: {resp}")
     with _token_lock:
         _token_cache["token"] = token
         _token_cache["expires_at"] = time.time() + int(resp.get("expires_in", 7200))
+        if force:
+            _last_force_refresh = time.time()
     return token
 
 
