@@ -14,6 +14,7 @@ import {siteName} from "../utils/constants";
 import mermaid from 'mermaid';
 import { MarkdownEditor } from '../components/markdown_editor';
 import { AIComposePanel } from './writing-ai-compose';
+import { AIRevisePanel } from './writing-ai-revise';
 
 async function publish({
   title,
@@ -336,6 +337,7 @@ export function WritingPage({ id }: { id?: number }) {
       </Helmet>
       <div className="mt-2 flex flex-col gap-4 t-primary sm:gap-6">
         {id === undefined && <AIComposePanel />}
+        {id !== undefined && <AIRevisePanel feedId={id} onApply={setContent} />}
         {MetaInput({ className: "p-4 sm:p-5 md:p-6" })}
 
         <FlatPanel className="overflow-hidden p-0">

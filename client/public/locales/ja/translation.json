@@ -1125,5 +1125,56 @@
     "verified_at": "最終確認日：{{date}}",
     "related": "関連コンテンツ",
     "related_loading": "関連コンテンツを読み込み中…"
+  },
+  "ai_compose": {
+    "title": "AI ライティング",
+    "desc": "トピックを入力すると AI が記事を生成し、完了後に自動公開されます。",
+    "topic_placeholder": "記事のトピックを入力…",
+    "topic_empty": "先に記事のトピックを入力してください",
+    "length": {
+      "short": "短い",
+      "medium": "普通",
+      "long": "長い"
+    },
+    "style_placeholder": "文体（任意）、例：落ち着いた、ユーモラス",
+    "publish_warning": "生成完了後に自動的に公開されます。",
+    "submit": "生成する",
+    "phase": {
+      "idle": "待機中",
+      "pending": "キュー中",
+      "processing": "生成中",
+      "completed": "完了",
+      "failed": "失敗"
+    },
+    "status_failed": "生成状態の取得に失敗しました",
+    "failed": "AI ライティングに失敗しました",
+    "failed_draft_hint": "下書きは保持されています。編集ページで手動で完成させられます。",
+    "timeout": "生成がタイムアウトしました。下書きは編集ページに保持されています。",
+    "assets": {
+      "empty": "メディア素材がありません",
+      "note_hint": "各素材に説明を追加すると、AI が記事内で参照します。",
+      "note_placeholder": "素材の説明（任意）…"
+    }
+  },
+  "ai_revise": {
+    "title": "AI 推敲",
+    "desc": "AI で現在の記事本文を書き換え、プレビューで確認してからエディタに適用します。",
+    "mode": {
+      "polish": "推敲",
+      "expand": "拡充",
+      "shorten": "短縮",
+      "proofread": "校正",
+      "custom": "カスタム"
+    },
+    "instruction_placeholder": "追加の要望（任意）、例：小見出しは残す",
+    "instruction_placeholder_custom": "修正内容を入力、例：もっと口語的な文体に",
+    "instruction_empty": "先に修正内容を入力してください",
+    "submit": "修正する",
+    "working": "AI 修正中…",
+    "result": "修正結果",
+    "apply": "エディタに適用",
+    "discard": "破棄",
+    "apply_hint": "適用するとエディタの内容が置き換わります。保存は手動で行ってください。",
+    "failed": "AI 修正に失敗しました"
   }
 }

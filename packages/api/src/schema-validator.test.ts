@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { t, validateSchema } from "./schema-validator";
-import { feedAIComposeSchema } from "./schemas";
+import { feedAIComposeSchema, feedAIReviseSchema } from "./schemas";
 
 describe('validateSchema', () => {
   it('validates nested objects, arrays, optionals, and date-times', () => {
@@ -83,5 +83,25 @@ describe("feedAIComposeSchema", () => {
     if (!result.success) {
       expect(result.issues.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("feedAIReviseSchema", () => {
+  it("accepts a mode-only request", () => {
+    const result = validateSchema(feedAIReviseSchema, { mode: "polish" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a custom request with instruction", () => {
+    const result = validateSchema(feedAIReviseSchema, {
+      mode: "custom",
+      instruction: "把口语化的地方改正式一点",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an empty mode", () => {
+    const result = validateSchema(feedAIReviseSchema, { mode: "" });
+    expect(result.success).toBe(false);
   });
 });

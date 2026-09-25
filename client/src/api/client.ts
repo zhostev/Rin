@@ -53,6 +53,8 @@ import type {
   CreateAIComposeRequest,
   AIComposeResponse,
   AIComposeStatusResponse,
+  CreateAIReviseRequest,
+  AIReviseResponse,
 } from "@rin/api";
 
 export interface SettingsConfigResponse {
@@ -191,6 +193,8 @@ export type {
   CreateAIComposeRequest,
   AIComposeResponse,
   AIComposeStatusResponse,
+  CreateAIReviseRequest,
+  AIReviseResponse,
 } from "@rin/api";
 
 
@@ -368,6 +372,11 @@ class FeedAPI {
   // GET /api/feed/:id/ai-compose-status — 轮询 AI 写作进度（不走缓存的 /feed/:id）
   async aiComposeStatus(id: number): Promise<ApiResponse<AIComposeStatusResponse>> {
     return this.http.get<AIComposeStatusResponse>(`/api/feed/${id}/ai-compose-status`);
+  }
+
+  // POST /api/feed/:id/ai-revise — AI 修改已有文章正文，同步返回改写后的 markdown
+  async aiRevise(id: number, body: CreateAIReviseRequest): Promise<ApiResponse<AIReviseResponse>> {
+    return this.http.post<AIReviseResponse>(`/api/feed/${id}/ai-revise`, body);
   }
 }
 

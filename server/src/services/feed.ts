@@ -25,6 +25,7 @@ import { recordPageView } from "../utils/analytics";
 import { extractImageWithMetadata, stripSiteOrigin } from "../utils/image";
 import { stripMarkdown } from "../utils/markdown";
 import { registerFeedAIComposeRoutes } from "./feed-ai-compose";
+import { registerFeedAIReviseRoutes } from "./feed-ai-revise";
 import { syncFeedAISummaryQueueState } from "./feed-ai-summary";
 import { bindTagToPost } from "./tag";
 import { clearFeedCache, clearFeedCollectionCaches } from "./clear-feed-cache";
@@ -80,6 +81,7 @@ export function FeedService(): Hono<{
     // otherwise capture POST /ai-compose as an update to a feed with id
     // "ai-compose", silently swallowing this endpoint.
     registerFeedAIComposeRoutes(app);
+    registerFeedAIReviseRoutes(app);
 
     // GET /feed - List feeds
     app.get('/', async (c) => {

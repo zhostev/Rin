@@ -747,6 +747,21 @@ export interface AIComposeStatusResponse {
 }
 
 // ============================================================================
+// AI Revise (server/src/services/feed-ai-revise.ts)
+// ============================================================================
+
+export type AIReviseMode = 'polish' | 'expand' | 'shorten' | 'proofread' | 'custom';
+
+export interface CreateAIReviseRequest {
+  mode: AIReviseMode;
+  instruction?: string;
+}
+
+export interface AIReviseResponse {
+  revised: string;
+}
+
+// ============================================================================
 // Sharing Reports (server/src/services/sharing-reports.ts)
 // ============================================================================
 

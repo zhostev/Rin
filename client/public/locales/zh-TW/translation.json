@@ -1134,5 +1134,56 @@
     "verified_at": "最後核驗日期：{{date}}",
     "related": "關聯內容",
     "related_loading": "正在載入關聯內容…"
+  },
+  "ai_compose": {
+    "title": "AI 寫作",
+    "desc": "輸入主題，AI 會生成一篇文章，完成後將直接發佈。",
+    "topic_placeholder": "輸入文章主題…",
+    "topic_empty": "請先輸入文章主題",
+    "length": {
+      "short": "短",
+      "medium": "中",
+      "long": "長"
+    },
+    "style_placeholder": "寫作風格（可選），例如：冷靜克制、幽默",
+    "publish_warning": "AI 生成完成後將直接發佈，請確認主題無誤。",
+    "submit": "開始生成",
+    "phase": {
+      "idle": "等待中",
+      "pending": "排隊中",
+      "processing": "生成中",
+      "completed": "已完成",
+      "failed": "失敗"
+    },
+    "status_failed": "獲取生成狀態失敗",
+    "failed": "AI 寫作失敗",
+    "failed_draft_hint": "草稿已保留，可前往編輯頁手動完成。",
+    "timeout": "生成超時，草稿保留在編輯頁，可稍後重試。",
+    "assets": {
+      "empty": "暫無媒體素材",
+      "note_hint": "為每個素材添加說明，AI 會在文中引用。",
+      "note_placeholder": "素材說明（可選）…"
+    }
+  },
+  "ai_revise": {
+    "title": "AI 修改",
+    "desc": "用 AI 改寫當前文章正文，預覽滿意後再應用到編輯器。",
+    "mode": {
+      "polish": "潤色",
+      "expand": "擴寫",
+      "shorten": "精簡",
+      "proofread": "校對",
+      "custom": "自定義"
+    },
+    "instruction_placeholder": "補充要求（可選），例如：保留小標題",
+    "instruction_placeholder_custom": "輸入修改要求，例如：改成更口語化的風格",
+    "instruction_empty": "請先輸入修改要求",
+    "submit": "開始修改",
+    "working": "AI 修改中…",
+    "result": "修改結果",
+    "apply": "應用到編輯器",
+    "discard": "放棄",
+    "apply_hint": "應用後僅替換編輯器內容，需手動點更新發佈才會保存。",
+    "failed": "AI 修改失敗"
   }
 }

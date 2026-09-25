@@ -178,3 +178,8 @@ export const feedAIComposeSchema = t.Object({
   style: t.Optional(t.String()),
   listed: t.Optional(t.Boolean()),
 });
+
+export const feedAIReviseSchema = t.Object({
+  mode: t.String({ minLength: 1 }),
+  instruction: t.Optional(t.String()),
+});

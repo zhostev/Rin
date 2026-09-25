@@ -1134,5 +1134,56 @@
     "verified_at": "Last verified: {{date}}",
     "related": "Related",
     "related_loading": "Loading related content…"
+  },
+  "ai_compose": {
+    "title": "AI Writing",
+    "desc": "Enter a topic and AI will draft an article, published automatically when done.",
+    "topic_placeholder": "Enter article topic…",
+    "topic_empty": "Please enter an article topic first",
+    "length": {
+      "short": "Short",
+      "medium": "Medium",
+      "long": "Long"
+    },
+    "style_placeholder": "Writing style (optional), e.g. calm, humorous",
+    "publish_warning": "The article will be published automatically once generated.",
+    "submit": "Generate",
+    "phase": {
+      "idle": "Idle",
+      "pending": "Queued",
+      "processing": "Generating",
+      "completed": "Done",
+      "failed": "Failed"
+    },
+    "status_failed": "Failed to fetch generation status",
+    "failed": "AI writing failed",
+    "failed_draft_hint": "The draft was kept; you can finish it manually on the edit page.",
+    "timeout": "Generation timed out. The draft is kept on the edit page.",
+    "assets": {
+      "empty": "No media assets",
+      "note_hint": "Add a note for each asset; AI will reference them in the article.",
+      "note_placeholder": "Asset note (optional)…"
+    }
+  },
+  "ai_revise": {
+    "title": "AI Revise",
+    "desc": "Rewrite the current article with AI; preview the result before applying it to the editor.",
+    "mode": {
+      "polish": "Polish",
+      "expand": "Expand",
+      "shorten": "Shorten",
+      "proofread": "Proofread",
+      "custom": "Custom"
+    },
+    "instruction_placeholder": "Extra requirements (optional), e.g. keep the subheadings",
+    "instruction_placeholder_custom": "Describe the revision, e.g. make it more conversational",
+    "instruction_empty": "Please enter your revision instructions first",
+    "submit": "Revise",
+    "working": "Revising…",
+    "result": "Revised result",
+    "apply": "Apply to editor",
+    "discard": "Discard",
+    "apply_hint": "Applying only replaces the editor content; save manually to publish.",
+    "failed": "AI revision failed"
   }
 }
