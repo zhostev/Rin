@@ -347,19 +347,65 @@ export function parseArticleBlocks(markdown: string): ArticleBlock[] {
   return blocks;
 }
 
-function loadArticleImage(src: string, timeoutMs = 15000): Promise<HTMLImageElement | null> {
+function loadImg(src: string, timeoutMs: number, crossOrigin: boolean): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
-    const finish = (ok: boolean, img?: HTMLImageElement) => {
-      window.clearTimeout(timer);
-      resolve(ok && img ? img : null);
-    };
-    const timer = window.setTimeout(() => finish(false), timeoutMs);
+    const timer = window.setTimeout(() => resolve(null), timeoutMs);
     const img = new Image();
-    img.onload = () => finish(true, img);
-    img.onerror = () => finish(false);
-    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      window.clearTimeout(timer);
+      resolve(img.naturalWidth > 0 ? img : null);
+    };
+    img.onerror = () => {
+      window.clearTimeout(timer);
+      resolve(null);
+    };
+    if (crossOrigin) img.crossOrigin = "anonymous";
     img.src = src;
   });
+}
+
+async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: ctrl.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+/**
+ * Load an article image for canvas drawing.
+ *
+ * Same-origin images are fetched as a blob and decoded from an object URL
+ * instead of `<img crossorigin="anonymous">`: iOS Safari fails the CORS
+ * revalidation when the same URL is already in cache from a non-CORS page
+ * load, so article images silently failed to load there. Same-origin pixels
+ * never taint the canvas, so no CORS dance is needed at all.
+ */
+function loadArticleImage(src: string, timeoutMs = 15000): Promise<HTMLImageElement | null> {
+  return (async () => {
+    try {
+      const url = new URL(src, window.location.href);
+      if (url.origin === window.location.origin) {
+        const res = await fetchWithTimeout(url.href, timeoutMs);
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        if (!blob.type.startsWith("image/")) return null;
+        const objUrl = URL.createObjectURL(blob);
+        try {
+          return await loadImg(objUrl, timeoutMs, false);
+        } finally {
+          // The bitmap is decoded by now; revoking only prevents new loads.
+          URL.revokeObjectURL(objUrl);
+        }
+      }
+      // Cross-origin: classic CORS image load; skipped (placeholder) on failure.
+      return await loadImg(src, timeoutMs, true);
+    } catch {
+      return null;
+    }
+  })();
 }
 
 const ARTICLE_FONT = `"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif`;
