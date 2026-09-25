@@ -87,8 +87,13 @@ describe("parsePlannedImages", () => {
     it("returns [] for invalid input", () => {
         expect(parsePlannedImages(null, 2)).toEqual([]);
         expect(parsePlannedImages("", 2)).toEqual([]);
-        expect(parsePlannedImages("not json at all", 2)).toEqual([]);
         expect(parsePlannedImages(JSON.stringify({ prompt: "x" }), 2)).toEqual([]);
+    });
+
+    it("treats plain text as keyword candidates (search fallback)", () => {
+        expect(parsePlannedImages("not json at all", 2)).toEqual([
+            { prompt: "not json at all", alt: "" },
+        ]);
     });
 });
 
@@ -144,5 +149,46 @@ describe("toImageBytes", () => {
         await expect(toImageBytes(42)).rejects.toThrow("无法识别");
         await expect(toImageBytes({ foo: "bar" })).rejects.toThrow("无法识别");
         await expect(toImageBytes("not-base64!!")).rejects.toThrow("无法识别");
+    });
+});
+
+describe("parsePlannedImages 容错", () => {
+    it("accepts a wrapped object", () => {
+        const raw = `{"images": [{"prompt": "sunset beach", "alt": "海滩"}]}`;
+        expect(parsePlannedImages(raw, 3)).toEqual([{ prompt: "sunset beach", alt: "海滩" }]);
+    });
+
+    it("accepts a plain string array", () => {
+        const raw = `["sunset beach", "mountain lake"]`;
+        const result = parsePlannedImages(raw, 3);
+        expect(result.map((r) => r.prompt)).toEqual(["sunset beach", "mountain lake"]);
+    });
+
+    it("accepts keyword as field name", () => {
+        const raw = `[{"keyword": "city night"}, {"keyword": "forest"}]`;
+        expect(parsePlannedImages(raw, 3).map((r) => r.prompt)).toEqual(["city night", "forest"]);
+    });
+
+    it("falls back to one-keyword-per-line text", () => {
+        const raw = `sunset beach\nocean waves\nmountain lake`;
+        expect(parsePlannedImages(raw, 2).map((r) => r.prompt)).toEqual([
+            "sunset beach",
+            "ocean waves",
+        ]);
+    });
+
+    it("falls back to numbered lines", () => {
+        const raw = `1. sunset beach\n2. ocean waves`;
+        expect(parsePlannedImages(raw, 3).map((r) => r.prompt)).toEqual([
+            "sunset beach",
+            "ocean waves",
+        ]);
+    });
+
+    it("still rejects empty or non-keyword input", () => {
+        expect(parsePlannedImages(null, 3)).toEqual([]);
+        expect(parsePlannedImages("   ", 3)).toEqual([]);
+        expect(parsePlannedImages(JSON.stringify({ prompt: "x" }), 3)).toEqual([]);
+        expect(parsePlannedImages('{"a": 1}', 3)).toEqual([]);
     });
 });

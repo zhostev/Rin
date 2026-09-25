@@ -51,7 +51,9 @@ export function normalizeImageMode(value: unknown): AIComposeImageMode {
 }
 
 /**
- * 从模型返回里抠 JSON 数组：去 ```fence、去首尾杂文本，容错解析。
+ * 从模型返回里抠作图/搜索计划：去 ```fence、去首尾杂文本，容错解析。
+ * 接受顶层数组、{"images"|"prompts"|"keywords": [...]} 包裹、纯字符串数组、
+ * 以及每行一个关键词的纯文本（搜索模式兜底）。
  * 纯函数，可单测。
  */
 export function parsePlannedImages(raw: string | null, count: number): PlannedImage[] {
@@ -68,22 +70,51 @@ export function parsePlannedImages(raw: string | null, count: number): PlannedIm
     try {
         parsed = JSON.parse(text);
     } catch {
-        return [];
+        return parsePlainKeywordLines(raw, count);
+    }
+    // 允许 {"images": [...]} / {"prompts": [...]} / {"keywords": [...]} 包一层
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const wrapper = parsed as Record<string, unknown>;
+        for (const key of ["images", "prompts", "keywords", "results"]) {
+            if (Array.isArray(wrapper[key])) {
+                parsed = wrapper[key];
+                break;
+            }
+        }
     }
     if (!Array.isArray(parsed)) {
-        return [];
+        return parsePlainKeywordLines(raw, count);
     }
     return parsed
-        .filter(
-            (item): item is { prompt: unknown; alt: unknown } =>
-                !!item && typeof item === "object",
-        )
-        .map((item) => ({
-            prompt: typeof item.prompt === "string" ? item.prompt.trim() : "",
-            alt: typeof item.alt === "string" ? item.alt.trim() : "",
-        }))
+        .map((item) => {
+            if (typeof item === "string") {
+                const prompt = item.trim();
+                return { prompt, alt: "" };
+            }
+            if (item && typeof item === "object") {
+                const obj = item as { prompt?: unknown; alt?: unknown; keyword?: unknown };
+                const prompt =
+                    typeof obj.prompt === "string" && obj.prompt.trim().length > 0
+                        ? obj.prompt.trim()
+                        : typeof obj.keyword === "string"
+                          ? obj.keyword.trim()
+                          : "";
+                const alt = typeof obj.alt === "string" ? obj.alt.trim() : "";
+                return { prompt, alt };
+            }
+            return { prompt: "", alt: "" };
+        })
         .filter((item) => item.prompt.length > 0)
         .slice(0, count);
+}
+
+/** 模型直接返回每行一个关键词的纯文本时，兜底解析。 */
+function parsePlainKeywordLines(raw: string, count: number): PlannedImage[] {
+    const lines = raw
+        .split("\n")
+        .map((line) => line.replace(/^[-*\d.)\s]+/, "").trim())
+        .filter((line) => line.length > 0 && line.length <= 120 && !/^{.*}$/.test(line));
+    return lines.slice(0, count).map((prompt) => ({ prompt, alt: "" }));
 }
 
 async function planImages(
@@ -121,7 +152,10 @@ async function planImages(
     }
     const planned = parsePlannedImages(raw, count);
     if (planned.length === 0) {
-        throw new Error("配图规划失败：AI 没有返回可用的作图/搜索计划");
+        const snippet = (raw ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
+        throw new Error(
+            `配图规划失败：AI 没有返回可用的作图/搜索计划${snippet ? `（模型返回：${snippet}）` : "（模型返回为空）"}`,
+        );
     }
     return planned;
 }
