@@ -232,7 +232,8 @@ describe('StorageService', () => {
             expect(putCalls).toHaveLength(1);
 
             const payload = await res.json() as { url: string };
-            expect(payload.url).toMatch(/^http:\/\/localhost\/api\/blob\/images\/[a-f0-9]+\.txt$/);
+            // Domain-independent: /api/storage returns a relative URL now.
+            expect(payload.url).toMatch(/^\/api\/blob\/images\/[a-f0-9]+\.txt$/);
         });
 
         it('should return 500 when S3_ENDPOINT is not defined without R2 binding', async () => {
