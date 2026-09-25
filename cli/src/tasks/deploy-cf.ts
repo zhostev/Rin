@@ -27,8 +27,11 @@ const WORKER_SECRET_KEYS = [
   "RIN_GITHUB_CLIENT_SECRET",
   "S3_ACCESS_KEY_ID",
   "S3_SECRET_ACCESS_KEY",
-  // Runtime: provision TUS direct uploads (createDirectUpload does not support >200MB).
-  "CLOUDFLARE_API_TOKEN",
+  // NOTE (fork): CLOUDFLARE_API_TOKEN is intentionally NOT synced here.
+  // CI passes it for wrangler auth, but the production worker already has a
+  // runtime token with extra permissions (e.g. Analytics Engine read for the
+  // admin analytics query). Syncing would silently rotate it to the narrower
+  // CI deploy token. Rotate the runtime token manually if ever needed.
   // Stream-only token (Stream:Edit). Preferred at runtime over the deploy token.
   "STREAM_API_TOKEN",
   // Runtime: verifies Cloudflare Stream webhook signatures (/api/media/stream/webhook).

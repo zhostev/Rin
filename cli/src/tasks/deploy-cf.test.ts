@@ -22,7 +22,9 @@ describe("collectWorkerSecrets", () => {
       RIN_GITHUB_CLIENT_SECRET: "client-secret",
       S3_ACCESS_KEY_ID: "access-key",
       S3_SECRET_ACCESS_KEY: "secret-key",
-      CLOUDFLARE_API_TOKEN: "cf-token",
+      // CLOUDFLARE_API_TOKEN is intentionally excluded from worker secret sync
+      // (fork): CI uses it for wrangler auth only; it must not rotate the
+      // runtime token on the production worker.
       STREAM_API_TOKEN: "stream-token",
       STREAM_WEBHOOK_SECRET: "webhook-secret",
       UNUSED: "ignored",
@@ -36,10 +38,17 @@ describe("collectWorkerSecrets", () => {
       RIN_GITHUB_CLIENT_SECRET: "client-secret",
       S3_ACCESS_KEY_ID: "access-key",
       S3_SECRET_ACCESS_KEY: "secret-key",
-      CLOUDFLARE_API_TOKEN: "cf-token",
       STREAM_API_TOKEN: "stream-token",
       STREAM_WEBHOOK_SECRET: "webhook-secret",
     });
+  });
+
+  it("never syncs CLOUDFLARE_API_TOKEN (wrangler auth only, fork)", () => {
+    const secrets = collectWorkerSecrets({
+      CLOUDFLARE_API_TOKEN: "cf-token",
+    });
+
+    expect(secrets).toEqual({});
   });
 
   it("omits empty secret values", () => {
