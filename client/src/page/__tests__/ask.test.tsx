@@ -1,4 +1,5 @@
 import "../../test/setup";
+import { mockWouter } from "../../test/mock-wouter";
 import { cleanup, render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, mock } from "bun:test";
@@ -28,14 +29,7 @@ mock.module("react-helmet", () => ({
   Helmet: () => null,
 }));
 
-mock.module("wouter", () => ({
-  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-  useSearch: () => "",
-}));
+mockWouter();
 
 const { AskPage } = await import("../ask");
 

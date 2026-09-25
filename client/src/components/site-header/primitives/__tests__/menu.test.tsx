@@ -1,4 +1,5 @@
 import "../../../../test/setup";
+import { mockWouter } from "../../../../test/mock-wouter";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
@@ -13,9 +14,7 @@ mock.module("react-i18next", () => ({
   }),
 }));
 
-mock.module("wouter", () => ({
-  useLocation: () => ["/", mock()],
-}));
+mockWouter();
 
 mock.module("reactjs-popup", () => ({
   default: ({
