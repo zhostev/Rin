@@ -137,6 +137,7 @@ export async function getAIWriterConfig(config: ConfigReader): Promise<AIWriterC
         max_tokens: coercedNumber(values.max_tokens, DEFAULT_AI_WRITER_CONFIG.max_tokens),
         system_prompt: typeof values.system_prompt === "string" ? values.system_prompt : "",
         pexels_api_key: typeof values.pexels_api_key === "string" ? values.pexels_api_key : "",
+        vision_model: typeof values.vision_model === "string" ? values.vision_model : "",
     };
 }
 

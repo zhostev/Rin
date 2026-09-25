@@ -60,14 +60,34 @@ describe("POST /ai-compose", () => {
     expect(res.status).toBe(403);
   });
 
-  it("rejects an empty topic", async () => {
+  it("rejects when both topic and screenshots are empty", async () => {
     const res = await buildApp({ admin: true }).request("/ai-compose", {
       method: "POST",
-      body: JSON.stringify({ topic: "", assets: [] }),
+      body: JSON.stringify({ topic: "", assets: [], visionAssets: [] }),
       headers: { "Content-Type": "application/json" },
     });
 
     expect(res.status).toBe(400);
+  });
+
+  it("accepts screenshots without a topic （截图生文）", async () => {
+    const sent: any[] = [];
+    const res = await buildApp({
+      admin: true,
+      assets: [{ id: 7, kind: "image", r2Key: "shots/a.png", mimeType: "image/png" }],
+      onSend: (task) => sent.push(task),
+    }).request("/ai-compose", {
+      method: "POST",
+      body: JSON.stringify({
+        topic: "",
+        assets: [],
+        visionAssets: [{ id: "7", note: "错误弹窗" }],
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(202);
+    expect(sent[0].payload.visionAssets).toEqual([{ id: "7", note: "错误弹窗" }]);
   });
 
   it("rejects an unknown asset id", async () => {

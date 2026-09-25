@@ -18,6 +18,7 @@ const composePayload = {
   expectedUpdatedAtUnix: 1_700_000_000,
   topic: "聊聊本地优先软件",
   assets: [{ id: "img-1", note: "架构图" }],
+  visionAssets: [],
   length: "medium" as const,
   listed: true,
   imageMode: "none" as const,

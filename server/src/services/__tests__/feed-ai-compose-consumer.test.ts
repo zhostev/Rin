@@ -14,7 +14,7 @@ import { createMockDB, createMockEnv, createTestUser, TestCacheImpl } from "../.
 import { applyMediaMigration } from "../../../tests/fixtures/media";
 import { feedHashtags, feeds, hashtags, mediaAssets } from "../../db/schema";
 import { clearFeedCache } from "../clear-feed-cache";
-import { processFeedAIComposeTask } from "../feed-ai-compose";
+import { processFeedAIComposeTask, resolveVisionAssetRows } from "../feed-ai-compose";
 
 const ARTICLE = [
   "---",
@@ -116,6 +116,7 @@ describe("compose consumer end-to-end against real SQLite", () => {
         listed: true,
         imageMode: "none",
         imageCount: 2,
+      visionAssets: [],
       },
       clearFeedCache,
     );
@@ -205,6 +206,7 @@ describe("compose consumer end-to-end against real SQLite", () => {
         listed: true,
         imageMode: "none",
         imageCount: 2,
+      visionAssets: [],
       },
       clearFeedCache,
     );
@@ -261,6 +263,7 @@ describe("compose consumer end-to-end against real SQLite", () => {
         listed: true,
         imageMode: "none",
         imageCount: 2,
+      visionAssets: [],
       },
       clearFeedCache,
     );
@@ -318,6 +321,7 @@ describe("compose consumer end-to-end against real SQLite", () => {
         listed: true,
         imageMode: "none",
         imageCount: 2,
+      visionAssets: [],
       },
       clearFeedCache,
     );
@@ -374,6 +378,7 @@ describe("compose consumer end-to-end against real SQLite", () => {
         listed: true,
         imageMode: "none",
         imageCount: 2,
+      visionAssets: [],
       },
       clearFeedCache,
     );
@@ -383,5 +388,174 @@ describe("compose consumer end-to-end against real SQLite", () => {
     expect(row.aiComposeStatus).toBe("failed");
     expect(row.aiComposeError).toContain("missing-asset");
     expect(row.draft).toBe(1);
+  });
+});
+
+describe("resolveVisionAssetRows", () => {
+  const stubDb = (rows: any[]) =>
+    ({
+      query: { mediaAssets: { findMany: async () => rows } },
+    }) as any;
+
+  const imageRow = (overrides: Record<string, unknown> = {}) => ({
+    id: 11,
+    kind: "image",
+    source: "r2",
+    r2Key: "media/11/shot.png",
+    mime: "image/png",
+    ...overrides,
+  });
+
+  it("accepts image assets and passes the note through", async () => {
+    const result = await resolveVisionAssetRows(stubDb([imageRow()]), [
+      { id: "11", note: "登录页截图" },
+    ]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].row.id).toBe(11);
+      expect(result.items[0].note).toBe("登录页截图");
+    }
+  });
+
+  it("rejects more than 5 screenshots", async () => {
+    const result = await resolveVisionAssetRows(
+      stubDb([]),
+      Array.from({ length: 6 }, (_, i) => ({ id: String(i + 1) })),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("5");
+  });
+
+  it("rejects non-numeric ids", async () => {
+    const result = await resolveVisionAssetRows(stubDb([]), [{ id: "abc" }]);
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects missing assets", async () => {
+    const result = await resolveVisionAssetRows(stubDb([]), [{ id: "99" }]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("99");
+  });
+
+  it("rejects non-image assets", async () => {
+    const result = await resolveVisionAssetRows(stubDb([imageRow({ kind: "video" })]), [{ id: "11" }]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("必须是图片");
+  });
+
+  it("rejects assets without an R2 object", async () => {
+    const result = await resolveVisionAssetRows(stubDb([imageRow({ r2Key: null })]), [{ id: "11" }]);
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("compose consumer with screenshots (截图生文）", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const VISION_ARTICLE = [
+    "---",
+    "title: 从截图看这次发布",
+    "summary: 截图里是一次版本发布记录。",
+    "tags: 发布, 截图",
+    "---",
+    "",
+    "正文段落。".repeat(30),
+    "",
+    "[[media:1]]",
+    "",
+    "结尾段落。".repeat(30),
+  ].join("\n");
+
+  it("reads screenshots through the vision model and embeds them", async () => {
+    const { db, sqlite } = createMockDB() as any;
+    createTestUser(sqlite);
+    sqlite.exec("DROP TABLE IF EXISTS media_assets");
+    applyMediaMigration(sqlite);
+
+    const [shotRow] = await db
+      .insert(mediaAssets)
+      .values({ kind: "image", source: "r2", r2Key: "media/7/shot.png", mime: "image/png" })
+      .returning({ id: mediaAssets.id });
+    const shotId = shotRow.id;
+
+    const now = new Date();
+    const [feedRow] = await db
+      .insert(feeds)
+      .values({
+        title: "截图生文",
+        content: "",
+        summary: "",
+        ai_summary: "",
+        ai_summary_status: "idle",
+        ai_summary_error: "",
+        aiComposeStatus: "pending",
+        aiComposeError: "",
+        uid: 1,
+        alias: null,
+        listed: 1,
+        draft: 1,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: feeds.id, updatedAt: feeds.updatedAt });
+
+    // 1x1 PNG 的最小字节：内容不重要，loadVisionImages 只做传输不断言解码。
+    const pngBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52,
+    ]);
+
+    let capturedVisionBody: any;
+    globalThis.fetch = (async (url: any, init: any) => {
+      const urlString = String(url);
+      if (urlString.includes("/chat/completions")) {
+        capturedVisionBody = JSON.parse(init.body);
+        return new Response(
+          JSON.stringify({ choices: [{ message: { content: VISION_ARTICLE } }] }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      // presigned R2 GET：返回截图字节。
+      return new Response(pngBytes, { status: 200 });
+    }) as typeof fetch;
+
+    await processFeedAIComposeTask(
+      createMockEnv(),
+      db,
+      new TestCacheImpl() as any,
+      serverConfig(),
+      {
+        feedId: feedRow.id,
+        expectedUpdatedAtUnix: Math.floor(feedRow.updatedAt.getTime() / 1000),
+        topic: "",
+        assets: [],
+        visionAssets: [{ id: String(shotId), note: "发布记录截图" }],
+        length: "medium",
+        listed: true,
+        imageMode: "none",
+        imageCount: 2,
+      },
+      clearFeedCache,
+    );
+
+    const row = await db.query.feeds.findFirst({ where: eq(feeds.id, feedRow.id) });
+    expect(row.aiComposeStatus).toBe("completed");
+    expect(row.draft).toBe(0);
+    expect(row.title).toBe("从截图看这次发布");
+    // 截图进了素材清单并被渲染进正文。
+    expect(row.content).not.toContain("[[media:1]]");
+    expect(row.content).toContain(`![发布记录截图](/api/media/${shotId}/playback)`);
+
+    // 视觉请求：图片块在前、文本在后；选题为空时给了默认写作指令。
+    const userContent = capturedVisionBody.messages[1].content;
+    expect(Array.isArray(userContent)).toBe(true);
+    expect(userContent[0].type).toBe("image_url");
+    expect(userContent[0].image_url.url.startsWith("data:image/png;base64,")).toBe(true);
+    expect(userContent[1].type).toBe("text");
+    expect(userContent[1].text).toContain("截图");
   });
 });

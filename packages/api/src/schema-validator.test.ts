@@ -75,13 +75,9 @@ describe("feedAIComposeSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects an empty topic", () => {
+  it("allows an empty topic at the schema level （截图生文；路由层校验双空）", () => {
     const result = validateSchema(feedAIComposeSchema, { topic: "", assets: [] });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.issues.length).toBeGreaterThan(0);
-      expect(result.issues[0]?.path).toBe("topic");
-    }
+    expect(result.success).toBe(true);
   });
 
   it("rejects an asset without an id", () => {
