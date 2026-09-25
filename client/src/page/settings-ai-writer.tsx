@@ -13,6 +13,8 @@ export type AIWriterSettingsValue = {
   temperature: number;
   maxTokens: number;
   systemPrompt: string;
+  pexelsApiKey: string;
+  pexelsApiKeySet: boolean;
 };
 
 const TEXT_INPUT_CLASS =
@@ -143,6 +145,31 @@ export function AIWriterSettings({
                   className={TEXT_INPUT_CLASS}
                 />
                 <p className="text-xs text-neutral-500 dark:text-neutral-400">{t("settings.ai_writer.max_tokens.desc")}</p>
+              </div>
+              <div className="space-y-2 lg:col-span-2">
+                <p className="text-sm font-medium t-primary">
+                  {t("settings.ai_writer.pexels_api_key.title")}
+                  {value.pexelsApiKeySet && (
+                    <span className="ml-2">
+                      <SettingsBadge tone="success">{t("settings.ai_writer.pexels_api_key.set")}</SettingsBadge>
+                    </span>
+                  )}
+                </p>
+                <input
+                  type="password"
+                  name="rin-ai-writer-pexels-api-key"
+                  autoComplete="new-password"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  value={value.pexelsApiKey}
+                  onChange={(event) => {
+                    onChange({ pexelsApiKey: event.target.value });
+                  }}
+                  placeholder={value.pexelsApiKeySet ? t("settings.ai_writer.pexels_api_key.placeholder_set") : t("settings.ai_writer.pexels_api_key.desc")}
+                  className={TEXT_INPUT_CLASS}
+                />
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{t("settings.ai_writer.pexels_api_key.hint")}</p>
               </div>
               <div className="space-y-2 lg:col-span-2">
                 <p className="text-sm font-medium t-primary">{t("settings.ai_writer.system_prompt.title")}</p>

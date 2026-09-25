@@ -82,6 +82,24 @@ describe("getAIWriterConfig", () => {
     expect(config.temperature).toBe(0.8);
     expect(config.max_tokens).toBe(4000);
   });
+
+  it("reads the standalone pexels key (no inheritance from ai_summary)", async () => {
+    const config = await getAIWriterConfig(
+      reader({ ...summaryValues, "ai_writer.pexels_api_key": "px-123" }),
+    );
+    expect(config.pexels_api_key).toBe("px-123");
+
+    const blank = await getAIWriterConfig(reader(summaryValues));
+    expect(blank.pexels_api_key).toBe("");
+  });
+
+  it("skips a blank pexels key so a re-saved form cannot erase the stored one", async () => {
+    const { written, config } = writer(summaryValues);
+
+    await setAIWriterConfig(config, { pexels_api_key: "   " });
+
+    expect(written["ai_writer.pexels_api_key"]).toBeUndefined();
+  });
 });
 
 describe("setAIWriterConfig", () => {

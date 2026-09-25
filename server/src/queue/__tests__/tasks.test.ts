@@ -20,6 +20,8 @@ const composePayload = {
   assets: [{ id: "img-1", note: "架构图" }],
   length: "medium" as const,
   listed: true,
+  imageMode: "none" as const,
+  imageCount: 2,
 };
 
 describe("isQueueTask", () => {

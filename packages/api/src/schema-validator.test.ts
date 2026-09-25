@@ -65,6 +65,16 @@ describe("feedAIComposeSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts image mode and count", () => {
+    const result = validateSchema(feedAIComposeSchema, {
+      topic: "聊聊本地优先软件",
+      assets: [],
+      imageMode: "generate",
+      imageCount: 3,
+    });
+    expect(result.success).toBe(true);
+  });
+
   it("rejects an empty topic", () => {
     const result = validateSchema(feedAIComposeSchema, { topic: "", assets: [] });
     expect(result.success).toBe(false);

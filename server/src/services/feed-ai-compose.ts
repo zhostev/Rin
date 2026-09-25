@@ -23,6 +23,7 @@ import {
     type ComposedArticle,
 } from "../utils/ai-compose";
 import { getAIWriterConfig } from "../utils/db-config";
+import { normalizeImageCount, normalizeImageMode, prepareAIComposeImages } from "./ai-images";
 import { syncFeedAISummaryQueueState } from "./feed-ai-summary";
 import { bindTagToPost } from "./tag";
 
@@ -190,6 +191,31 @@ export async function processFeedAIComposeTask(
     }
 
     const length = normalizeComposeLength(payload.length);
+
+    // AI 配图：先把图片真正生成/搜到并落盘，再让正文通过 [[media:N]] 引用。
+    // 模型永远接触不到 URL，从根上杜绝编造图片链接。
+    const imageMode = normalizeImageMode(payload.imageMode);
+    let aiImageAssets: ComposeAsset[] = [];
+    if (imageMode !== "none") {
+        try {
+            const prepared = await prepareAIComposeImages(env, db, writerConfig, {
+                mode: imageMode,
+                count: normalizeImageCount(payload.imageCount),
+                topic: payload.topic,
+            });
+            aiImageAssets = prepared.assets;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error("[AI Compose] 配图失败：", message);
+            await db
+                .update(feeds)
+                .set(buildStatusUpdate("failed", { aiComposeError: message }))
+                .where(eq(feeds.id, feed.id));
+            return;
+        }
+    }
+    const allAssets = [...assetResult.assets, ...aiImageAssets];
+
     const messages = [
         {
             role: "system" as const,
@@ -199,7 +225,7 @@ export async function processFeedAIComposeTask(
             role: "user" as const,
             content: buildComposeUserMessage({
                 topic: payload.topic,
-                assets: assetResult.assets,
+                assets: allAssets,
                 length,
                 style: payload.style,
             }),
@@ -231,7 +257,7 @@ export async function processFeedAIComposeTask(
         return;
     }
 
-    const content = renderMediaPlaceholders(outcome.article.content, assetResult.assets);
+    const content = renderMediaPlaceholders(outcome.article.content, allAssets);
     const publishedAt = new Date();
 
     await db
@@ -282,6 +308,16 @@ export function registerFeedAIComposeRoutes(app: Hono<{ Bindings: Env; Variables
                     return c.text(`Unknown media asset: ${assetResult.missing.join(", ")}`, 400);
                 }
 
+                // AI 配图的前置校验：缺 key / 缺绑定直接 400，不建占位文章。
+                const imageMode = normalizeImageMode(body.imageMode);
+                const imageCount = normalizeImageCount(body.imageCount);
+                if (imageMode === "search" && !writerConfig.pexels_api_key) {
+                    return c.text("搜索图片需要先在 AI 写作设置里填写 Pexels API Key", 400);
+                }
+                if (imageMode === "generate" && (!env.AI || typeof env.AI.run !== "function")) {
+                    return c.text("AI 生成图片需要 Workers AI 绑定", 400);
+                }
+
                 const now = new Date();
                 const listed = body.listed ?? true;
 
@@ -318,6 +354,8 @@ export function registerFeedAIComposeRoutes(app: Hono<{ Bindings: Env; Variables
                     length: normalizeComposeLength(body.length),
                     style: body.style,
                     listed,
+                    imageMode,
+                    imageCount,
                 });
 
                 if (!enqueued.ok) {

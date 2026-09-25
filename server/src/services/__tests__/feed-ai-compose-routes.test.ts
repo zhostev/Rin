@@ -12,6 +12,7 @@ function buildApp(options: {
   inserted?: { id: number; updatedAt: Date };
   feed?: Row | null;
   onSend?: (task: unknown) => void;
+  aiBinding?: boolean;
 }) {
   const app = new Hono<any>();
   const inserted = options.inserted ?? { id: 42, updatedAt: new Date("2026-09-22T00:00:00.000Z") };
@@ -33,6 +34,7 @@ function buildApp(options: {
     c.set("uid", options.uid ?? 1);
     c.set("env", {
       TASK_QUEUE: { send: async (task: unknown) => options.onSend?.(task) },
+      ...(options.aiBinding ? { AI: { run: async () => new ArrayBuffer(8) } } : {}),
     });
     c.set("serverConfig", {
       get: async (key: string) =>
@@ -132,6 +134,57 @@ describe("POST /ai-compose", () => {
     });
 
     expect(res.status).toBe(500);
+  });
+
+  it("rejects image search when no Pexels API key is configured", async () => {
+    const res = await buildApp({ admin: true }).request("/ai-compose", {
+      method: "POST",
+      body: JSON.stringify({ ...body, imageMode: "search", imageCount: 2 }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects image generation when the Workers AI binding is missing", async () => {
+    const res = await buildApp({ admin: true }).request("/ai-compose", {
+      method: "POST",
+      body: JSON.stringify({ ...body, imageMode: "generate", imageCount: 2 }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("passes image mode and count through to the queued task", async () => {
+    const sent: any[] = [];
+    const res = await buildApp({ admin: true, aiBinding: true, onSend: (task) => sent.push(task) }).request(
+      "/ai-compose",
+      {
+        method: "POST",
+        body: JSON.stringify({ ...body, imageMode: "generate", imageCount: 9 }),
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+
+    expect(res.status).toBe(202);
+    expect(sent[0].payload.imageMode).toBe("generate");
+    expect(sent[0].payload.imageCount).toBe(3);
+  });
+
+  it("defaults the image mode to none", async () => {
+    const sent: any[] = [];
+    const res = await buildApp({ admin: true, onSend: (task) => sent.push(task) }).request(
+      "/ai-compose",
+      {
+        method: "POST",
+        body: JSON.stringify({ ...body, imageMode: "dall-e" }),
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+
+    expect(res.status).toBe(202);
+    expect(sent[0].payload.imageMode).toBe("none");
   });
 });
 

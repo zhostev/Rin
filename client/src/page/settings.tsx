@@ -64,6 +64,7 @@ export function Settings() {
   const [initialDraft, setInitialDraft] = useState<SettingsDraft>({ clientConfig: {}, serverConfig: {} });
   const [hasStoredAiApiKey, setHasStoredAiApiKey] = useState(false);
   const [hasStoredAiWriterApiKey, setHasStoredAiWriterApiKey] = useState(false);
+  const [hasStoredAiWriterPexelsApiKey, setHasStoredAiWriterPexelsApiKey] = useState(false);
   const ref = useRef(false);
   const initialDraftRef = useRef<SettingsDraft>({ clientConfig: {}, serverConfig: {} });
   const { showAlert, AlertUI } = useAlert();
@@ -81,6 +82,7 @@ export function Settings() {
         initialDraftRef.current = state.draft;
         setHasStoredAiApiKey(state.hasStoredAiApiKey);
         setHasStoredAiWriterApiKey(state.hasStoredAiWriterApiKey);
+        setHasStoredAiWriterPexelsApiKey(state.hasStoredAiWriterPexelsApiKey);
         mergeSessionConfig(state.draft.clientConfig);
         applyThemeColor(getDraftThemeColor(state.draft));
       })
@@ -100,8 +102,8 @@ export function Settings() {
   const { clientConfig, serverConfig } = useMemo(() => createSettingsConfigWrappers(draft), [draft]);
   const aiValue = useMemo(() => buildAIConfigDraftValue(draft, hasStoredAiApiKey), [draft, hasStoredAiApiKey]);
   const aiWriterValue = useMemo(
-    () => buildAIWriterConfigDraftValue(draft, hasStoredAiWriterApiKey),
-    [draft, hasStoredAiWriterApiKey],
+    () => buildAIWriterConfigDraftValue(draft, hasStoredAiWriterApiKey, hasStoredAiWriterPexelsApiKey),
+    [draft, hasStoredAiWriterApiKey, hasStoredAiWriterPexelsApiKey],
   );
   const hasUnsavedChanges = !areSettingsDraftsEqual(draft, initialDraft);
   const themeColorValue = normalizeThemeColor(String(clientConfig.get("theme.color") ?? "#fc466b"));
@@ -128,6 +130,7 @@ export function Settings() {
       initialDraftRef.current = state.draft;
       setHasStoredAiApiKey(state.hasStoredAiApiKey || aiValue.apiKey.trim().length > 0);
       setHasStoredAiWriterApiKey(state.hasStoredAiWriterApiKey || aiWriterValue.apiKey.trim().length > 0);
+      setHasStoredAiWriterPexelsApiKey(state.hasStoredAiWriterPexelsApiKey || aiWriterValue.pexelsApiKey.trim().length > 0);
       mergeSessionConfig(state.draft.clientConfig);
       window.dispatchEvent(new Event("storage"));
       showAlert(t("settings.ai_summary.save_success"));
@@ -674,6 +677,9 @@ export function Settings() {
               }
               if (updates.apiKey !== undefined) {
                 setConfigValue("server", "ai_writer.api_key", updates.apiKey);
+              }
+              if (updates.pexelsApiKey !== undefined) {
+                setConfigValue("server", "ai_writer.pexels_api_key", updates.pexelsApiKey);
               }
               if (updates.temperature !== undefined) {
                 setConfigValue("server", "ai_writer.temperature", updates.temperature);

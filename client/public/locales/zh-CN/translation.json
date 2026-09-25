@@ -447,6 +447,51 @@
         "http_error$status": "HTTP 错误 (状态码: {{status}})"
       }
     },
+    "ai_writer": {
+      "title": "AI 写作设置",
+      "enable": {
+        "title": "启用 AI 写作",
+        "desc": "允许通过选题和素材生成整篇文章"
+      },
+      "inherit_hint": "供应商、模型、API Key、API URL 留空则继承 AI 总结设置。",
+      "provider": {
+        "title": "AI 供应商",
+        "desc": "留空继承 AI 总结设置"
+      },
+      "model": {
+        "title": "模型",
+        "desc": "留空继承 AI 总结设置；写文章建议用更强的模型"
+      },
+      "api_key": {
+        "title": "API Key",
+        "desc": "留空继承 AI 总结设置",
+        "set": "已设置",
+        "placeholder_set": "输入新密钥以更新"
+      },
+      "api_url": {
+        "title": "API URL",
+        "desc": "留空继承 AI 总结设置"
+      },
+      "temperature": {
+        "title": "Temperature",
+        "desc": "越高越发散，默认 0.8"
+      },
+      "max_tokens": {
+        "title": "Max Tokens",
+        "desc": "单次生成的上限，默认 4000"
+      },
+      "pexels_api_key": {
+        "title": "Pexels API Key",
+        "desc": "搜索图片用，在 pexels.com/api 免费申请",
+        "set": "已设置",
+        "placeholder_set": "输入新密钥以更新",
+        "hint": "AI 写作「配图」选「搜索图片」时使用；不填则该选项不可用。"
+      },
+      "system_prompt": {
+        "title": "系统提示词",
+        "desc": "留空则使用内置的中文写作提示词"
+      }
+    },
     "get_config_failed$message": "获取配置失败，{{message}}",
     "import_failed$message": "导入失败，{{message}}",
     "import_result": "导入结果",
@@ -1163,7 +1208,15 @@
       "empty": "暂无媒体素材",
       "note_hint": "为每个素材添加说明，AI 会在文中引用。",
       "note_placeholder": "素材说明（可选）…"
-    }
+    },
+    "image_mode": {
+      "title": "配图",
+      "none": "不配图",
+      "generate": "AI 生成",
+      "search": "搜索图片"
+    },
+    "image_count": "数量",
+    "image_search_hint": "搜索图片需要先在「设置 → AI 写作」里填写 Pexels API Key。"
   },
   "ai_revise": {
     "title": "AI 修改",

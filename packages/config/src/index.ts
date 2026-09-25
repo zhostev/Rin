@@ -61,6 +61,7 @@ export const AI_WRITER_CONFIG_FIELDS = [
   "temperature",
   "max_tokens",
   "system_prompt",
+  "pexels_api_key",
 ] as const;
 
 export const AI_WRITER_CONFIG_KEYS = AI_WRITER_CONFIG_FIELDS.map(
@@ -73,6 +74,7 @@ export const ANALYTICS_SALT_SEED_KEY = "analytics.salt_seed";
 export const SENSITIVE_SERVER_CONFIG_FIELDS = [
   `${AI_CONFIG_PREFIX}api_key`,
   `${AI_WRITER_CONFIG_PREFIX}api_key`,
+  `${AI_WRITER_CONFIG_PREFIX}pexels_api_key`,
   ANALYTICS_SALT_SEED_KEY,
 ] as const;
 
@@ -98,6 +100,7 @@ export const DEFAULT_AI_WRITER_CONFIG: AIWriterConfig = {
   temperature: 0.8,
   max_tokens: 4000,
   system_prompt: "",
+  pexels_api_key: "",
 };
 
 export class ConfigWrapper {
