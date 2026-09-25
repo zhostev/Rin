@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
+import { SharePosterModal, type SharePosterData } from "./share_poster";
 
 type ShareButtonsProps = {
   title: string;
   url?: string;
+  /** plain-text excerpt for the share poster */
+  excerpt?: string;
+  /** display date for the share poster, e.g. "2026-09-25" */
+  date?: string;
+  author?: string;
+  siteName?: string;
 };
 
 /** Share UI copy is intentionally Chinese for b.s7ea.com. */
@@ -13,7 +20,6 @@ const COPY = {
   native: "系统分享",
   twitter: "X",
   wechat: "微信",
-  wechatTip: "链接已复制，请到微信粘贴分享",
 } as const;
 
 function canNativeShare(): boolean {
@@ -46,10 +52,10 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export function ShareButtons({ title, url }: ShareButtonsProps) {
+export function ShareButtons({ title, url, excerpt, date, author, siteName }: ShareButtonsProps) {
   const [copied, setCopied] = useState(false);
-  const [wechatTip, setWechatTip] = useState(false);
   const [nativeAvailable, setNativeAvailable] = useState(false);
+  const [posterOpen, setPosterOpen] = useState(false);
 
   const shareUrl = url || (typeof window !== "undefined" ? window.location.href : "");
 
@@ -58,18 +64,16 @@ export function ShareButtons({ title, url }: ShareButtonsProps) {
   }, []);
 
   useEffect(() => {
-    if (!copied && !wechatTip) return;
+    if (!copied) return;
     const timer = window.setTimeout(() => {
       setCopied(false);
-      setWechatTip(false);
     }, 2000);
     return () => window.clearTimeout(timer);
-  }, [copied, wechatTip]);
+  }, [copied]);
 
   async function handleCopyLink() {
     const ok = await copyText(shareUrl);
     if (ok) {
-      setWechatTip(false);
       setCopied(true);
     }
   }
@@ -84,12 +88,19 @@ export function ShareButtons({ title, url }: ShareButtonsProps) {
   }
 
   async function handleWeChat() {
-    const ok = await copyText(shareUrl);
-    if (ok) {
-      setCopied(false);
-      setWechatTip(true);
-    }
+    // WeChat in-app browser can't receive shared links/images directly;
+    // generate a poster image the user can long-press to save and share.
+    setPosterOpen(true);
   }
+
+  const posterData: SharePosterData = {
+    title,
+    excerpt: excerpt ?? "",
+    url: shareUrl,
+    date: date ?? "",
+    author: author ?? "",
+    siteName: siteName ?? "",
+  };
 
   const twitterHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodeURIComponent(shareUrl)}`;
 
@@ -140,10 +151,8 @@ export function ShareButtons({ title, url }: ShareButtonsProps) {
           <span>{COPY.wechat}</span>
         </button>
       </div>
-      {wechatTip && (
-        <p className="text-xs text-gray-400" role="status">
-          {COPY.wechatTip}
-        </p>
+      {posterOpen && (
+        <SharePosterModal data={posterData} onClose={() => setPosterOpen(false)} />
       )}
     </div>
   );

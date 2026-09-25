@@ -304,7 +304,13 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                       </span>
                     </div>
                   </div>
-                  <ShareButtons title={feed.title ?? ""} />
+                  <ShareButtons
+                    title={feed.title ?? ""}
+                    excerpt={feed.ai_summary?.trim() || feed.content}
+                    date={new Date(feed.createdAt).toLocaleDateString()}
+                    author={feed.user.username}
+                    siteName={siteConfig.name}
+                  />
                 </div>
               </article>
               {id !== "about" && <AdjacentSection id={id} setError={setError} />}
