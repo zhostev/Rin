@@ -66,6 +66,7 @@ import {
     type R2DirectKind,
 } from "../features/media/r2-direct";
 import { headStorageObject } from "../utils/storage";
+import { createS3Client, deleteObject } from "../utils/s3";
 import {
     applyStreamWebhook,
     verifyStreamWebhookSignature,
@@ -394,6 +395,71 @@ export function AdminMediaService(): HonoApp {
 
         const updated = await findMediaAssetById(db, row.id);
         return c.json(serializeMediaAsset(updated ?? row));
+    }));
+
+    // GET /admin/media/r2/health —— R2 直传凭证诊断（服务端真实 PUT + DELETE 探测）
+    //   用与直传完全相同的签名逻辑签发 presigned PUT URL，服务端直接 PUT 一个探测小文件
+    //   （服务端不受 CORS 影响，能看到 R2 返回的真实 HTTP 状态），随后删除探测文件。
+    //   200 = 密钥有效且可写；403 = 密钥无效/权限不足；其他 4xx/5xx = 按 r2Code 排查。
+    //   永远不返回密钥与签名内容。
+    app.get('/r2/health', adminOnly(async (c) => {
+        const env = c.get('env');
+        try {
+            resolveR2DirectConfig(env);
+        } catch (error) {
+            if (error instanceof R2DirectNotConfiguredError) {
+                return c.json({ ok: false, code: error.code, message: error.message }, 503);
+            }
+            throw error;
+        }
+        const key = `media/original/__healthcheck__/ping-${Date.now()}.txt`;
+        let uploadURL: string;
+        try {
+            uploadURL = await presignR2PutUrl(env, key, 600);
+        } catch (error) {
+            return c.json({ ok: false, code: 'sign_failed', message: String(error) }, 500);
+        }
+        let urlHost = '';
+        try {
+            urlHost = new URL(uploadURL).host;
+        } catch {
+            urlHost = '';
+        }
+
+        let putStatus = 0;
+        let r2Code = '';
+        try {
+            const putRes = await fetch(uploadURL, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'text/plain' },
+                body: 'healthcheck',
+            });
+            putStatus = putRes.status;
+            const text = await putRes.text();
+            const m = /<Code>([^<]*)<\/Code>/.exec(text);
+            if (m) r2Code = m[1];
+        } catch (error) {
+            return c.json({ ok: false, code: 'put_threw', urlHost, key, message: String(error) }, 200);
+        }
+
+        let deleted: boolean | null = null;
+        if (putStatus >= 200 && putStatus < 300) {
+            try {
+                await deleteObject(createS3Client(env), env, key);
+                deleted = true;
+            } catch {
+                deleted = false;
+            }
+        }
+
+        return c.json({
+            ok: putStatus >= 200 && putStatus < 300,
+            putStatus,
+            r2Code,
+            deleted,
+            urlHost,
+            key,
+        });
     }));
 
     // POST /admin/media/r2/direct-upload —— R2 presigned 直传建单（图片/视频/音频）
