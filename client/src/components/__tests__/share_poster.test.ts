@@ -82,4 +82,27 @@ describe("parseArticleBlocks", () => {
     expect(parseArticleBlocks("")).toEqual([]);
     expect(parseArticleBlocks("   \n\n ")).toEqual([]);
   });
+
+  test("extracts inline images from paragraph lines", () => {
+    const blocks = parseArticleBlocks(
+      "before ![](/api/media/10/playback) after\nnext line\n\n![](/img.png)",
+    );
+    expect(blocks).toEqual([
+      { type: "paragraph", text: "before" },
+      { type: "image", alt: "", src: "/api/media/10/playback" },
+      { type: "paragraph", text: "after" },
+      { type: "paragraph", text: "next line" },
+      { type: "image", alt: "", src: "/img.png" },
+    ]);
+  });
+
+  test("inline image alone on a line stays a single image block", () => {
+    const blocks = parseArticleBlocks("text\n![](a.jpg)\nmore");
+    expect(blocks).toEqual([
+      { type: "paragraph", text: "text" },
+      { type: "image", alt: "", src: "a.jpg" },
+      { type: "paragraph", text: "more" },
+    ]);
+  });
 });
+

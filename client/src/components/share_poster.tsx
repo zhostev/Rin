@@ -243,6 +243,27 @@ function inlineText(src: string): string {
 }
 
 /** Split markdown into drawable blocks. Images must be on their own line. */
+type InlineSegment =
+  | { kind: "text"; text: string }
+  | { kind: "image"; alt: string; src: string };
+
+const INLINE_IMG_RE = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+
+/** Split a line into text / image segments, preserving order. */
+function splitInlineImages(line: string): InlineSegment[] {
+  const segments: InlineSegment[] = [];
+  let last = 0;
+  INLINE_IMG_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = INLINE_IMG_RE.exec(line)) !== null) {
+    if (m.index > last) segments.push({ kind: "text", text: line.slice(last, m.index) });
+    segments.push({ kind: "image", alt: m[1], src: m[2] });
+    last = m.index + m[0].length;
+  }
+  if (last < line.length) segments.push({ kind: "text", text: line.slice(last) });
+  return segments;
+}
+
 export function parseArticleBlocks(markdown: string): ArticleBlock[] {
   const blocks: ArticleBlock[] = [];
   const lines = markdown.split("\n");
@@ -338,7 +359,22 @@ export function parseArticleBlocks(markdown: string): ArticleBlock[] {
 
     flushList();
     flushQuote();
-    para.push(line.trim());
+    // Inline images (e.g. text ![](url) inside a paragraph) must become their
+    // own image blocks — otherwise inlineText() swallows them silently.
+    const segments = splitInlineImages(line.trim());
+    if (segments.length > 1 || (segments.length === 1 && segments[0].kind === "image")) {
+      flushPara();
+      for (const s of segments) {
+        if (s.kind === "image") {
+          blocks.push({ type: "image", alt: s.alt, src: s.src });
+        } else {
+          const text = inlineText(s.text);
+          if (text) blocks.push({ type: "paragraph", text });
+        }
+      }
+    } else {
+      para.push(line.trim());
+    }
     i++;
   }
   flushPara();
