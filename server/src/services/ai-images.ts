@@ -126,19 +126,99 @@ async function planImages(
     return planned;
 }
 
-/** Workers AI 图片模型的返回可能是 ArrayBuffer / Uint8Array / 带 arrayBuffer 的 Response。 */
-async function toImageBytes(response: unknown): Promise<{ bytes: Uint8Array; mime: string }> {
+/** Workers AI 图片模型的返回通常是 ReadableStream；兼容其他可能的形状。 */
+export async function toImageBytes(
+    response: unknown,
+): Promise<{ bytes: Uint8Array; mime: string }> {
     if (response instanceof Uint8Array) {
-        return { bytes: response, mime: "image/png" };
+        return { bytes: response, mime: sniffImageMime(response) };
     }
     if (response instanceof ArrayBuffer) {
-        return { bytes: new Uint8Array(response), mime: "image/png" };
+        const bytes = new Uint8Array(response);
+        return { bytes, mime: sniffImageMime(bytes) };
+    }
+    // Workers AI 图片模型（FLUX 等）返回 ReadableStream
+    if (typeof ReadableStream !== "undefined" && response instanceof ReadableStream) {
+        const buffer = await new Response(response as ReadableStream).arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        return { bytes, mime: sniffImageMime(bytes) };
     }
     if (response && typeof (response as { arrayBuffer?: unknown }).arrayBuffer === "function") {
         const buffer = await (response as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer();
-        return { bytes: new Uint8Array(buffer), mime: "image/png" };
+        const bytes = new Uint8Array(buffer);
+        return { bytes, mime: sniffImageMime(bytes) };
+    }
+    // REST 风格兜底：裸 base64 / data URL 字符串，或 { image: "base64..." }
+    if (typeof response === "string") {
+        const bytes = decodeBase64Image(response);
+        if (bytes) {
+            return { bytes, mime: sniffImageMime(bytes) };
+        }
+    }
+    if (response && typeof response === "object") {
+        const maybeImage = (response as { image?: unknown }).image;
+        if (typeof maybeImage === "string") {
+            const bytes = decodeBase64Image(maybeImage);
+            if (bytes) {
+                return { bytes, mime: sniffImageMime(bytes) };
+            }
+        }
     }
     throw new Error("图片生成返回了无法识别的格式");
+}
+
+function sniffImageMime(bytes: Uint8Array): string {
+    return sniffImageMimeStrict(bytes) ?? "image/png";
+}
+
+function sniffImageMimeStrict(bytes: Uint8Array): string | null {
+    if (
+        bytes.length >= 4 &&
+        bytes[0] === 0x89 &&
+        bytes[1] === 0x50 &&
+        bytes[2] === 0x4e &&
+        bytes[3] === 0x47
+    ) {
+        return "image/png";
+    }
+    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+        return "image/jpeg";
+    }
+    if (
+        bytes.length >= 12 &&
+        bytes[0] === 0x52 &&
+        bytes[1] === 0x49 &&
+        bytes[2] === 0x46 &&
+        bytes[3] === 0x46 &&
+        bytes[8] === 0x57 &&
+        bytes[9] === 0x45 &&
+        bytes[10] === 0x42 &&
+        bytes[11] === 0x50
+    ) {
+        return "image/webp";
+    }
+    if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
+        return "image/gif";
+    }
+    return null;
+}
+
+function decodeBase64Image(raw: string): Uint8Array | null {
+    const cleaned = raw.trim().replace(/^data:image\/\w+;base64,/, "");
+    if (!/^[A-Za-z0-9+/=\s]+$/.test(cleaned) || cleaned.length === 0) {
+        return null;
+    }
+    try {
+        const binary = atob(cleaned.replace(/\s+/g, ""));
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+        // 必须是可识别的图片魔数，防止把错误文本当成图片
+        return bytes.length > 0 && sniffImageMimeStrict(bytes) ? bytes : null;
+    } catch {
+        return null;
+    }
 }
 
 async function generateOneImage(env: Env, prompt: string): Promise<{ bytes: Uint8Array; mime: string }> {
