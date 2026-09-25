@@ -2,7 +2,7 @@ import { and, eq, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "../db/schema";
 import { feeds } from "../db/schema";
-import { extractImage } from "../utils/image";
+import { extractImage, toAbsoluteUrl } from "../utils/image";
 import { stripMarkdown } from "../utils/markdown";
 
 const FEED_PATH_PATTERN = /^\/feed\/([^/]+)\/?$/;
@@ -45,17 +45,6 @@ function truncatePlainText(text: string, maxLength = 160): string {
     return normalized;
   }
   return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
-}
-
-function toAbsoluteUrl(candidate: string | undefined, origin: string): string | undefined {
-  if (!candidate) {
-    return undefined;
-  }
-  try {
-    return new URL(candidate, origin).toString();
-  } catch {
-    return undefined;
-  }
 }
 
 export type FeedOgInput = {

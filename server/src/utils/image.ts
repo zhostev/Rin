@@ -83,3 +83,47 @@ export function extractImageWithMetadata(content: string) {
     }
     return undefined;
 }
+
+function escapeRegExp(s: string) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Strip the site's own origin from content URLs so stored content stays
+ * domain-independent: `https://example.com/api/blob/x.jpg` → `/api/blob/x.jpg`.
+ *
+ * Only rewrites the origin when it is immediately followed by `/`, so a bare
+ * origin mention in prose (e.g. "see https://example.com") is left untouched.
+ */
+export function stripSiteOrigin(content: string, origin: string): string {
+    if (!content || !origin) return content;
+    const pattern = new RegExp(`${escapeRegExp(origin)}(?=/)`, "g");
+    return content.replace(pattern, "");
+}
+
+/**
+ * Resolve a possibly-relative URL against an origin.
+ * Absolute inputs pass through unchanged via `new URL(candidate, base)`.
+ */
+export function toAbsoluteUrl(candidate: string | undefined, origin: string): string | undefined {
+    if (!candidate) {
+        return undefined;
+    }
+    try {
+        return new URL(candidate, origin).toString();
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * Rewrite relative src/href attributes in an HTML fragment to absolute URLs.
+ * For off-site renderers (RSS readers) that cannot resolve relative URLs.
+ */
+export function absolutizeContentUrls(html: string, origin: string): string {
+    if (!html || !origin) return html;
+    return html.replace(
+        /\b(src|href)="(\/[^"]*)"/g,
+        (_m, attr: string, path: string) => `${attr}="${new URL(path, origin).toString()}"`,
+    );
+}

@@ -22,7 +22,7 @@ import {
 // 命中 transcripts 表的 text/segments_json，只返回命中片段前后各 ~40 字。
 import { searchTranscripts } from "../features/media-center/transcripts";
 import { recordPageView } from "../utils/analytics";
-import { extractImageWithMetadata } from "../utils/image";
+import { extractImageWithMetadata, stripSiteOrigin } from "../utils/image";
 import { stripMarkdown } from "../utils/markdown";
 import { registerFeedAIComposeRoutes } from "./feed-ai-compose";
 import { syncFeedAISummaryQueueState } from "./feed-ai-summary";
@@ -177,7 +177,12 @@ export function FeedService(): Hono<{
         const uid = c.get('uid');
         const { title, alias, listed, content, summary, draft, tags, createdAt } = body;
 
-        const exist = await profileAsync(c, 'feed_create_existing', () => findDuplicateFeed(db, title, content));
+        // Store domain-independent content: strip this site's own origin so
+        // article images keep working if the domain ever changes.
+        const siteOrigin = new URL(c.req.url).origin;
+        const normalizedContent = stripSiteOrigin(content, siteOrigin);
+
+        const exist = await profileAsync(c, 'feed_create_existing', () => findDuplicateFeed(db, title, normalizedContent));
 
         if (exist) {
             return c.text('Content already exists', 400);
@@ -191,7 +196,7 @@ export function FeedService(): Hono<{
 
         const result = await profileAsync(c, 'feed_create_insert', () => insertFeed(db, {
             title,
-            content,
+            content: normalizedContent,
             summary,
             ai_summary: "",
             ai_summary_status: "idle",
@@ -402,6 +407,10 @@ export function FeedService(): Hono<{
         const id = c.req.param('id');
         const { title, listed, content, summary, alias, draft, top, tags, createdAt } = body;
 
+        // Store domain-independent content (see create route).
+        const siteOrigin = new URL(c.req.url).origin;
+        const normalizedContent = content === undefined ? undefined : stripSiteOrigin(content, siteOrigin);
+
         const id_num = parseFeedId(id);
         if (id_num === null) {
             return c.text('Not found', 404);
@@ -416,14 +425,14 @@ export function FeedService(): Hono<{
             return c.text('Permission denied', 403);
         }
 
-        const contentChanged = content && content !== feed.content;
+        const contentChanged = !!normalizedContent && normalizedContent !== feed.content;
         const isDraft = draft !== undefined ? draft : (feed.draft === 1);
         const shouldQueueAISummary = (contentChanged && !isDraft) || (!isDraft && feed.draft === 1 && !feed.ai_summary);
         const updateTime = new Date();
 
         await profileAsync(c, 'feed_update_db', () => updateFeedById(db, id_num, {
             title,
-            content,
+            content: normalizedContent,
             summary,
             ai_summary: shouldQueueAISummary ? "" : undefined,
             ai_summary_status: isDraft ? "idle" : undefined,

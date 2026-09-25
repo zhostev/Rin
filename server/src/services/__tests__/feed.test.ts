@@ -337,6 +337,27 @@ describe('FeedService', () => {
             expect(data.insertedId).toBeDefined();
         });
 
+        it('should store content with site origin stripped (domain-independent)', async () => {
+            const res = await app.request('/', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer mock_token_1',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    title: 'Origin strip feed',
+                    content: '![pic](http://localhost/api/blob/x.jpg) and http://localhost alone stays',
+                    listed: true,
+                    draft: false,
+                    tags: [],
+                }),
+            }, env);
+
+            expect(res.status).toBe(200);
+            const row = sqlite.query('SELECT content FROM feeds WHERE title = ?').get('Origin strip feed') as any;
+            expect(row.content).toBe('![pic](/api/blob/x.jpg) and http://localhost alone stays');
+        });
+
         it('should require admin permission', async () => {
             // Create app without admin permission
             const res = await app.request('/', {

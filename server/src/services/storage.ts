@@ -35,7 +35,11 @@ export function StorageService(): Hono {
         const hashkey = `${hash}.${suffix}`;
         
         try {
-            const result = await profileAsync(c, 'storage_put', () => putStorageObject(env, hashkey, file, file.type, new URL(c.req.url).origin));
+            // No baseUrl: the response URL stays relative (/api/blob/<key>) so
+            // stored article content is domain-independent. Callers that need
+            // an absolute URL (RSS, OG) resolve it against the request origin
+            // at render time.
+            const result = await profileAsync(c, 'storage_put', () => putStorageObject(env, hashkey, file, file.type));
             return c.json({ url: result.url });
         } catch (e: any) {
             console.error(e.message);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { detectMediaType, mediaPlaybackUrl } from "../media-upload";
+import { detectMediaType, mediaPlaybackRelativeUrl, mediaPlaybackUrl } from "../media-upload";
 
 function fileOfType(name: string, type: string) {
   return new File(["x"], name, { type });
@@ -15,5 +15,10 @@ describe("media upload helpers", () => {
 
   it("encodes the asset id into the playback url", () => {
     expect(mediaPlaybackUrl("asset/1")).toEndWith("/api/media/asset%2F1/playback");
+  });
+
+  it("builds a domain-independent relative playback url for article content", () => {
+    expect(mediaPlaybackRelativeUrl("asset/1")).toBe("/api/media/asset%2F1/playback");
+    expect(mediaPlaybackRelativeUrl("42")).not.toContain("http");
   });
 });

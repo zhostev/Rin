@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import type { AppContext } from "../core/hono-types";
 import { profileAsync } from "../core/server-timing";
 import { feeds, users } from "../db/schema";
-import { extractImage } from "../utils/image";
+import { absolutizeContentUrls, extractImage, toAbsoluteUrl } from "../utils/image";
 import { path_join } from "../utils/path";
 import { getStorageObject, getStoragePublicUrl, headStorageObject, putStorageObjectAtKey } from "../utils/storage";
 import { FAVICON_ALLOWED_TYPES, getFaviconKey } from "./favicon";
@@ -254,9 +254,11 @@ async function generateFeed(env: Env, db: DB, frontendUrl: string, c?: AppContex
                 : content.length > 100
                     ? content.slice(0, 100)
                     : content,
-            content: contentHtml,
+            // Stored content uses domain-independent relative URLs; RSS
+            // readers need absolute ones, resolved against this request.
+            content: absolutizeContentUrls(contentHtml, frontendUrl),
             author: user ? [{ name: user.username }] : undefined,
-            image: extractImage(content),
+            image: toAbsoluteUrl(extractImage(content), frontendUrl),
         });
     }
     

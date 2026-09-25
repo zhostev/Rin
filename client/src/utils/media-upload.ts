@@ -242,10 +242,15 @@ export async function uploadMediaFile(
   }
 }
 
-/** Absolute playback URL, so content stays valid in RSS and other off-site renderers. */
+/** Relative playback URL for embedding in article content (domain-independent). */
+export function mediaPlaybackRelativeUrl(id: string) {
+  return `/api/media/${encodeURIComponent(id)}/playback`;
+}
+
+/** Absolute playback URL, for off-site renderers (RSS/OG) that need one. */
 export function mediaPlaybackUrl(id: string) {
   const base = endpoint || (typeof window === "undefined" ? "" : window.location.origin);
-  return `${base}/api/media/${encodeURIComponent(id)}/playback`;
+  return `${base}${mediaPlaybackRelativeUrl(id)}`;
 }
 
 /**
@@ -269,7 +274,10 @@ export async function uploadImageToLibrary(
 
   return {
     asset: uploadResult.value.asset,
-    url: mediaPlaybackUrl(String(uploadResult.value.asset.id)),
+    // Relative on purpose: article content must not depend on the domain it
+    // was written from (see server stripSiteOrigin). Off-site renderers
+    // absolutize at serve time.
+    url: mediaPlaybackRelativeUrl(String(uploadResult.value.asset.id)),
     ...(metadataResult.status === "fulfilled" ? metadataResult.value : {}),
   };
 }

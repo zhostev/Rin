@@ -96,6 +96,19 @@ describe('RSSService', () => {
             expect(res.status).toBe(404);
         });
 
+        it('should absolutize relative image URLs for RSS readers', async () => {
+            sqlite.exec(`
+                INSERT INTO feeds (id, title, content, summary, uid, draft, listed, created_at, updated_at) VALUES
+                    (50, 'Relative Image Feed', '![pic](/api/blob/rel.jpg#blurhash=abc)', 'Summary', 1, 0, 1, unixepoch(), unixepoch())
+            `);
+            const res = await app.request('/rss.xml', { method: 'GET' }, env);
+            const text = await res.text();
+            // image enclosure + in-content img must be absolute; readers cannot resolve relative URLs
+            expect(text).toContain('/api/blob/rel.jpg');
+            expect(text).not.toContain('src="/api/blob/rel.jpg"');
+            expect(text).not.toContain('href="/api/blob/rel.jpg"');
+        });
+
         it('should convert markdown to HTML in content', async () => {
             const res = await app.request('/rss.xml', { method: 'GET' }, env);
             
