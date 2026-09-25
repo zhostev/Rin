@@ -769,6 +769,14 @@ export interface AIReviseResponse {
 }
 
 // ============================================================================
+// WeChat Draft (server/src/services/feed-wechat-draft.ts)
+// ============================================================================
+
+export interface WechatDraftResponse {
+  draft_media_id: string;
+}
+
+// ============================================================================
 // Sharing Reports (server/src/services/sharing-reports.ts)
 // ============================================================================
 

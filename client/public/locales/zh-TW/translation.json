@@ -1238,5 +1238,11 @@
     "discard": "放棄",
     "apply_hint": "應用後僅替換編輯器內容，需手動點更新發佈才會保存。",
     "failed": "AI 修改失敗"
+  },
+  "wechat_draft": {
+    "title": "推送公眾號草稿",
+    "pushing": "推送中…",
+    "hint": "經 ECS 中轉推送到微信公眾號草稿箱",
+    "success": "已送達公眾號草稿箱（draft_media_id={{mediaId}}），去公眾號後台草稿箱查看"
   }
 }

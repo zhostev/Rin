@@ -1229,5 +1229,11 @@
     "discard": "破棄",
     "apply_hint": "適用するとエディタの内容が置き換わります。保存は手動で行ってください。",
     "failed": "AI 修正に失敗しました"
+  },
+  "wechat_draft": {
+    "title": "WeChat下書きに送信",
+    "pushing": "送信中…",
+    "hint": "ECS中継でWeChat公式アカウントの下書きに送信",
+    "success": "WeChatの下書きに送信しました（draft_media_id={{mediaId}}）"
   }
 }

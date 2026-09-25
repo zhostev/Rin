@@ -26,6 +26,7 @@ import { extractImageWithMetadata, stripSiteOrigin } from "../utils/image";
 import { stripMarkdown } from "../utils/markdown";
 import { registerFeedAIComposeRoutes } from "./feed-ai-compose";
 import { registerFeedAIReviseRoutes } from "./feed-ai-revise";
+import { registerFeedWechatDraftRoutes } from "./feed-wechat-draft";
 import { syncFeedAISummaryQueueState } from "./feed-ai-summary";
 import { bindTagToPost } from "./tag";
 import { clearFeedCache, clearFeedCollectionCaches } from "./clear-feed-cache";
@@ -82,6 +83,7 @@ export function FeedService(): Hono<{
     // "ai-compose", silently swallowing this endpoint.
     registerFeedAIComposeRoutes(app);
     registerFeedAIReviseRoutes(app);
+    registerFeedWechatDraftRoutes(app);
 
     // GET /feed - List feeds
     app.get('/', async (c) => {

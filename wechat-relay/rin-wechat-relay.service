@@ -1,0 +1,22 @@
+[Unit]
+Description=Rin WeChat draft relay (Rin 后台一键推送公众号草稿)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/rin-wechat-relay
+ExecStart=/usr/bin/python3 /opt/rin-wechat-relay/server.py
+Restart=always
+RestartSec=5
+# 必填：中转鉴权密钥（和 Rin Worker 的 WECHAT_RELAY_SECRET 相同，至少 32 位随机串）
+Environment=RELAY_SECRET=CHANGE_ME
+# 微信配置（复用现有手工流程的配置文件）
+Environment=WECHAT_CONFIG=/root/.wechat_config.json
+Environment=RELAY_BIND=0.0.0.0
+Environment=RELAY_PORT=18080
+# systemd 日志：journalctl -u rin-wechat-relay -f
+
+[Install]
+WantedBy=multi-user.target

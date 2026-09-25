@@ -55,6 +55,7 @@ import type {
   AIComposeStatusResponse,
   CreateAIReviseRequest,
   AIReviseResponse,
+  WechatDraftResponse,
 } from "@rin/api";
 
 export interface SettingsConfigResponse {
@@ -377,6 +378,11 @@ class FeedAPI {
   // POST /api/feed/:id/ai-revise — AI 修改已有文章正文，同步返回改写后的 markdown
   async aiRevise(id: number, body: CreateAIReviseRequest): Promise<ApiResponse<AIReviseResponse>> {
     return this.http.post<AIReviseResponse>(`/api/feed/${id}/ai-revise`, body);
+  }
+
+  // POST /api/feed/:id/wechat-draft — 推送到微信公众号草稿箱（经 ECS 中转）
+  async wechatDraft(id: number): Promise<ApiResponse<WechatDraftResponse>> {
+    return this.http.post<WechatDraftResponse>(`/api/feed/${id}/wechat-draft`, {});
   }
 }
 

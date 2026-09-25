@@ -31,6 +31,11 @@ declare global {
     ANALYTICS?: AnalyticsEngineDataset;
     /** Cloudflare API Token（Analytics Engine SQL API 查询用；与媒体栈 token 独立） */
     CLOUDFLARE_API_TOKEN?: string;
+    // --- 微信公众号草稿中转（ECS 固定 IP 服务）---
+    /** 中转服务地址，如 http://1.2.3.4:18080（微信 token 接口校验 IP 白名单，Worker 不能直调） */
+    WECHAT_RELAY_URL?: string;
+    /** 中转服务鉴权密钥（与 ECS 的 RELAY_SECRET 相同） */
+    WECHAT_RELAY_SECRET?: string;
   }
 }
 
