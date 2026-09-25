@@ -6,6 +6,8 @@ type ShareButtonsProps = {
   url?: string;
   /** plain-text excerpt for the share poster */
   excerpt?: string;
+  /** full markdown content for the long article image */
+  content?: string;
   /** display date for the share poster, e.g. "2026-09-25" */
   date?: string;
   author?: string;
@@ -52,7 +54,7 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export function ShareButtons({ title, url, excerpt, date, author, siteName }: ShareButtonsProps) {
+export function ShareButtons({ title, url, excerpt, content, date, author, siteName }: ShareButtonsProps) {
   const [copied, setCopied] = useState(false);
   const [nativeAvailable, setNativeAvailable] = useState(false);
   const [posterOpen, setPosterOpen] = useState(false);
@@ -96,6 +98,7 @@ export function ShareButtons({ title, url, excerpt, date, author, siteName }: Sh
   const posterData: SharePosterData = {
     title,
     excerpt: excerpt ?? "",
+    content: content ?? "",
     url: shareUrl,
     date: date ?? "",
     author: author ?? "",

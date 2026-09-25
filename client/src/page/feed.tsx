@@ -307,6 +307,7 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                   <ShareButtons
                     title={feed.title ?? ""}
                     excerpt={feed.ai_summary?.trim() || feed.content}
+                    content={feed.content}
                     date={new Date(feed.createdAt).toLocaleDateString()}
                     author={feed.user.username}
                     siteName={siteConfig.name}

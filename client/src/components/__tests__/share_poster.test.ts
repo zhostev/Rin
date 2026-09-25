@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { stripMarkdown, wrapText } from "../share_poster";
+import { parseArticleBlocks, stripMarkdown, wrapText } from "../share_poster";
 
 describe("stripMarkdown", () => {
   test("removes code blocks, links, and formatting", () => {
@@ -35,5 +35,51 @@ describe("wrapText", () => {
 
   test("short text stays on one line", () => {
     expect(wrapText(ctx, "ab", 25, 3)).toEqual(["ab"]);
+  });
+});
+
+describe("parseArticleBlocks", () => {
+  test("parses headings, paragraphs, images, code, lists, quotes", () => {
+    const md = [
+      "# Title",
+      "",
+      "Hello **world**.",
+      "",
+      "## Sub",
+      "",
+      "![alt](/img.png)",
+      "",
+      "```js",
+      "const a = 1;",
+      "```",
+      "",
+      "- one",
+      "- two",
+      "",
+      "> quoted text",
+    ].join("\n");
+    const blocks = parseArticleBlocks(md);
+    expect(blocks).toEqual([
+      { type: "heading", level: 1, text: "Title" },
+      { type: "paragraph", text: "Hello world." },
+      { type: "heading", level: 2, text: "Sub" },
+      { type: "image", alt: "alt", src: "/img.png" },
+      { type: "code", text: "const a = 1;" },
+      { type: "list", items: ["one", "two"] },
+      { type: "quote", text: "quoted text" },
+    ]);
+  });
+
+  test("merges consecutive paragraph lines and skips empties", () => {
+    const blocks = parseArticleBlocks("a\nb\n\n\nc");
+    expect(blocks).toEqual([
+      { type: "paragraph", text: "a b" },
+      { type: "paragraph", text: "c" },
+    ]);
+  });
+
+  test("empty input yields no blocks", () => {
+    expect(parseArticleBlocks("")).toEqual([]);
+    expect(parseArticleBlocks("   \n\n ")).toEqual([]);
   });
 });
