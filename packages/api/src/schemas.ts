@@ -167,12 +167,21 @@ export const searchSchema = t.Object({
 // ============================================================================
 
 export const feedAIComposeSchema = t.Object({
-  topic: t.String({ minLength: 1 }),
+  // 截图生文时 topic 可空（只看图写作）；纯文本模式仍要求非空，路由层校验。
+  topic: t.String(),
   assets: t.Array(
     t.Object({
       id: t.String(),
       note: t.String(),
     }),
+  ),
+  visionAssets: t.Optional(
+    t.Array(
+      t.Object({
+        id: t.String(),
+        note: t.Optional(t.String()),
+      }),
+    ),
   ),
   length: t.Optional(t.String()),
   style: t.Optional(t.String()),

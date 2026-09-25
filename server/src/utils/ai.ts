@@ -27,11 +27,26 @@ export const WORKER_AI_MODELS: Record<string, string> = {
     // Vectorize index s7ea-qa-staging）。
     "whisper": "@cf/openai/whisper",
     "bge-base-en": "@cf/baai/bge-base-en-v1.5",
+    // 读图（截图生文）：llama-3.2 视觉指令模型，支持 OpenAI 式 vision 消息。
+    "llama-3.2-11b-vision": "@cf/meta/llama-3.2-11b-vision-instruct",
 };
+
+/** worker-ai 渠道读图时的默认视觉模型（vision_model 为空时使用）。 */
+export const DEFAULT_WORKER_AI_VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 
 export type AIGenerationOptions = {
     maxTokens?: number;
     temperature?: number;
+};
+
+/** OpenAI 兼容的视觉消息内容块：文本或图片（data URL / http(s) URL）。 */
+export type AIVisionContentPart =
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string } };
+
+export type AIChatMessage = {
+    role: "system" | "user" | "assistant";
+    content: string | AIVisionContentPart[];
 };
 
 const DEFAULT_MAX_TOKENS = 500;
@@ -101,7 +116,7 @@ export function extractAIText(response: unknown): string | null {
 async function executeWorkerAI(
     env: Env,
     modelId: string,
-    messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+    messages: AIChatMessage[],
     options?: AIGenerationOptions,
 ): Promise<string | null> {
     if (!env.AI || typeof env.AI.run !== "function") {
@@ -167,7 +182,7 @@ async function executeExternalAI(
         api_key: string;
         api_url: string;
     },
-    messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+    messages: AIChatMessage[],
     options?: AIGenerationOptions,
 ): Promise<string | null> {
     const { provider, model, api_key, api_url } = config;
@@ -221,6 +236,46 @@ export async function generateAIText(
     }
 
     return executeExternalAI(config, messages, options);
+}
+
+/**
+ * 读图时实际使用的模型：
+ * - worker-ai：用 vision_model 配置，空则用内置默认视觉模型（文本模型看不懂图）；
+ * - 外部渠道：沿用配置的 model（OpenAI 兼容接口多为同一模型支持视觉）。
+ */
+export function resolveVisionModel(config: {
+    provider: string;
+    model: string;
+    vision_model?: string;
+}): string {
+    if (config.provider === "worker-ai") {
+        return config.vision_model?.trim() || DEFAULT_WORKER_AI_VISION_MODEL;
+    }
+    return config.model;
+}
+
+/**
+ * 带图片输入的文本生成：截图生文用。消息 content 可混排文本块与
+ * image_url 块（data URL），worker-ai 与外部渠道都走 OpenAI 兼容格式。
+ */
+export async function generateAITextWithVision(
+    env: Env,
+    config: {
+        provider: string;
+        model: string;
+        api_key: string;
+        api_url: string;
+        vision_model?: string;
+    },
+    messages: AIChatMessage[],
+    options?: AIGenerationOptions,
+): Promise<string | null> {
+    const model = resolveVisionModel(config);
+    if (config.provider === 'worker-ai') {
+        return executeWorkerAI(env, getWorkerAIModelId(model), messages, options);
+    }
+
+    return executeExternalAI({ ...config, model }, messages, options);
 }
 
 /**

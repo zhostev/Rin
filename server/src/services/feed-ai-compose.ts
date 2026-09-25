@@ -5,13 +5,20 @@ import type { Hono } from "hono";
 import type { CacheImpl, DB, Variables } from "../core/hono-types";
 import { adminOnly, withJsonBody } from "../core/route-boundaries";
 import { feeds, mediaAssets } from "../db/schema";
+import { presignR2GetUrl } from "../features/media/r2-direct";
 import {
     createFeedAIComposeTask,
     createTaskQueue,
     type FeedAIComposeStatus,
     type FeedAIComposeTaskPayload,
 } from "../queue";
-import { generateAIText, stripReasoningTags } from "../utils/ai";
+import {
+    generateAIText,
+    generateAITextWithVision,
+    stripReasoningTags,
+    type AIChatMessage,
+    type AIVisionContentPart,
+} from "../utils/ai";
 import {
     buildComposeUserMessage,
     checkComposeGate,
@@ -142,6 +149,116 @@ export async function loadComposeAssets(
     };
 }
 
+/** 截图生文：单次最多读图数（控制 token 成本与请求体积）。 */
+export const VISION_IMAGE_MAX_COUNT = 5;
+/** 截图生文：单张截图上限 6MB，超限直接报错（避免视觉请求过大）。 */
+export const VISION_IMAGE_MAX_BYTES = 6 * 1024 * 1024;
+
+export type VisionImageInput = {
+    dataUrl: string;
+    asset: ComposeAsset;
+};
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(binary);
+}
+
+/**
+ * 截图生文：校验截图资产（必须存在、是图片、有 R2 对象）。
+ * 路由层用它做前置校验（400），任务执行时用 loadVisionImages 下载。
+ */
+export async function resolveVisionAssetRows(
+    db: DB,
+    requested: Array<{ id: string; note?: string }>,
+): Promise<
+    | { ok: true; items: Array<{ row: typeof mediaAssets.$inferSelect; note: string }> }
+    | { ok: false; error: string }
+> {
+    const items = requested.filter((item) => item.id.trim().length > 0);
+    if (items.length === 0) {
+        return { ok: true, items: [] };
+    }
+    if (items.length > VISION_IMAGE_MAX_COUNT) {
+        return { ok: false, error: `截图最多上传 ${VISION_IMAGE_MAX_COUNT} 张` };
+    }
+    const numericIds = items
+        .map((item) => Number(item.id))
+        .filter((id) => Number.isSafeInteger(id) && id > 0);
+    if (numericIds.length !== items.length) {
+        return { ok: false, error: "截图资产 id 非法" };
+    }
+    const rows = await db.query.mediaAssets.findMany({
+        where: inArray(mediaAssets.id, numericIds),
+    });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+
+    const resolved: Array<{ row: typeof mediaAssets.$inferSelect; note: string }> = [];
+    for (const item of items) {
+        const row = byId.get(Number(item.id));
+        if (!row) {
+            return { ok: false, error: `截图不存在：${item.id}` };
+        }
+        if (row.kind !== "image") {
+            return { ok: false, error: `截图必须是图片：${item.id}` };
+        }
+        if (!row.r2Key) {
+            return { ok: false, error: `截图没有文件对象：${item.id}` };
+        }
+        resolved.push({ row, note: item.note?.trim() || "" });
+    }
+    return { ok: true, items: resolved };
+}
+
+/**
+ * 截图生文：把截图下载为视觉模型可读的 data URL。
+ * 返回的 asset 同时进素材清单，模型可用 [[media:N]] 把截图插进正文。
+ */
+export async function loadVisionImages(
+    env: Env,
+    db: DB,
+    requested: Array<{ id: string; note?: string }>,
+): Promise<{ ok: true; images: VisionImageInput[] } | { ok: false; error: string }> {
+    const resolved = await resolveVisionAssetRows(db, requested);
+    if (!resolved.ok) {
+        return resolved;
+    }
+
+    const images: VisionImageInput[] = [];
+    for (const { row, note } of resolved.items) {
+        let bytes: ArrayBuffer;
+        try {
+            const url = await presignR2GetUrl(env, row.r2Key!);
+            const response = await fetch(url);
+            if (!response.ok) {
+                return { ok: false, error: `截图下载失败：${row.id}（${response.status}）` };
+            }
+            bytes = await response.arrayBuffer();
+        } catch {
+            return { ok: false, error: `截图下载失败：${row.id}` };
+        }
+        if (bytes.byteLength > VISION_IMAGE_MAX_BYTES) {
+            return { ok: false, error: `截图过大（单张上限 6MB）：${row.id}` };
+        }
+        const mime = row.mime && row.mime.startsWith("image/") ? row.mime : "image/png";
+        images.push({
+            dataUrl: `data:${mime};base64,${arrayBufferToBase64(bytes)}`,
+            asset: {
+                id: String(row.id),
+                type: "image",
+                provider: (row.source === "stream" ? "stream" : "r2") as ComposeAsset["provider"],
+                note: note || "截图/输入图片",
+            },
+        });
+    }
+    return { ok: true, images };
+}
+
 export async function processFeedAIComposeTask(
     env: Env,
     db: DB,
@@ -216,31 +333,64 @@ export async function processFeedAIComposeTask(
     }
     const allAssets = [...assetResult.assets, ...aiImageAssets];
 
-    const messages = [
-        {
-            role: "system" as const,
-            content: writerConfig.system_prompt.trim() || DEFAULT_COMPOSE_SYSTEM_PROMPT,
-        },
-        {
-            role: "user" as const,
-            content: buildComposeUserMessage({
-                topic: payload.topic,
-                assets: allAssets,
-                length,
-                style: payload.style,
-            }),
-        },
-    ];
+    // 截图生文：下载截图喂给视觉模型读图；截图同时排在素材清单最前面，
+    // 模型可用 [[media:N]] 把它们插进正文。
+    let visionParts: AIVisionContentPart[] = [];
+    if (payload.visionAssets.length > 0) {
+        const vision = await loadVisionImages(env, db, payload.visionAssets);
+        if (!vision.ok) {
+            await db
+                .update(feeds)
+                .set(buildStatusUpdate("failed", { aiComposeError: vision.error }))
+                .where(eq(feeds.id, feed.id));
+            return;
+        }
+        visionParts = vision.images.map((image) => ({
+            type: "image_url" as const,
+            image_url: { url: image.dataUrl },
+        }));
+        allAssets.unshift(...vision.images.map((image) => image.asset));
+    }
+
+    const systemPrompt = writerConfig.system_prompt.trim() || DEFAULT_COMPOSE_SYSTEM_PROMPT;
+    // 截图生文可以不填选题：只看图写作。
+    const topic = payload.topic.trim() || "请根据以上截图/图片的内容写一篇文章";
+    const userText = buildComposeUserMessage({
+        topic,
+        assets: allAssets,
+        length,
+        style: payload.style,
+    });
 
     let raw: string | null = null;
     let requestError: string | undefined;
 
     try {
-        raw = await generateAIText(env, writerConfig, messages, {
+        const genOptions = {
             // Never let a configured ceiling truncate the length that was asked for.
             maxTokens: Math.max(writerConfig.max_tokens, composeMaxTokensFloor(length)),
             temperature: writerConfig.temperature,
-        });
+        };
+        if (visionParts.length > 0) {
+            const messages: AIChatMessage[] = [
+                { role: "system", content: systemPrompt },
+                {
+                    role: "user",
+                    content: [...visionParts, { type: "text" as const, text: userText }],
+                },
+            ];
+            raw = await generateAITextWithVision(env, writerConfig, messages, genOptions);
+        } else {
+            raw = await generateAIText(
+                env,
+                writerConfig,
+                [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userText },
+                ],
+                genOptions,
+            );
+        }
     } catch (error) {
         console.error("[AI Compose] Generation failed:", error);
         requestError = error instanceof Error ? error.message : String(error);
@@ -308,6 +458,19 @@ export function registerFeedAIComposeRoutes(app: Hono<{ Bindings: Env; Variables
                     return c.text(`Unknown media asset: ${assetResult.missing.join(", ")}`, 400);
                 }
 
+                // 截图生文：选题可空（只看图写作），但选题和截图不能同时为空。
+                const topic = (body.topic ?? "").trim();
+                const visionAssets = (body.visionAssets ?? [])
+                    .map((item) => ({ id: String(item.id ?? "").trim(), note: item.note ?? "" }))
+                    .filter((item) => item.id.length > 0);
+                if (!topic && visionAssets.length === 0) {
+                    return c.text("请填写选题，或上传截图使用截图生文", 400);
+                }
+                const visionCheck = await resolveVisionAssetRows(db, visionAssets);
+                if (!visionCheck.ok) {
+                    return c.text(visionCheck.error, 400);
+                }
+
                 // AI 配图的前置校验：缺 key / 缺绑定直接 400，不建占位文章。
                 const imageMode = normalizeImageMode(body.imageMode);
                 const imageCount = normalizeImageCount(body.imageCount);
@@ -324,7 +487,7 @@ export function registerFeedAIComposeRoutes(app: Hono<{ Bindings: Env; Variables
                 const rows = await db
                     .insert(feeds)
                     .values({
-                        title: body.topic,
+                        title: topic || "截图生文",
                         content: "",
                         summary: "",
                         ai_summary: "",
@@ -349,8 +512,9 @@ export function registerFeedAIComposeRoutes(app: Hono<{ Bindings: Env; Variables
                 const enqueued = await enqueueFeedAICompose(env, {
                     feedId: placeholder.id,
                     expectedUpdatedAtUnix: Math.floor(placeholder.updatedAt.getTime() / 1000),
-                    topic: body.topic,
+                    topic,
                     assets: body.assets,
+                    visionAssets,
                     length: normalizeComposeLength(body.length),
                     style: body.style,
                     listed,

@@ -11,9 +11,16 @@ const MODES: AIReviseMode[] = ["polish", "expand", "shorten", "proofread", "cust
 export function AIRevisePanel({
   feedId,
   onApply,
+  directSave,
+  listed,
 }: {
   feedId: number;
-  onApply: (content: string) => void;
+  /** 旧行为：把改写结果回填给调用方（人工编辑器已下线，保留兼容）。 */
+  onApply?: (content: string) => void;
+  /** 新行为：改写结果直接保存到文章，无人工编辑环节。 */
+  directSave?: boolean;
+  /** directSave 时保留的列出状态（服务端 update 要求显式传 listed）。 */
+  listed?: boolean;
 }) {
   const { t } = useTranslation();
   const { showAlert, AlertUI } = useAlert();
@@ -21,6 +28,7 @@ export function AIRevisePanel({
   const [mode, setMode] = useState<AIReviseMode>("polish");
   const [instruction, setInstruction] = useState("");
   const [busy, setBusy] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [revised, setRevised] = useState<string | null>(null);
 
   async function submit() {
@@ -49,9 +57,25 @@ export function AIRevisePanel({
     setRevised(data.revised);
   }
 
-  function apply() {
-    if (revised == null) return;
-    onApply(revised);
+  async function apply() {
+    if (revised == null || applying) return;
+    if (directSave) {
+      setApplying(true);
+      const { error } = await client.feed.update(feedId, {
+        content: revised,
+        listed: listed ?? true,
+      });
+      setApplying(false);
+      if (error) {
+        showAlert(String(error.value ?? t("ai_revise.failed")));
+        return;
+      }
+      setRevised(null);
+      setOpen(false);
+      showAlert(t("ai_revise.saved"), () => window.location.reload());
+      return;
+    }
+    onApply?.(revised);
     setRevised(null);
     setOpen(false);
   }
@@ -123,8 +147,10 @@ export function AIRevisePanel({
                 <button
                   type="button"
                   onClick={apply}
-                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-theme px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-theme-hover"
+                  disabled={applying}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-theme px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-theme-hover disabled:opacity-60"
                 >
+                  {applying && <ReactLoading type="spin" height={14} width={14} />}
                   {t("ai_revise.apply")}
                 </button>
                 <button
@@ -135,7 +161,9 @@ export function AIRevisePanel({
                   {t("ai_revise.discard")}
                 </button>
               </div>
-              <p className="text-xs t-secondary">{t("ai_revise.apply_hint")}</p>
+              <p className="text-xs t-secondary">
+                {t(directSave ? "ai_revise.apply_hint_direct" : "ai_revise.apply_hint")}
+              </p>
             </div>
           )}
         </div>

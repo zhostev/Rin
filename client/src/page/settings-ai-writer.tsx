@@ -15,6 +15,8 @@ export type AIWriterSettingsValue = {
   systemPrompt: string;
   pexelsApiKey: string;
   pexelsApiKeySet: boolean;
+  /** 读图视觉模型；空=内置默认（worker-ai 用 llama-3.2 vision，外部渠道沿用 model）。 */
+  visionModel: string;
 };
 
 const TEXT_INPUT_CLASS =
@@ -119,6 +121,19 @@ export function AIWriterSettings({
                   placeholder={t("settings.ai_writer.api_url.desc")}
                   className={TEXT_INPUT_CLASS}
                 />
+              </div>
+              <div className="space-y-2 lg:col-span-2">
+                <p className="text-sm font-medium t-primary">{t("settings.ai_writer.vision_model.title")}</p>
+                <input
+                  type="text"
+                  value={value.visionModel}
+                  onChange={(event) => {
+                    onChange({ visionModel: event.target.value });
+                  }}
+                  placeholder={t("settings.ai_writer.vision_model.desc")}
+                  className={TEXT_INPUT_CLASS}
+                />
+                <p className="text-xs t-secondary">{t("settings.ai_writer.vision_model.hint")}</p>
               </div>
               <div className="space-y-2">
                 <p className="text-sm font-medium t-primary">{t("settings.ai_writer.temperature.title")}</p>

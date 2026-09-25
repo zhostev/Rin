@@ -62,6 +62,8 @@ export interface FeedAIComposeTaskPayload {
   imageMode: AIComposeImageMode;
   /** 配图数量，1..3（服务端钳制） */
   imageCount: number;
+  /** 截图生文：读图用的截图资产（服务端下载原图喂给视觉模型） */
+  visionAssets: Array<{ id: string; note?: string }>;
 }
 
 export interface FeedAIComposeTask {
@@ -125,7 +127,8 @@ function isComposePayload(value: unknown): value is FeedAIComposeTaskPayload {
     typeof payload.expectedUpdatedAtUnix === "number" &&
     typeof payload.topic === "string" &&
     typeof payload.listed === "boolean" &&
-    Array.isArray(payload.assets)
+    Array.isArray(payload.assets) &&
+    Array.isArray(payload.visionAssets)
   );
 }
 

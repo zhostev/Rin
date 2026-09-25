@@ -10,7 +10,7 @@
     "queue_status_description": "AI 要約キューの進行状況、最近のタスク結果、失敗内容を確認します。",
     "settings_description": "サイトの挙動、連携設定、公開ルールを一か所で管理します。",
     "title": "管理画面",
-    "writing_description": "非公開の管理ワークスペースから記事を作成、編集、公開します。",
+    "writing_description": "AI執筆：トピックやスクリーンショットからAIが記事を生成・公開します。",
     "stories_description": "コンテンツパッケージの作成と管理：1つの永続アドレス配下のテキスト・動画・音声ブロック。",
     "media_description": "アップロード済みメディアアセットの閲覧と管理。",
     "series_description": "ストーリーをシリーズやコレクションに整理。（ステージ2で実装）",
@@ -481,6 +481,11 @@
       "system_prompt": {
         "title": "システムプロンプト",
         "desc": "空欄の場合は組み込みの中国語ライティングプロンプトを使用"
+      },
+      "vision_model": {
+        "title": "ビジョンモデル（画像読取）",
+        "desc": "空欄で内蔵デフォルトを使用",
+        "hint": "worker-aiは空欄でllama-3.2 visionを使用；外部プロバイダーは上記モデルを再利用します。"
       }
     },
     "get_config_failed$message": "設定の取得に失敗しました: {{message}}",
@@ -1173,7 +1178,7 @@
   },
   "ai_compose": {
     "title": "AI ライティング",
-    "desc": "トピックを入力すると AI が記事を生成し、完了後に自動公開されます。",
+    "desc": "トピックの入力またはスクリーンショットのアップロードで、AIが記事を生成し自動公開します。",
     "topic_placeholder": "記事のトピックを入力…",
     "topic_empty": "先に記事のトピックを入力してください",
     "length": {
@@ -1207,7 +1212,17 @@
       "search": "画像を検索"
     },
     "image_count": "枚数",
-    "image_search_hint": "画像検索には「設定 → AI ライティング」での Pexels API キー登録が必要です。"
+    "image_search_hint": "画像検索には「設定 → AI ライティング」での Pexels API キー登録が必要です。",
+    "topic_or_shots_empty": "トピックを入力するか、スクリーンショットをアップロードしてください",
+    "shots": {
+      "title": "スクショから執筆",
+      "desc": "スクリーンショットをアップロードすると、AIが画像を読み取って執筆します。素材リストにも追加され、本文に挿入できます。",
+      "add": "スクリーンショットをアップロード（最大{max}枚）",
+      "uploading": "アップロード中…",
+      "remove": "スクリーンショットを削除",
+      "note_placeholder": "画像へのメモ（任意）",
+      "max_hint": "スクリーンショットは最大{max}枚まで"
+    }
   },
   "ai_revise": {
     "title": "AI 推敲",
@@ -1228,7 +1243,9 @@
     "apply": "エディタに適用",
     "discard": "破棄",
     "apply_hint": "適用するとエディタの内容が置き換わります。保存は手動で行ってください。",
-    "failed": "AI 修正に失敗しました"
+    "failed": "AI 修正に失敗しました",
+    "saved": "保存しました",
+    "apply_hint_direct": "適用すると記事に直接保存されます。"
   },
   "wechat_draft": {
     "title": "WeChat下書きに送信",

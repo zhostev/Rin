@@ -62,6 +62,7 @@ export const AI_WRITER_CONFIG_FIELDS = [
   "max_tokens",
   "system_prompt",
   "pexels_api_key",
+  "vision_model",
 ] as const;
 
 export const AI_WRITER_CONFIG_KEYS = AI_WRITER_CONFIG_FIELDS.map(
@@ -101,6 +102,7 @@ export const DEFAULT_AI_WRITER_CONFIG: AIWriterConfig = {
   max_tokens: 4000,
   system_prompt: "",
   pexels_api_key: "",
+  vision_model: "",
 };
 
 export class ConfigWrapper {

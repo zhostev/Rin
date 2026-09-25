@@ -146,3 +146,27 @@ export async function presignR2PutUrl(
     });
     return signed.url;
 }
+
+/**
+ * 签发一次性 GET URL（query-string SigV4），供 Worker 服务端自己下载
+ * R2 对象（截图生文读图用）。默认 10 分钟有效。
+ */
+export async function presignR2GetUrl(
+    env: Env,
+    key: string,
+    expiresInSec = 600,
+): Promise<string> {
+    const { accessKeyId, secretAccessKey } = resolveR2DirectConfig(env);
+    const client = new AwsClient({
+        accessKeyId,
+        secretAccessKey,
+        service: "s3",
+    });
+    const base = buildS3ObjectUrl(env, key);
+    const url = `${base}${base.includes("?") ? "&" : "?"}X-Amz-Expires=${Math.floor(expiresInSec)}`;
+    const signed = await client.sign(url, {
+        method: "GET",
+        aws: { signQuery: true },
+    });
+    return signed.url;
+}

@@ -10,7 +10,7 @@
     "queue_status_description": "查看 AI 摘要佇列進度、最近任務結果與失敗資訊。",
     "settings_description": "在統一的後台空間中管理站點行為、整合配置與發佈規則。",
     "title": "後台管理",
-    "writing_description": "在獨立的管理工作區中編寫、編輯並發佈內容。",
+    "writing_description": "AI 寫作：輸入選題或上傳截圖，由 AI 生成並直接發佈文章。",
     "stories_description": "建立與管理內容包：同一永久地址下的文字、影片、音訊有序內容塊。",
     "media_description": "瀏覽與管理全部已上傳媒體資源。",
     "series_description": "把內容包組織成專題與合集。（階段 2 實作）",
@@ -490,6 +490,11 @@
       "system_prompt": {
         "title": "系統提示詞",
         "desc": "留空則使用內建的中文寫作提示詞"
+      },
+      "vision_model": {
+        "title": "視覺模型（讀圖）",
+        "desc": "留空使用內建預設",
+        "hint": "worker-ai 留空時用 llama-3.2 vision；外部管道留空則沿用上面的模型。"
       }
     },
     "get_config_failed$message": "獲取配置失敗，{{message}}",
@@ -1182,7 +1187,7 @@
   },
   "ai_compose": {
     "title": "AI 寫作",
-    "desc": "輸入主題，AI 會生成一篇文章，完成後將直接發佈。",
+    "desc": "輸入選題或上傳截圖，AI 會生成一篇文章，完成後將直接發佈。",
     "topic_placeholder": "輸入文章主題…",
     "topic_empty": "請先輸入文章主題",
     "length": {
@@ -1216,7 +1221,17 @@
       "search": "搜尋圖片"
     },
     "image_count": "數量",
-    "image_search_hint": "搜尋圖片需先在「設定 → AI 寫作」填寫 Pexels API Key。"
+    "image_search_hint": "搜尋圖片需先在「設定 → AI 寫作」填寫 Pexels API Key。",
+    "topic_or_shots_empty": "請填寫選題，或上傳截圖使用截圖生文",
+    "shots": {
+      "title": "截圖生文",
+      "desc": "上傳截圖，AI 會先讀圖再寫作；截圖也會進入素材清單，可插入正文。",
+      "add": "上傳截圖（最多 {max} 張）",
+      "uploading": "上傳中…",
+      "remove": "移除截圖",
+      "note_placeholder": "給截圖加一句說明（選填）",
+      "max_hint": "截圖最多 {max} 張"
+    }
   },
   "ai_revise": {
     "title": "AI 修改",
@@ -1237,7 +1252,9 @@
     "apply": "應用到編輯器",
     "discard": "放棄",
     "apply_hint": "應用後僅替換編輯器內容，需手動點更新發佈才會保存。",
-    "failed": "AI 修改失敗"
+    "failed": "AI 修改失敗",
+    "saved": "已儲存",
+    "apply_hint_direct": "套用後直接儲存到文章，無需手動操作。"
   },
   "wechat_draft": {
     "title": "推送公眾號草稿",

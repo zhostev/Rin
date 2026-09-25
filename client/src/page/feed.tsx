@@ -4,12 +4,14 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { Helmet } from "react-helmet";
 import { useTranslation } from "react-i18next";
 import Popup from "reactjs-popup";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
+import ReactLoading from "react-loading";
 import { useAlert, useConfirm } from "../components/dialog";
 import { HashTag } from "../components/hashtag";
 import { ImageWithFallback } from "../components/image-with-fallback";
 import { Waiting } from "../components/loading";
 import { Markdown } from "../components/markdown";
+import { AIRevisePanel } from "./writing-ai-revise";
 import { client } from "../app/runtime";
 import { ClientConfigContext } from "../state/config";
 import { ProfileContext } from "../state/profile";
@@ -44,11 +46,29 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
   const { showAlert, AlertUI } = useAlert();
   const { showConfirm, ConfirmUI } = useConfirm();
   const [top, setTop] = useState<number>(0);
+  const [showRevise, setShowRevise] = useState(false);
+  const [pushingWechat, setPushingWechat] = useState(false);
   const config = useContext(ClientConfigContext);
   const counterEnabled = config.getBoolean('counter.enabled');
   const hasAISummary = Boolean(feed?.ai_summary?.trim());
   const showAISummaryState = feed?.ai_summary_status === "pending" || feed?.ai_summary_status === "processing" || feed?.ai_summary_status === "failed";
   const hashtags = Array.isArray(feed?.hashtags) ? feed.hashtags : [];
+  function pushWechatDraft() {
+    if (!feed || pushingWechat) return;
+    setPushingWechat(true);
+    client.feed
+      .wechatDraft(feed.id)
+      .then(({ data, error }) => {
+        if (error) {
+          showAlert(error.value as string);
+        } else if (data) {
+          showAlert(t("wechat_draft.success", { mediaId: data.draft_media_id }));
+        }
+      })
+      .finally(() => {
+        setPushingWechat(false);
+      });
+  }
   function deleteFeed() {
     // Confirm
     showConfirm(
@@ -232,28 +252,51 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                   </div>
                   <div className="pt-2">
                     {profile?.permission && (
-                      <div className="flex gap-2">
-                        <button
-                          aria-label={top > 0 ? t("untop.title") : t("top.title")}
-                          onClick={topFeed}
-                          className={`flex-1 flex flex-col items-end justify-center px-2 py rounded-full transition ${top > 0 ? "bg-theme text-white hover:bg-theme-hover active:bg-theme-active" : "bg-secondary bg-button dark:text-neutral-400"}`}
-                        >
-                          <i className="ri-skip-up-line" />
-                        </button>
-                        <Link
-                          aria-label={t("edit")}
-                          href={`/admin/writing/${feed.id}`}
-                          className="flex-1 flex flex-col items-end justify-center px-2 py bg-secondary bg-button rounded-full transition"
-                        >
-                          <i className="ri-edit-2-line dark:text-neutral-400" />
-                        </Link>
-                        <button
-                          aria-label={t("delete.title")}
-                          onClick={deleteFeed}
-                          className="flex-1 flex flex-col items-end justify-center px-2 py bg-secondary bg-button rounded-full transition"
-                        >
-                          <i className="ri-delete-bin-7-line text-red-500" />
-                        </button>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex gap-2">
+                          <button
+                            aria-label={top > 0 ? t("untop.title") : t("top.title")}
+                            onClick={topFeed}
+                            className={`flex-1 flex flex-col items-end justify-center px-2 py rounded-full transition ${top > 0 ? "bg-theme text-white hover:bg-theme-hover active:bg-theme-active" : "bg-secondary bg-button dark:text-neutral-400"}`}
+                          >
+                            <i className="ri-skip-up-line" />
+                          </button>
+                          <button
+                            aria-label={t("ai_revise.title")}
+                            title={t("ai_revise.title")}
+                            onClick={() => setShowRevise(!showRevise)}
+                            className={`flex-1 flex flex-col items-end justify-center px-2 py rounded-full transition ${showRevise ? "bg-theme text-white" : "bg-secondary bg-button dark:text-neutral-400"}`}
+                          >
+                            <i className="ri-sparkling-line" />
+                          </button>
+                          <button
+                            aria-label={t("wechat_draft.title")}
+                            title={t("wechat_draft.hint")}
+                            onClick={pushWechatDraft}
+                            disabled={pushingWechat}
+                            className="flex-1 flex flex-col items-end justify-center px-2 py bg-secondary bg-button rounded-full transition disabled:opacity-60"
+                          >
+                            {pushingWechat ? (
+                              <ReactLoading type="spin" height={14} width={14} />
+                            ) : (
+                              <i className="ri-send-plane-line dark:text-neutral-400" />
+                            )}
+                          </button>
+                          <button
+                            aria-label={t("delete.title")}
+                            onClick={deleteFeed}
+                            className="flex-1 flex flex-col items-end justify-center px-2 py bg-secondary bg-button rounded-full transition"
+                          >
+                            <i className="ri-delete-bin-7-line text-red-500" />
+                          </button>
+                        </div>
+                        {showRevise && feed && (
+                          <AIRevisePanel
+                            feedId={feed.id}
+                            directSave
+                            listed={feed.listed === 1}
+                          />
+                        )}
                       </div>
                     )}
                   </div>
