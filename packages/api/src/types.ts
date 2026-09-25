@@ -38,6 +38,8 @@ export interface Feed {
   pv: number;
   uv: number;
   top?: number;
+  /** 仅管理员可见的列出状态（0/1），公开请求不会返回。 */
+  listed?: number;
 }
 
 export interface FeedListResponse {
@@ -641,6 +643,12 @@ export interface AIWriterConfig {
   system_prompt: string;
   /** Pexels 搜图 API Key（AI 配图 search 模式用；空串表示未配置） */
   pexels_api_key: string;
+  /**
+   * 读图（截图生文）用的视觉模型。空串表示用内置默认：
+   * worker-ai → @cf/meta/llama-3.2-11b-vision-instruct，
+   * 外部渠道 → 与 model 相同（OpenAI 兼容的视觉格式）。
+   */
+  vision_model: string;
 }
 
 // ============================================================================
@@ -735,6 +743,8 @@ export interface CreateAIComposeRequest {
   assets: AIComposeAssetInput[];
   length?: ComposeLength;
   style?: string;
+  /** 截图生文：上传到媒体库的截图资产 id；服务端下载后喂给视觉模型读图。 */
+  visionAssets?: AIComposeAssetInput[];
   listed?: boolean;
   imageMode?: AIComposeImageMode;
   imageCount?: number;

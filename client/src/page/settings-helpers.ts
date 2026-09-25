@@ -232,6 +232,7 @@ export function buildAIWriterConfigDraftValue(
     systemPrompt: String(serverConfig["ai_writer.system_prompt"] ?? ""),
     pexelsApiKey: String(serverConfig["ai_writer.pexels_api_key"] ?? ""),
     pexelsApiKeySet: hasStoredAiWriterPexelsApiKey || String(serverConfig["ai_writer.pexels_api_key"] ?? "").trim().length > 0,
+    visionModel: String(serverConfig["ai_writer.vision_model"] ?? ""),
   };
 }
 

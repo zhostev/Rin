@@ -690,6 +690,9 @@ export function Settings() {
               if (updates.systemPrompt !== undefined) {
                 setConfigValue("server", "ai_writer.system_prompt", updates.systemPrompt);
               }
+              if (updates.visionModel !== undefined) {
+                setConfigValue("server", "ai_writer.vision_model", updates.visionModel);
+              }
             }}
           />
 

@@ -37,7 +37,6 @@ import { AskPage } from "../page/ask";
 import { TimelinePage } from "../page/timeline";
 import { WritingPage } from "../page/writing";
 import { ProfileContext } from "../state/profile";
-import { tryInt } from "../utils/int";
 import { useTranslation } from "react-i18next";
 
 export function AppRoutes() {
@@ -95,10 +94,6 @@ export function AppRoutes() {
 
       <AdminRoute path="/admin/writing" requirePermission title={t("writing")} description={t("admin.writing_description")}>
         <WritingPage />
-      </AdminRoute>
-
-      <AdminRoute path="/admin/writing/:id" requirePermission title={t("writing")} description={t("admin.writing_description")}>
-        {({ id }) => <WritingPage id={tryInt(0, id)} />}
       </AdminRoute>
 
       <AdminRoute path="/admin/stories" requirePermission title={t("story.nav.stories")} description={t("admin.stories_description")}>

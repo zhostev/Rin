@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import {
+  COMPOSE_MAX_SHOTS,
   COMPOSE_POLL_INTERVAL_MS,
   COMPOSE_POLL_TIMEOUT_MS,
+  canSubmitCompose,
   nextPollDecision,
 } from "../writing-ai-compose";
 
@@ -41,5 +43,26 @@ describe("nextPollDecision", () => {
   it("polls often enough to feel live but not busily", () => {
     expect(COMPOSE_POLL_INTERVAL_MS).toBe(3000);
     expect(COMPOSE_POLL_TIMEOUT_MS).toBe(300000);
+  });
+});
+
+describe("canSubmitCompose", () => {
+  it("accepts a topic without screenshots", () => {
+    expect(canSubmitCompose({ topic: "AI 写作", shotCount: 0 })).toBe(true);
+  });
+
+  it("accepts screenshots without a topic （截图生文）", () => {
+    expect(canSubmitCompose({ topic: "  ", shotCount: 2 })).toBe(true);
+  });
+
+  it("rejects an empty topic with no screenshots", () => {
+    expect(canSubmitCompose({ topic: "", shotCount: 0 })).toBe(false);
+    expect(canSubmitCompose({ topic: "   ", shotCount: 0 })).toBe(false);
+  });
+});
+
+describe("COMPOSE_MAX_SHOTS", () => {
+  it("matches the server-side vision cap", () => {
+    expect(COMPOSE_MAX_SHOTS).toBe(5);
   });
 });

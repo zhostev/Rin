@@ -10,7 +10,7 @@
     "queue_status_description": "Inspect AI summary queue progress, recent task results, and failures.",
     "settings_description": "Manage site behavior, integrations, and publishing rules in one place.",
     "title": "Admin",
-    "writing_description": "Write, edit, and publish content from the private management workspace.",
+    "writing_description": "AI writing: enter a topic or upload screenshots and let AI draft and publish.",
     "stories_description": "Create and manage content packages: ordered blocks of text, video and audio under one permanent address.",
     "media_description": "Browse and manage all uploaded media assets.",
     "series_description": "Organize stories into series and collections. (Arrives in Stage 2.)",
@@ -490,6 +490,11 @@
       "system_prompt": {
         "title": "System Prompt",
         "desc": "Empty = use the built-in Chinese writing prompt"
+      },
+      "vision_model": {
+        "title": "Vision model (image reading)",
+        "desc": "Leave empty for the built-in default",
+        "hint": "worker-ai falls back to llama-3.2 vision; external providers reuse the model above."
       }
     },
     "get_config_failed$message": "Failed to get configuration, {{message}}",
@@ -1182,7 +1187,7 @@
   },
   "ai_compose": {
     "title": "AI Writing",
-    "desc": "Enter a topic and AI will draft an article, published automatically when done.",
+    "desc": "Enter a topic or upload screenshots; AI drafts an article and publishes it automatically.",
     "topic_placeholder": "Enter article topic…",
     "topic_empty": "Please enter an article topic first",
     "length": {
@@ -1216,7 +1221,17 @@
       "search": "Search images"
     },
     "image_count": "Count",
-    "image_search_hint": "Image search requires a Pexels API key in Settings → AI Writing."
+    "image_search_hint": "Image search requires a Pexels API key in Settings → AI Writing.",
+    "topic_or_shots_empty": "Enter a topic, or upload screenshots to write from them",
+    "shots": {
+      "title": "Write from screenshots",
+      "desc": "Upload screenshots; AI reads them before writing. Shots also join the asset list and can be embedded.",
+      "add": "Upload screenshots (max {max})",
+      "uploading": "Uploading…",
+      "remove": "Remove screenshot",
+      "note_placeholder": "Add a note for the shot (optional)",
+      "max_hint": "At most {max} screenshots"
+    }
   },
   "ai_revise": {
     "title": "AI Revise",
@@ -1237,7 +1252,9 @@
     "apply": "Apply to editor",
     "discard": "Discard",
     "apply_hint": "Applying only replaces the editor content; save manually to publish.",
-    "failed": "AI revision failed"
+    "failed": "AI revision failed",
+    "saved": "Saved",
+    "apply_hint_direct": "Applying saves directly to the article, no manual step needed."
   },
   "wechat_draft": {
     "title": "Push to WeChat draft",
