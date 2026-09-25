@@ -21,7 +21,10 @@ const COPY = {
   generating: "海报生成中…",
   saveImage: "保存图片",
   saved: "已保存",
+  shareImage: "分享图片",
+  shared: "已分享",
   tip: "长按图片可保存，再分享到微信好友或朋友圈",
+  tipShare: "将图片直接分享到微信好友或朋友圈",
   close: "关闭",
   retry: "重新生成",
   failed: "海报生成失败，请重试",
@@ -653,8 +656,9 @@ export function SharePosterModal({
 }) {
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [error, setError] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [status, setStatus] = useState<"idle" | "saved" | "shared">("idle");
   const [tab, setTab] = useState<"poster" | "article">("poster");
+  const [canNativeFileShare, setCanNativeFileShare] = useState(false);
   const timer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -675,25 +679,54 @@ export function SharePosterModal({
   }, [data, tab]);
 
   useEffect(() => {
-    if (!saved) return;
-    timer.current = window.setTimeout(() => setSaved(false), 2000);
+    if (status === "idle") return;
+    timer.current = window.setTimeout(() => setStatus("idle"), 2000);
     return () => window.clearTimeout(timer.current);
-  }, [saved]);
+  }, [status]);
+
+  // iOS Safari (15+) can share image files via the native share sheet, which
+  // lets the user send the poster straight to WeChat. The classic
+  // `<a download>` trick does NOT work on iOS: the file lands in the Files
+  // app's downloads instead of Photos, looking like "nothing happened".
+  useEffect(() => {
+    try {
+      const probe = new File([""], "probe.png", { type: "image/png" });
+      setCanNativeFileShare(
+        typeof navigator.canShare === "function" && navigator.canShare({ files: [probe] }),
+      );
+    } catch {
+      setCanNativeFileShare(false);
+    }
+  }, []);
 
   // NOTE: do NOT lock scroll via `document.body.style.overflow = "hidden"`.
   // On iOS Safari that breaks `position: fixed` (it lays out against the full
   // document height), pushing the centered card off-screen. The inner image
   // area keeps `touch-action: pan-y` + `overscroll-contain` for scrolling.
 
-  function handleSave() {
+  async function handleSave() {
     if (!imgUrl) return;
-    const a = document.createElement("a");
-    a.href = imgUrl;
-    a.download = `share-${tab}-${Date.now()}.png`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setSaved(true);
+    try {
+      const blob = await (await fetch(imgUrl)).blob();
+      const filename = `share-${tab}-${Date.now()}.png`;
+      if (canNativeFileShare) {
+        const file = new File([blob], filename, { type: "image/png" });
+        await navigator.share({ files: [file], title: data.title });
+        setStatus("shared");
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+        setStatus("saved");
+      }
+    } catch {
+      // user cancelled the share sheet or the share failed — stay silent
+    }
   }
 
   function handleRetry() {
@@ -767,15 +800,33 @@ export function SharePosterModal({
           )}
         </div>
         <div className="px-4 py-3">
-          <p className="text-center text-xs text-gray-500">{COPY.tip}</p>
+          <p className="text-center text-xs text-gray-500">
+            {canNativeFileShare ? COPY.tipShare : COPY.tip}
+          </p>
           <button
             type="button"
             onClick={handleSave}
             disabled={!imgUrl}
             className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-full bg-indigo-600 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-40"
           >
-            <i className={saved ? "ri-check-line" : "ri-download-line"} />
-            <span>{saved ? COPY.saved : COPY.saveImage}</span>
+            <i
+              className={
+                status !== "idle"
+                  ? "ri-check-line"
+                  : canNativeFileShare
+                    ? "ri-share-forward-line"
+                    : "ri-download-line"
+              }
+            />
+            <span>
+              {status === "shared"
+                ? COPY.shared
+                : status === "saved"
+                  ? COPY.saved
+                  : canNativeFileShare
+                    ? COPY.shareImage
+                    : COPY.saveImage}
+            </span>
           </button>
         </div>
       </div>
