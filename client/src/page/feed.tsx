@@ -186,7 +186,7 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
             <div className="xl:w-64" />
             <main className="wauto">
               <article
-                className="rounded-2xl bg-w m-2 px-6 py-4"
+                className="rounded-2xl bg-w m-2 px-4 sm:px-6 py-4"
                 aria-label={feed.title ?? "Unnamed"}
               >
                 <div className="flex justify-between">
