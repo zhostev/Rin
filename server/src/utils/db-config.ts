@@ -136,6 +136,7 @@ export async function getAIWriterConfig(config: ConfigReader): Promise<AIWriterC
         temperature: coercedNumber(values.temperature, DEFAULT_AI_WRITER_CONFIG.temperature),
         max_tokens: coercedNumber(values.max_tokens, DEFAULT_AI_WRITER_CONFIG.max_tokens),
         system_prompt: typeof values.system_prompt === "string" ? values.system_prompt : "",
+        pexels_api_key: typeof values.pexels_api_key === "string" ? values.pexels_api_key : "",
     };
 }
 
@@ -151,7 +152,11 @@ export async function setAIWriterConfig(
 
         // Mirrors setAIConfig: a blank key means "leave the stored one alone",
         // so re-saving a form that never shows the key cannot wipe it.
-        if (field === "api_key" && typeof value === "string" && value.trim() === "") {
+        if (
+            (field === "api_key" || field === "pexels_api_key") &&
+            typeof value === "string" &&
+            value.trim() === ""
+        ) {
             continue;
         }
 
@@ -163,11 +168,13 @@ export async function setAIWriterConfig(
 
 export async function getAIWriterConfigForFrontend(
     config: ConfigReader,
-): Promise<AIWriterConfig & { api_key_set: boolean }> {
+): Promise<AIWriterConfig & { api_key_set: boolean; pexels_api_key_set: boolean }> {
     const writerConfig = await getAIWriterConfig(config);
     return {
         ...writerConfig,
         api_key: "",
         api_key_set: writerConfig.api_key.length > 0,
+        pexels_api_key: "",
+        pexels_api_key_set: writerConfig.pexels_api_key.length > 0,
     };
 }

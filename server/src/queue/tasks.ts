@@ -1,4 +1,4 @@
-import type { ComposeLength } from "@rin/api";
+import type { AIComposeImageMode, ComposeLength } from "@rin/api";
 
 export const FEED_AI_SUMMARY_TASK = "feed.ai-summary.generate" as const;
 export const FEED_AI_COMPOSE_TASK = "feed.ai-compose.generate" as const;
@@ -58,6 +58,10 @@ export interface FeedAIComposeTaskPayload {
   length: ComposeLength;
   style?: string;
   listed: boolean;
+  /** AI 配图方式：none 不配图（默认） */
+  imageMode: AIComposeImageMode;
+  /** 配图数量，1..3（服务端钳制） */
+  imageCount: number;
 }
 
 export interface FeedAIComposeTask {

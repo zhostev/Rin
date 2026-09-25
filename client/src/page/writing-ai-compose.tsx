@@ -1,4 +1,4 @@
-import type { ComposeLength } from "@rin/api";
+import type { AIComposeImageMode, ComposeLength } from "@rin/api";
 import { FlatPanel } from "@rin/ui";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -24,6 +24,9 @@ export function nextPollDecision(input: { status: string; elapsedMs: number }):
 
 const LENGTHS: ComposeLength[] = ["short", "medium", "long"];
 
+const IMAGE_MODES: AIComposeImageMode[] = ["none", "generate", "search"];
+const IMAGE_COUNTS = [1, 2, 3] as const;
+
 export function AIComposePanel() {
   const { t } = useTranslation();
   const { showAlert, AlertUI } = useAlert();
@@ -32,6 +35,8 @@ export function AIComposePanel() {
   const [style, setStyle] = useState("");
   const [length, setLength] = useState<ComposeLength>("medium");
   const [assets, setAssets] = useState<PickedAsset[]>([]);
+  const [imageMode, setImageMode] = useState<AIComposeImageMode>("none");
+  const [imageCount, setImageCount] = useState<number>(2);
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<string>("");
   const cancelled = useRef(false);
@@ -104,6 +109,8 @@ export function AIComposePanel() {
       assets,
       length,
       style: style.trim() || undefined,
+      imageMode,
+      imageCount: imageMode === "none" ? undefined : imageCount,
     });
 
     if (error || !data) {
@@ -165,6 +172,44 @@ export function AIComposePanel() {
           />
 
           <MediaPicker value={assets} onChange={setAssets} />
+
+          <div className="flex flex-col gap-2">
+            <p className="text-sm font-medium t-primary">{t("ai_compose.image_mode.title")}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              {IMAGE_MODES.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setImageMode(option)}
+                  className={`rounded-xl px-3 py-2 text-sm transition-colors ${
+                    imageMode === option ? "bg-theme text-white" : "bg-secondary t-secondary"
+                  }`}
+                >
+                  {t(`ai_compose.image_mode.${option}`)}
+                </button>
+              ))}
+            </div>
+            {imageMode !== "none" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs t-secondary">{t("ai_compose.image_count")}</span>
+                {IMAGE_COUNTS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setImageCount(option)}
+                    className={`rounded-xl px-3 py-1.5 text-sm transition-colors ${
+                      imageCount === option ? "bg-theme text-white" : "bg-secondary t-secondary"
+                    }`}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            )}
+            {imageMode === "search" && (
+              <p className="text-xs t-secondary">{t("ai_compose.image_search_hint")}</p>
+            )}
+          </div>
 
           <p className="text-xs t-secondary">{t("ai_compose.publish_warning")}</p>
 

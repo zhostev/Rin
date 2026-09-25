@@ -639,6 +639,8 @@ export interface AIWriterConfig {
   temperature: number;
   max_tokens: number;
   system_prompt: string;
+  /** Pexels 搜图 API Key（AI 配图 search 模式用；空串表示未配置） */
+  pexels_api_key: string;
 }
 
 // ============================================================================
@@ -734,7 +736,12 @@ export interface CreateAIComposeRequest {
   length?: ComposeLength;
   style?: string;
   listed?: boolean;
+  imageMode?: AIComposeImageMode;
+  imageCount?: number;
 }
+
+/** AI 配图方式：none 不配图，generate 用 Workers AI 生成，search 用 Pexels 搜图。 */
+export type AIComposeImageMode = "none" | "generate" | "search";
 
 export interface AIComposeResponse {
   id: number;

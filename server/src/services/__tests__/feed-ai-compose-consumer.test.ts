@@ -114,6 +114,8 @@ describe("compose consumer end-to-end against real SQLite", () => {
         assets: [{ id: String(assetId), note: "架构示意图" }],
         length: "medium",
         listed: true,
+        imageMode: "none",
+        imageCount: 2,
       },
       clearFeedCache,
     );
@@ -201,6 +203,8 @@ describe("compose consumer end-to-end against real SQLite", () => {
         assets: [],
         length: "short",
         listed: true,
+        imageMode: "none",
+        imageCount: 2,
       },
       clearFeedCache,
     );
@@ -255,6 +259,8 @@ describe("compose consumer end-to-end against real SQLite", () => {
         assets: [],
         length: "short",
         listed: true,
+        imageMode: "none",
+        imageCount: 2,
       },
       clearFeedCache,
     );
@@ -310,6 +316,8 @@ describe("compose consumer end-to-end against real SQLite", () => {
         assets: [],
         length: "short",
         listed: true,
+        imageMode: "none",
+        imageCount: 2,
       },
       clearFeedCache,
     );
@@ -364,6 +372,8 @@ describe("compose consumer end-to-end against real SQLite", () => {
         assets: [{ id: "missing-asset", note: "" }],
         length: "short",
         listed: true,
+        imageMode: "none",
+        imageCount: 2,
       },
       clearFeedCache,
     );

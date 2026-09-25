@@ -15,6 +15,7 @@ export type SettingsLoadState = {
   draft: SettingsDraft;
   hasStoredAiApiKey: boolean;
   hasStoredAiWriterApiKey: boolean;
+  hasStoredAiWriterPexelsApiKey: boolean;
 };
 
 export const AI_PROVIDER_PRESETS = [
@@ -58,6 +59,7 @@ export function normalizeSettingsState(
   const serverConfig = { ...(data?.serverConfig ?? {}) };
   const hasStoredAiApiKey = serverConfig["ai_summary.api_key"] === MASKED_SECRET;
   const hasStoredAiWriterApiKey = serverConfig["ai_writer.api_key"] === MASKED_SECRET;
+  const hasStoredAiWriterPexelsApiKey = serverConfig["ai_writer.pexels_api_key"] === MASKED_SECRET;
 
   if (hasStoredAiApiKey) {
     serverConfig["ai_summary.api_key"] = "";
@@ -67,6 +69,10 @@ export function normalizeSettingsState(
     serverConfig["ai_writer.api_key"] = "";
   }
 
+  if (hasStoredAiWriterPexelsApiKey) {
+    serverConfig["ai_writer.pexels_api_key"] = "";
+  }
+
   return {
     draft: {
       clientConfig,
@@ -74,6 +80,7 @@ export function normalizeSettingsState(
     },
     hasStoredAiApiKey,
     hasStoredAiWriterApiKey,
+    hasStoredAiWriterPexelsApiKey,
   };
 }
 
@@ -209,6 +216,7 @@ export function buildAIConfigDraftValue(
 export function buildAIWriterConfigDraftValue(
   draft: SettingsDraft,
   hasStoredAiWriterApiKey: boolean,
+  hasStoredAiWriterPexelsApiKey: boolean,
 ) {
   const serverConfig = draft.serverConfig;
 
@@ -222,6 +230,8 @@ export function buildAIWriterConfigDraftValue(
     temperature: Number(serverConfig["ai_writer.temperature"] ?? 0.8),
     maxTokens: Number(serverConfig["ai_writer.max_tokens"] ?? 4000),
     systemPrompt: String(serverConfig["ai_writer.system_prompt"] ?? ""),
+    pexelsApiKey: String(serverConfig["ai_writer.pexels_api_key"] ?? ""),
+    pexelsApiKeySet: hasStoredAiWriterPexelsApiKey || String(serverConfig["ai_writer.pexels_api_key"] ?? "").trim().length > 0,
   };
 }
 

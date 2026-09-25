@@ -447,6 +447,51 @@
         "http_error$status": "HTTP Error (Status: {{status}})"
       }
     },
+    "ai_writer": {
+      "title": "AI Writing Settings",
+      "enable": {
+        "title": "Enable AI Writing",
+        "desc": "Allow generating full articles from a topic and assets"
+      },
+      "inherit_hint": "Leave provider, model, API key and API URL empty to inherit the AI summary settings.",
+      "provider": {
+        "title": "AI Provider",
+        "desc": "Empty = inherit AI summary settings"
+      },
+      "model": {
+        "title": "Model",
+        "desc": "Empty = inherit AI summary settings; a stronger model is recommended for writing"
+      },
+      "api_key": {
+        "title": "API Key",
+        "desc": "Empty = inherit AI summary settings",
+        "set": "Set",
+        "placeholder_set": "Enter a new key to update"
+      },
+      "api_url": {
+        "title": "API URL",
+        "desc": "Empty = inherit AI summary settings"
+      },
+      "temperature": {
+        "title": "Temperature",
+        "desc": "Higher = more creative, default 0.8"
+      },
+      "max_tokens": {
+        "title": "Max Tokens",
+        "desc": "Per-generation cap, default 4000"
+      },
+      "pexels_api_key": {
+        "title": "Pexels API Key",
+        "desc": "For image search, get one free at pexels.com/api",
+        "set": "Set",
+        "placeholder_set": "Enter a new key to update",
+        "hint": "Used when the AI Writing image mode is “Search images”; that option is unavailable without it."
+      },
+      "system_prompt": {
+        "title": "System Prompt",
+        "desc": "Empty = use the built-in Chinese writing prompt"
+      }
+    },
     "get_config_failed$message": "Failed to get configuration, {{message}}",
     "import_failed$message": "Import failed, {{message}}",
     "import_result": "Import Result",
@@ -1163,7 +1208,15 @@
       "empty": "No media assets",
       "note_hint": "Add a note for each asset; AI will reference them in the article.",
       "note_placeholder": "Asset note (optional)…"
-    }
+    },
+    "image_mode": {
+      "title": "Images",
+      "none": "No images",
+      "generate": "AI generated",
+      "search": "Search images"
+    },
+    "image_count": "Count",
+    "image_search_hint": "Image search requires a Pexels API key in Settings → AI Writing."
   },
   "ai_revise": {
     "title": "AI Revise",

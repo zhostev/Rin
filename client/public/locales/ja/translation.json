@@ -438,6 +438,51 @@
         "http_error$status": "HTTPエラー (ステータス: {{status}})"
       }
     },
+    "ai_writer": {
+      "title": "AI ライティング設定",
+      "enable": {
+        "title": "AI ライティングを有効化",
+        "desc": "トピックと素材から記事全体の生成を許可します"
+      },
+      "inherit_hint": "プロバイダー・モデル・API キー・API URL が空の場合は AI 要約の設定を継承します。",
+      "provider": {
+        "title": "AI プロバイダー",
+        "desc": "空欄で AI 要約の設定を継承"
+      },
+      "model": {
+        "title": "モデル",
+        "desc": "空欄で AI 要約の設定を継承；執筆には高性能モデルの利用を推奨"
+      },
+      "api_key": {
+        "title": "API キー",
+        "desc": "空欄で AI 要約の設定を継承",
+        "set": "設定済み",
+        "placeholder_set": "更新するには新しいキーを入力"
+      },
+      "api_url": {
+        "title": "API URL",
+        "desc": "空欄で AI 要約の設定を継承"
+      },
+      "temperature": {
+        "title": "Temperature",
+        "desc": "高いほど創造的になります。デフォルト 0.8"
+      },
+      "max_tokens": {
+        "title": "Max Tokens",
+        "desc": "1 回の生成上限。デフォルト 4000"
+      },
+      "pexels_api_key": {
+        "title": "Pexels API キー",
+        "desc": "画像検索用。pexels.com/api で無料取得できます",
+        "set": "設定済み",
+        "placeholder_set": "更新するには新しいキーを入力",
+        "hint": "AI ライティングの画像モード「画像を検索」で使用します。未設定の場合、この選択肢は利用できません。"
+      },
+      "system_prompt": {
+        "title": "システムプロンプト",
+        "desc": "空欄の場合は組み込みの中国語ライティングプロンプトを使用"
+      }
+    },
     "get_config_failed$message": "設定の取得に失敗しました: {{message}}",
     "import_failed$message": "インポートに失敗しました: {{message}}",
     "import_result": "インポート結果",
@@ -1154,7 +1199,15 @@
       "empty": "メディア素材がありません",
       "note_hint": "各素材に説明を追加すると、AI が記事内で参照します。",
       "note_placeholder": "素材の説明（任意）…"
-    }
+    },
+    "image_mode": {
+      "title": "画像",
+      "none": "なし",
+      "generate": "AI 生成",
+      "search": "画像を検索"
+    },
+    "image_count": "枚数",
+    "image_search_hint": "画像検索には「設定 → AI ライティング」での Pexels API キー登録が必要です。"
   },
   "ai_revise": {
     "title": "AI 推敲",

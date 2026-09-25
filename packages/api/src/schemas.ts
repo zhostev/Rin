@@ -177,6 +177,10 @@ export const feedAIComposeSchema = t.Object({
   length: t.Optional(t.String()),
   style: t.Optional(t.String()),
   listed: t.Optional(t.Boolean()),
+  // AI 配图：none 不配图，generate 用 Workers AI 生成，search 用 Pexels 搜图。
+  // 服务端做归一化（非法值 → none；数量钳制 1..3），schema 只做宽松透传。
+  imageMode: t.Optional(t.String()),
+  imageCount: t.Optional(t.Number()),
 });
 
 export const feedAIReviseSchema = t.Object({
