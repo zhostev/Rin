@@ -132,7 +132,24 @@ export function WritingPage({ id }: { id?: number }) {
   const [content, setContent] = cache.useCache("content", "");
   const [createdAt, setCreatedAt] = useState<Date | undefined>(new Date());
   const [publishing, setPublishing] = useState(false)
+  const [pushingWechat, setPushingWechat] = useState(false)
   const { showAlert, AlertUI } = useAlert()
+  async function pushWechatDraft() {
+    if (id === undefined || pushingWechat) return;
+    setPushingWechat(true);
+    try {
+      const { data, error } = await client.feed.wechatDraft(id);
+      if (error) {
+        showAlert(error.value as string);
+        return;
+      }
+      if (data) {
+        showAlert(t("wechat_draft.success", { mediaId: data.draft_media_id }));
+      }
+    } finally {
+      setPushingWechat(false);
+    }
+  }
   function publishButton() {
     if (publishing) return;
     const tagsplit =
@@ -251,7 +268,20 @@ export function WritingPage({ id }: { id?: number }) {
                 {id !== undefined ? t("update.title") : t("publish.title")}
               </p>
             </div>
-            <PublishButton className="w-auto" />
+            <div className="flex shrink-0 items-center gap-2">
+              {id !== undefined && (
+                <button
+                  onClick={pushWechatDraft}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-theme/40 px-4 py-3 text-sm font-medium text-theme transition-colors hover:bg-theme/10 active:bg-theme/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={pushingWechat}
+                  title={t("wechat_draft.hint")}
+                >
+                  {pushingWechat && <Loading type="spin" height={16} width={16} />}
+                  <span>{pushingWechat ? t("wechat_draft.pushing") : t("wechat_draft.title")}</span>
+                </button>
+              )}
+              <PublishButton className="w-auto" />
+            </div>
           </div>
 
           <div className="mt-5 grid gap-4 lg:grid-cols-2">

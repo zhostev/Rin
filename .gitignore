@@ -40,3 +40,7 @@ dist-ssr
 # Bun
 .bun/*
 RECON.md
+
+# Python
+__pycache__/
+*.py[cod]

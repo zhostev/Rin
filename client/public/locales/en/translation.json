@@ -1238,5 +1238,11 @@
     "discard": "Discard",
     "apply_hint": "Applying only replaces the editor content; save manually to publish.",
     "failed": "AI revision failed"
+  },
+  "wechat_draft": {
+    "title": "Push to WeChat draft",
+    "pushing": "Pushing…",
+    "hint": "Push to WeChat Official Account draft box via ECS relay",
+    "success": "Delivered to WeChat draft box (draft_media_id={{mediaId}})"
   }
 }
