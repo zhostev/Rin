@@ -3,6 +3,7 @@ import {
     normalizeImageCount,
     normalizeImageMode,
     parsePlannedImages,
+    toImageBytes,
 } from "../ai-images";
 
 describe("normalizeImageMode", () => {
@@ -88,5 +89,60 @@ describe("parsePlannedImages", () => {
         expect(parsePlannedImages("", 2)).toEqual([]);
         expect(parsePlannedImages("not json at all", 2)).toEqual([]);
         expect(parsePlannedImages(JSON.stringify({ prompt: "x" }), 2)).toEqual([]);
+    });
+});
+
+describe("toImageBytes", () => {
+    // 最小的合法 PNG（1x1）和 JPEG 头
+    const pngBytes = new Uint8Array([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+    ]);
+    const jpegBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+
+    it("accepts a ReadableStream (Workers AI 图片模型的实际返回)", async () => {
+        const stream = new ReadableStream({
+            start(controller) {
+                controller.enqueue(jpegBytes);
+                controller.close();
+            },
+        });
+        const result = await toImageBytes(stream);
+        expect(result.bytes).toEqual(jpegBytes);
+        expect(result.mime).toBe("image/jpeg");
+    });
+
+    it("sniffs PNG from raw bytes", async () => {
+        const result = await toImageBytes(pngBytes);
+        expect(result.mime).toBe("image/png");
+    });
+
+    it("accepts an ArrayBuffer", async () => {
+        const result = await toImageBytes(jpegBytes.buffer as ArrayBuffer);
+        expect(result.mime).toBe("image/jpeg");
+    });
+
+    it("accepts a Response-like object", async () => {
+        const result = await toImageBytes(new Response(pngBytes));
+        expect(result.mime).toBe("image/png");
+    });
+
+    it("accepts a base64 data URL", async () => {
+        const b64 = Buffer.from(jpegBytes).toString("base64");
+        const result = await toImageBytes(`data:image/jpeg;base64,${b64}`);
+        expect(result.mime).toBe("image/jpeg");
+        expect(result.bytes).toEqual(jpegBytes);
+    });
+
+    it("accepts { image: base64 }", async () => {
+        const b64 = Buffer.from(pngBytes).toString("base64");
+        const result = await toImageBytes({ image: b64 });
+        expect(result.mime).toBe("image/png");
+    });
+
+    it("rejects unrecognized shapes", async () => {
+        await expect(toImageBytes(null)).rejects.toThrow("无法识别");
+        await expect(toImageBytes(42)).rejects.toThrow("无法识别");
+        await expect(toImageBytes({ foo: "bar" })).rejects.toThrow("无法识别");
+        await expect(toImageBytes("not-base64!!")).rejects.toThrow("无法识别");
     });
 });
