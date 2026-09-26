@@ -1123,7 +1123,19 @@
       "back": "上一步",
       "submit": "提交任务",
       "submitting": "提交中…",
-      "created": "任务已提交。"
+      "created": "任务已提交。",
+      "extract_audio_note": "所选为视频资源，提交时将自动提取音轨并上传为新的音频资源，再创建转录任务。",
+      "extract_audio_phase_download": "正在下载视频…",
+      "extract_audio_phase_extract": "正在提取音频…",
+      "extract_audio_phase_upload": "正在上传音频…",
+      "extract_audio_asset_title": "{{title}} 的音频",
+      "extract_audio_failed_download": "视频下载失败（HTTP {{status}}），请重试。",
+      "extract_audio_failed_empty": "视频文件为空，无法提取音频。",
+      "extract_audio_failed_too_large": "视频文件过大，浏览器内无法提取音频，请在电脑上先转出音频再上传。",
+      "extract_audio_failed_no_audio_track": "该视频没有音轨，无法转录。",
+      "extract_audio_failed_decode_failed": "音频解码失败，视频编码可能不受支持。",
+      "extract_audio_failed_unsupported": "当前浏览器不支持音频提取，请换 Safari 或 Chrome 重试。",
+      "extract_audio_failed_upload": "音频上传失败：{{message}}"
     },
     "detail": {
       "title": "任务 #{{id}}",
