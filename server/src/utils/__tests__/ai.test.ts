@@ -1,9 +1,25 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import {
     buildExternalAIChatCompletionsUrl,
+    extractFinishReason,
     generateAIText,
     normalizeExternalAIBaseUrl,
 } from "../ai";
+
+describe("extractFinishReason", () => {
+    it("reads choices[0].finish_reason from OpenAI-compatible responses", () => {
+        expect(extractFinishReason({ choices: [{ finish_reason: "length" }] })).toBe("length");
+        expect(extractFinishReason({ choices: [{ finish_reason: "stop" }] })).toBe("stop");
+    });
+
+    it("returns null when the response carries no finish reason", () => {
+        expect(extractFinishReason({ response: "worker ok" })).toBeNull();
+        expect(extractFinishReason({ choices: [{}] })).toBeNull();
+        expect(extractFinishReason({ choices: [{ finish_reason: "" }] })).toBeNull();
+        expect(extractFinishReason(null)).toBeNull();
+        expect(extractFinishReason("plain string")).toBeNull();
+    });
+});
 
 describe("normalizeExternalAIBaseUrl", () => {
     it("removes trailing slash", () => {
@@ -104,9 +120,27 @@ describe("generateAIText", () => {
       { maxTokens: 4000 },
     );
 
-    expect(result).toBe("worker ok");
+    expect(result.text).toBe("worker ok");
+    expect(result.finishReason).toBeNull();
     expect(calls[0]?.model).toBe("@cf/meta/llama-3-8b-instruct");
     expect(calls[0]?.input.max_tokens).toBe(4000);
+  });
+
+  it("surfaces finish_reason from the external API response", async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "partial…" }, finish_reason: "length" }],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )) as typeof fetch;
+
+    const result = await generateAIText({} as Env, externalConfig, [
+      { role: "user", content: "hi" },
+    ]);
+
+    expect(result.text).toBe("partial…");
+    expect(result.finishReason).toBe("length");
   });
 });
 
@@ -167,7 +201,7 @@ describe("vision", () => {
         [{ role: "user", content: parts }],
       );
 
-      expect(result).toBe("saw the screenshot");
+      expect(result.text).toBe("saw the screenshot");
       expect(calls[0]?.model).toBe(DEFAULT_WORKER_AI_VISION_MODEL);
       expect(calls[0]?.input.messages[0].content).toEqual(parts);
     });
@@ -198,7 +232,7 @@ describe("vision", () => {
         [{ role: "user", content: parts }],
       );
 
-      expect(result).toBe("external saw it");
+      expect(result.text).toBe("external saw it");
       expect(captured.body.model).toBe("gpt-4o-mini");
       expect(captured.body.messages[0].content).toEqual(parts);
     });

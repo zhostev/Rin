@@ -141,10 +141,12 @@ async function planImages(
     ];
     let raw: string | null = null;
     try {
-        raw = await generateAIText(env, writerConfig, messages, {
-            maxTokens: 800,
-            temperature: 0.7,
-        });
+        raw = (
+            await generateAIText(env, writerConfig, messages, {
+                maxTokens: 800,
+                temperature: 0.7,
+            })
+        ).text;
     } catch (error) {
         throw new Error(
             `配图规划失败：${error instanceof Error ? error.message : String(error)}`,
