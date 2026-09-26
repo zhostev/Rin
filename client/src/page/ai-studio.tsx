@@ -28,6 +28,8 @@ import { useAlert } from "../components/dialog";
 import { useApiResource } from "../hooks/use-api-resource";
 import { useSiteConfig } from "../hooks/useSiteConfig";
 import { diffJsonLeaves, diffTextLines, extractDraftText } from "../utils/ai-studio-diff";
+import { extractAudioFromVideo, ExtractAudioError } from "../utils/extract-audio";
+import { mediaPlaybackRelativeUrl, uploadMediaFile } from "../utils/media-upload";
 import type { StoryDetailResponse } from "../api/story";
 
 /** Polling cadence for the job list (also asserted by unit tests). */
@@ -205,13 +207,16 @@ function JobWizard({
   const [checks, setChecks] = useState<CheckItem[]>(["broken_links"]);
   const [question, setQuestion] = useState("");
   const [stories, setStories] = useState<Array<{ value: string; label: string }>>([]);
-  const [assets, setAssets] = useState<Array<{ value: string; label: string }>>([]);
+  const [assets, setAssets] = useState<Array<{ value: string; label: string; kind: string }>>([]);
   const [submitting, setSubmitting] = useState(false);
+  /** 视频转录时的提取阶段：download（取视频）/ extract（抽音轨）/ upload（传音频）。 */
+  const [extractPhase, setExtractPhase] = useState<"download" | "extract" | "upload" | null>(null);
 
   // Load pickers lazily when the wizard opens.
   useEffect(() => {
     if (!open) return;
     setStep(1);
+    setExtractPhase(null);
     client.story
       .list({ limit: 50 })
       .then(({ data, error }) => {
@@ -233,6 +238,7 @@ function JobWizard({
             data.data.map((asset) => ({
               value: String(asset.id),
               label: asset.title || asset.alt || `${asset.kind} #${asset.id}`,
+              kind: asset.kind,
             })),
           );
         }
@@ -257,6 +263,18 @@ function JobWizard({
 
   const canNext = step === 1 ? materialValid : step === 2 ? capabilityValid : true;
 
+  const selectedAsset = useMemo(
+    () => assets.find((option) => option.value === assetId) ?? null,
+    [assets, assetId],
+  );
+
+  /**
+   * 后端转录只接受纯音频资产；用户选了视频时，提交前先在浏览器里抽音轨，
+   * 上传为新的音频资产，再用新资产 id 建任务。
+   */
+  const needsAudioExtraction =
+    material === "asset" && capability === "transcribe" && selectedAsset?.kind === "video";
+
   function buildPayload(): { kind: AIJobKind; input: AIJobInput; params?: Record<string, unknown> } {
     // buildAIJobInput converts picker string ids to numbers; the backend
     // schema requires integers ("input.assetId must be a number" otherwise).
@@ -275,7 +293,13 @@ function JobWizard({
   async function submit() {
     setSubmitting(true);
     try {
-      const { error } = await client.aiStudio.createJob(buildPayload());
+      let payload = buildPayload();
+      if (needsAudioExtraction) {
+        const audioAssetId = await extractVideoAudioForTranscribe();
+        if (audioAssetId == null) return; // 错误已通过 showAlert 展示
+        payload = { ...payload, input: { ...payload.input, assetId: audioAssetId } };
+      }
+      const { error } = await client.aiStudio.createJob(payload);
       if (error) {
         showAlert(error.value);
         return;
@@ -285,6 +309,49 @@ function JobWizard({
       onClose();
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  /**
+   * 视频转录前置：下载视频 → 浏览器内抽音轨（16kHz 单声道 WAV）→
+   * 作为新的音频资产上传。返回新资产 id，失败返回 null（已弹提示）。
+   */
+  async function extractVideoAudioForTranscribe(): Promise<number | null> {
+    const fail = (key: string, params?: Record<string, unknown>) => {
+      showAlert(t(key, params));
+      return null;
+    };
+    try {
+      setExtractPhase("download");
+      const response = await fetch(mediaPlaybackRelativeUrl(assetId));
+      if (!response.ok) {
+        return fail("ai_studio.wizard.extract_audio_failed_download", { status: response.status });
+      }
+      const videoBlob = await response.blob();
+
+      setExtractPhase("extract");
+      let wav: Blob;
+      try {
+        wav = await extractAudioFromVideo(videoBlob);
+      } catch (error) {
+        const code = error instanceof ExtractAudioError ? error.code : "decode_failed";
+        return fail(`ai_studio.wizard.extract_audio_failed_${code}`);
+      }
+
+      setExtractPhase("upload");
+      const sourceLabel = selectedAsset?.label ?? assetId;
+      const file = new File([wav], `${sourceLabel}.wav`, { type: "audio/wav" });
+      const { asset } = await uploadMediaFile(file, "audio", {
+        t,
+        title: t("ai_studio.wizard.extract_audio_asset_title", { title: sourceLabel }),
+      });
+      return asset.id;
+    } catch (error) {
+      return fail("ai_studio.wizard.extract_audio_failed_upload", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setExtractPhase(null);
     }
   }
 
@@ -443,6 +510,9 @@ function JobWizard({
                       {question.trim()}
                     </p>
                   ) : null}
+                  {needsAudioExtraction ? (
+                    <p className="text-neutral-500">{t("ai_studio.wizard.extract_audio_note")}</p>
+                  ) : null}
                 </div>
               </SettingsCardBody>
             </SettingsCard>
@@ -460,7 +530,17 @@ function JobWizard({
             {step < 3 ? (
               <Button title={t("ai_studio.wizard.next")} disabled={!canNext} onClick={() => setStep(step + 1)} />
             ) : (
-              <Button title={submitting ? t("ai_studio.wizard.submitting") : t("ai_studio.wizard.submit")} disabled={submitting} onClick={() => void submit()} />
+              <Button
+                title={
+                  extractPhase
+                    ? t(`ai_studio.wizard.extract_audio_phase_${extractPhase}`)
+                    : submitting
+                      ? t("ai_studio.wizard.submitting")
+                      : t("ai_studio.wizard.submit")
+                }
+                disabled={submitting}
+                onClick={() => void submit()}
+              />
             )}
           </div>
         </div>

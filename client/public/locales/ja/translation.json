@@ -1114,7 +1114,19 @@
       "back": "戻る",
       "submit": "タスクを送信",
       "submitting": "送信中…",
-      "created": "タスクを送信しました。"
+      "created": "タスクを送信しました。",
+      "extract_audio_note": "動画アセットが選択されています。送信時に音声トラックを抽出して新しい音声アセットとしてアップロードし、文字起こしジョブを作成します。",
+      "extract_audio_phase_download": "動画をダウンロード中…",
+      "extract_audio_phase_extract": "音声を抽出中…",
+      "extract_audio_phase_upload": "音声をアップロード中…",
+      "extract_audio_asset_title": "{{title}} の音声",
+      "extract_audio_failed_download": "動画のダウンロードに失敗しました（HTTP {{status}}）。再試行してください。",
+      "extract_audio_failed_empty": "動画ファイルが空のため、音声を抽出できません。",
+      "extract_audio_failed_too_large": "動画が大きすぎてブラウザで音声を抽出できません。パソコンで音声を抽出してアップロードしてください。",
+      "extract_audio_failed_no_audio_track": "この動画には音声トラックがないため、文字起こしできません。",
+      "extract_audio_failed_decode_failed": "音声のデコードに失敗しました。動画のコーデックがサポートされていない可能性があります。",
+      "extract_audio_failed_unsupported": "このブラウザは音声抽出に対応していません。Safari または Chrome で再試行してください。",
+      "extract_audio_failed_upload": "音声のアップロードに失敗しました：{{message}}"
     },
     "detail": {
       "title": "タスク #{{id}}",

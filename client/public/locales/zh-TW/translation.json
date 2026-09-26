@@ -1123,7 +1123,19 @@
       "back": "上一步",
       "submit": "提交任務",
       "submitting": "提交中…",
-      "created": "任務已提交。"
+      "created": "任務已提交。",
+      "extract_audio_note": "所選為影片資源，提交時將自動擷取音軌並上傳為新的音訊資源，再建立轉錄任務。",
+      "extract_audio_phase_download": "正在下載影片…",
+      "extract_audio_phase_extract": "正在擷取音訊…",
+      "extract_audio_phase_upload": "正在上傳音訊…",
+      "extract_audio_asset_title": "{{title}} 的音訊",
+      "extract_audio_failed_download": "影片下載失敗（HTTP {{status}}），請重試。",
+      "extract_audio_failed_empty": "影片檔案為空，無法擷取音訊。",
+      "extract_audio_failed_too_large": "影片檔案過大，瀏覽器內無法擷取音訊，請先在電腦上轉出音訊再上傳。",
+      "extract_audio_failed_no_audio_track": "該影片沒有音軌，無法轉錄。",
+      "extract_audio_failed_decode_failed": "音訊解碼失敗，影片編碼可能不受支援。",
+      "extract_audio_failed_unsupported": "目前瀏覽器不支援音訊擷取，請改用 Safari 或 Chrome 重試。",
+      "extract_audio_failed_upload": "音訊上傳失敗：{{message}}"
     },
     "detail": {
       "title": "任務 #{{id}}",

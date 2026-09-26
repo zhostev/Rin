@@ -1123,7 +1123,19 @@
       "back": "Back",
       "submit": "Submit task",
       "submitting": "Submitting…",
-      "created": "Task submitted."
+      "created": "Task submitted.",
+      "extract_audio_note": "A video asset is selected. The audio track will be extracted and uploaded as a new audio asset before the transcription job is created.",
+      "extract_audio_phase_download": "Downloading video…",
+      "extract_audio_phase_extract": "Extracting audio…",
+      "extract_audio_phase_upload": "Uploading audio…",
+      "extract_audio_asset_title": "{{title}} audio",
+      "extract_audio_failed_download": "Video download failed (HTTP {{status}}). Please retry.",
+      "extract_audio_failed_empty": "The video file is empty; no audio to extract.",
+      "extract_audio_failed_too_large": "The video is too large to extract audio in the browser. Extract the audio on a computer and upload it instead.",
+      "extract_audio_failed_no_audio_track": "This video has no audio track to transcribe.",
+      "extract_audio_failed_decode_failed": "Audio decoding failed; the video codec may not be supported.",
+      "extract_audio_failed_unsupported": "This browser doesn't support audio extraction. Please retry in Safari or Chrome.",
+      "extract_audio_failed_upload": "Audio upload failed: {{message}}"
     },
     "detail": {
       "title": "Task #{{id}}",
