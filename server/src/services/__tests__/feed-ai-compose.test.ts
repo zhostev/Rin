@@ -196,4 +196,32 @@ describe("generateArticleWithContinuation", () => {
     expect(out.truncated).toBe(false);
     expect(out.raw).toBeNull();
   });
+
+  it("retries once when the model returns empty text", async () => {
+    const { calls, generate } = stubGenerate([
+      { text: "", finishReason: "stop" },
+      { text: "完整文章。", finishReason: "stop" },
+    ]);
+
+    const out = await generateArticleWithContinuation(baseMessages, generate);
+
+    expect(out.raw).toBe("完整文章。");
+    expect(out.truncated).toBe(false);
+    expect(calls).toHaveLength(2);
+    // 重试用同一组 messages
+    expect(calls[1]).toEqual(baseMessages);
+  });
+
+  it("gives up as empty when the retry is also empty", async () => {
+    const { calls, generate } = stubGenerate([
+      { text: "   ", finishReason: "stop" },
+      { text: null, finishReason: "stop" },
+    ]);
+
+    const out = await generateArticleWithContinuation(baseMessages, generate);
+
+    expect(out.raw).toBeNull();
+    expect(out.truncated).toBe(false);
+    expect(calls).toHaveLength(2);
+  });
 });

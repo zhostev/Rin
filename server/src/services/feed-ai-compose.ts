@@ -145,6 +145,11 @@ export async function generateArticleWithContinuation(
         let result: AITextResult;
         try {
             result = await generate(messages);
+            if (!result.text?.trim()) {
+                // 模型偶发返回空文本：同一组 messages 重试一次
+                console.log("[AI Compose] Empty model output, retrying once");
+                result = await generate(messages);
+            }
         } catch (error) {
             const partial = chunks.join("");
             return {

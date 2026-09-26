@@ -12,6 +12,7 @@ import type { DB } from "../core/hono-types";
 import { insertMediaAsset, updateMediaAssetById, deleteMediaAssetById, findMediaAssetById } from "../features/media/repository";
 import { buildDirectUploadKey, R2_DIRECT_MAX_BYTES } from "../features/media/r2-direct";
 import { generateAIText } from "../utils/ai";
+import type { AITextResult } from "../utils/ai";
 import type { ComposeAsset } from "../utils/ai-compose";
 import { deleteStorageObject, putStorageObjectAtKey } from "../utils/storage";
 
@@ -117,6 +118,63 @@ function parsePlainKeywordLines(raw: string, count: number): PlannedImage[] {
     return lines.slice(0, count).map((prompt) => ({ prompt, alt: "" }));
 }
 
+/**
+ * 从残缺/截断的 JSON 文本里抢救 prompt：模型输出撞到 token 上限时，数组元素
+ * 本身可能不完整（如 `{"prompt": "a misty mountain...` 写到一半就断了），但
+ * 已有片段仍可用作图/搜索。只有 parsePlannedImages 彻底失败后才调用。
+ * 纯函数，可单测。
+ */
+export function salvagePartialPrompts(raw: string | null, count: number): PlannedImage[] {
+    if (!raw) {
+        return [];
+    }
+    const out: PlannedImage[] = [];
+    // 允许值没有闭合引号（被截断）：取到原文结尾为止
+    const re = /"(?:prompt|keyword)"\s*:\s*"((?:[^"\\]|\\.)*)/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(raw)) !== null && out.length < count) {
+        const prompt = match[1].replace(/\\"/g, '"').replace(/\\n/g, " ").trim();
+        if (prompt.length >= 10 && !out.some((item) => item.prompt === prompt)) {
+            out.push({ prompt, alt: "" });
+        }
+    }
+    return out;
+}
+
+/**
+ * 带重试的配图规划：模型偶发返回空文本，或输出撞到 token 上限被截断
+ * （finish_reason=length，JSON 残缺无法解析），此时重试一次；重试后仍失败
+ * 则抢救残缺 JSON 里的 prompt 片段。generate 以回调注入，便于单测。
+ */
+export async function planImagesWithRetry(
+    generate: () => Promise<AITextResult>,
+    count: number,
+): Promise<{ planned: PlannedImage[]; raw: string | null }> {
+    let raw: string | null = null;
+    // 抢救用最长的一次返回：后一次重试可能返回空，不能把前一次的截断 JSON 丢了
+    let salvageRaw: string | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const result = await generate();
+        raw = result.text;
+        const planned = parsePlannedImages(raw, count);
+        if (planned.length > 0) {
+            return { planned, raw };
+        }
+        if ((raw ?? "").length > (salvageRaw ?? "").length) {
+            salvageRaw = raw;
+        }
+        const empty = !(raw ?? "").trim();
+        // 有内容、非截断但解析失败：模型不听话，重试意义不大，直接走抢救
+        if (!empty && result.finishReason !== "length") {
+            break;
+        }
+        if (attempt === 0) {
+            console.log(`[AI Images] Plan attempt failed (${empty ? "empty" : "truncated"}), retrying once`);
+        }
+    }
+    return { planned: salvagePartialPrompts(salvageRaw, count), raw };
+}
+
 async function planImages(
     env: Env,
     writerConfig: AIWriterConfig,
@@ -140,19 +198,23 @@ async function planImages(
         },
     ];
     let raw: string | null = null;
+    let planned: PlannedImage[] = [];
     try {
-        raw = (
-            await generateAIText(env, writerConfig, messages, {
-                maxTokens: 800,
-                temperature: 0.7,
-            })
-        ).text;
+        const result = await planImagesWithRetry(
+            () =>
+                generateAIText(env, writerConfig, messages, {
+                    maxTokens: 800,
+                    temperature: 0.7,
+                }),
+            count,
+        );
+        raw = result.raw;
+        planned = result.planned;
     } catch (error) {
         throw new Error(
             `配图规划失败：${error instanceof Error ? error.message : String(error)}`,
         );
     }
-    const planned = parsePlannedImages(raw, count);
     if (planned.length === 0) {
         const snippet = (raw ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
         throw new Error(
