@@ -6,6 +6,7 @@ import type { Variables } from "../core/hono-types";
 import { adminOnly, withJsonBody } from "../core/route-boundaries";
 import { feeds } from "../db/schema";
 import { generateAIText, stripReasoningTags } from "../utils/ai";
+import type { AITextResult } from "../utils/ai";
 import { getAIWriterConfig } from "../utils/db-config";
 
 const REVISE_MODES: AIReviseMode[] = ["polish", "expand", "shorten", "proofread", "custom"];
@@ -57,6 +58,25 @@ export function estimateReviseMaxTokens(content: string): number {
     return Math.ceil(content.length / 2) * 2 + 500;
 }
 
+/**
+ * Pure so empty-result diagnosis can be tested without IO.
+ * Explains WHY the model returned no usable text instead of a bare
+ * "empty result": reasoning-only output (thinker models), a content-filter
+ * block, or an unknown empty response with its finish_reason attached.
+ */
+export function describeEmptyReviseResult(
+    result: Pick<AITextResult, "finishReason" | "reasoningContent">,
+): string {
+    if (result.reasoningContent) {
+        return "AI returned only its reasoning trace without article text. Please retry or switch model.";
+    }
+    if (result.finishReason === "content_filter") {
+        return "AI content filter blocked this request. Please adjust the instruction and retry.";
+    }
+    const reason = result.finishReason ? ` (finish_reason: ${result.finishReason})` : "";
+    return `AI returned empty result${reason}. Please retry.`;
+}
+
 export function registerFeedAIReviseRoutes(app: Hono<{ Bindings: Env; Variables: Variables }>) {
     // Must be registered before app.post('/:id', ...): see the ai-compose note in feed.ts.
     app.post(
@@ -93,43 +113,46 @@ export function registerFeedAIReviseRoutes(app: Hono<{ Bindings: Env; Variables:
                     return c.text("AI writer is not enabled", 400);
                 }
 
-                let raw: string | null = null;
+                let result: AITextResult;
                 try {
-                    raw = (
-                        await generateAIText(
-                            env,
-                            writerConfig,
-                            [
-                                {
-                                    role: "system",
-                                    content: writerConfig.system_prompt.trim() || REVISE_SYSTEM_PROMPT,
-                                },
-                                {
-                                    role: "user",
-                                    content: buildReviseUserMessage({
-                                        mode,
-                                        instruction: body.instruction,
-                                        content: feed.content,
-                                    }),
-                                },
-                            ],
+                    result = await generateAIText(
+                        env,
+                        writerConfig,
+                        [
                             {
-                                maxTokens: Math.max(
-                                    writerConfig.max_tokens,
-                                    estimateReviseMaxTokens(feed.content),
-                                ),
-                                temperature: writerConfig.temperature,
+                                role: "system",
+                                content: writerConfig.system_prompt.trim() || REVISE_SYSTEM_PROMPT,
                             },
-                        )
-                    ).text;
+                            {
+                                role: "user",
+                                content: buildReviseUserMessage({
+                                    mode,
+                                    instruction: body.instruction,
+                                    content: feed.content,
+                                }),
+                            },
+                        ],
+                        {
+                            maxTokens: Math.max(
+                                writerConfig.max_tokens,
+                                estimateReviseMaxTokens(feed.content),
+                            ),
+                            temperature: writerConfig.temperature,
+                        },
+                    );
                 } catch (error) {
                     console.error("[AI Revise] Generation failed:", error);
                     return c.text(error instanceof Error ? error.message : String(error), 500);
                 }
 
-                const revised = stripReasoningTags(raw ?? "").trim();
+                const revised = stripReasoningTags(result.text ?? "").trim();
                 if (!revised) {
-                    return c.text("AI returned empty result", 500);
+                    console.error("[AI Revise] Empty result:", {
+                        model: writerConfig.model,
+                        finishReason: result.finishReason,
+                        hasReasoningContent: !!result.reasoningContent,
+                    });
+                    return c.text(describeEmptyReviseResult(result), 500);
                 }
 
                 return c.json({ revised });
