@@ -36,6 +36,25 @@ const W = 750;
 const PAD = 48;
 const SCALE = 2; // render at 2x for crispness
 
+// The full-article long image can get very tall for photo-heavy articles.
+// iOS Safari silently blanks (or refuses) huge canvases, and WeChat's share
+// extension gets stuck loading multi-tens-of-MB PNGs ("加载中" forever, then
+// 转发失败). Cap the device-pixel height with an adaptive scale, and encode
+// the article image as JPEG (photos compress ~10x better than PNG).
+const ARTICLE_IMAGE_MAX_DEVICE_H = 16384;
+const ARTICLE_IMAGE_JPEG_QUALITY = 0.85;
+
+/**
+ * Render scale for the article long image: full SCALE unless the canvas
+ * would exceed the safe device-pixel height, in which case scale down just
+ * enough to fit.
+ */
+export function articleImageScale(cssHeight: number): number {
+  if (!(cssHeight > 0)) return SCALE;
+  const capped = ARTICLE_IMAGE_MAX_DEVICE_H / cssHeight;
+  return capped >= SCALE ? SCALE : capped;
+}
+
 export function stripMarkdown(src: string): string {
   return (
     src
@@ -539,12 +558,13 @@ export async function renderArticleImage(data: SharePosterData): Promise<string>
   const H =
     PAD + headerH + 24 + titleH + 16 + metaH + dividerH + bodyH + dividerH + bottomH + footerH + PAD;
 
+  const scale = articleImageScale(H);
   const canvas = document.createElement("canvas");
-  canvas.width = W * SCALE;
-  canvas.height = Math.round(H * SCALE);
+  canvas.width = Math.round(W * scale);
+  canvas.height = Math.round(H * scale);
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("no 2d context");
-  ctx.scale(SCALE, SCALE);
+  ctx.scale(scale, scale);
 
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, W, H);
@@ -698,7 +718,7 @@ export async function renderArticleImage(data: SharePosterData): Promise<string>
 
   // QR code
   const qrDataUrl = await QRCode.toDataURL(data.url, {
-    width: qrSize * SCALE,
+    width: Math.round(qrSize * scale),
     margin: 1,
     color: { dark: "#111827", light: "#ffffff" },
   });
@@ -726,7 +746,9 @@ export async function renderArticleImage(data: SharePosterData): Promise<string>
   ctx.fillText(`分享自 ${data.siteName}`, W / 2, H - PAD + 10);
   ctx.textAlign = "left";
 
-  return canvas.toDataURL("image/png");
+  // JPEG: photo-heavy long images compress ~10x smaller than PNG, which is
+  // what was making WeChat's share extension stall ("加载中") and fail.
+  return canvas.toDataURL("image/jpeg", ARTICLE_IMAGE_JPEG_QUALITY);
 }
 
 export function SharePosterModal({
@@ -790,9 +812,13 @@ export function SharePosterModal({
     if (!imgUrl) return;
     try {
       const blob = await (await fetch(imgUrl)).blob();
-      const filename = `share-${tab}-${Date.now()}.png`;
+      // The article long image renders as JPEG now (poster stays PNG);
+      // keep the filename and File type in sync with the actual bytes.
+      const mime = blob.type || "image/png";
+      const ext = mime === "image/jpeg" ? "jpg" : "png";
+      const filename = `share-${tab}-${Date.now()}.${ext}`;
       if (canNativeFileShare) {
-        const file = new File([blob], filename, { type: "image/png" });
+        const file = new File([blob], filename, { type: mime });
         await navigator.share({ files: [file], title: data.title });
         setStatus("shared");
       } else {
