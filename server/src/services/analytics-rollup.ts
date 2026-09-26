@@ -10,6 +10,24 @@ import {
 
 export const ANALYTICS_CURSOR_KEY = "analytics.last_rollup";
 
+/**
+ * 最近一次聚合失败的错误落盘（JSON 字符串）。
+ * cron 只记日志时线上排障全靠猜：把错误写进 cache，下次验证直接查 D1 即可看到。
+ */
+export const ANALYTICS_ERROR_KEY = "analytics.last_rollup_error";
+
+/** 落盘的错误记录结构。 */
+export interface RollupErrorRecord {
+    /** 失败的聚合日期（YYYY-MM-DD） */
+    date: string;
+    /** 失败时间（ISO） */
+    at: string;
+    /** AnalyticsUnavailableError 的 reason，或 "exception" */
+    reason: string;
+    /** 截断后的错误信息 */
+    message: string;
+}
+
 /** AE 保留 3 个月；90 天是可安全查询的窗口。 */
 export const ANALYTICS_WINDOW_DAYS = 90;
 
@@ -299,6 +317,7 @@ async function rollupDate(env: Env, db: DB, date: string): Promise<void> {
 /**
  * 每日聚合。cron 每 20 分钟调用，无待聚合日期时立即返回。
  * AE 不可用时记录告警并保持游标不动，下一轮重试。
+ * 失败原因会落盘到 ANALYTICS_ERROR_KEY，成功后清空，避免静默失败无处可查。
  */
 export async function analyticsCrontab(env: Env, db: DB, serverConfig: RollupConfig): Promise<void> {
     const today = utcDateString(new Date());
@@ -308,6 +327,7 @@ export async function analyticsCrontab(env: Env, db: DB, serverConfig: RollupCon
     const dates = pending.slice(0, MAX_ROLLUP_DATES_PER_RUN);
 
     if (dates.length === 0) {
+        await clearRollupError(serverConfig);
         return;
     }
 
@@ -316,12 +336,43 @@ export async function analyticsCrontab(env: Env, db: DB, serverConfig: RollupCon
             await rollupDate(env, db, date);
             await serverConfig.set(ANALYTICS_CURSOR_KEY, date, true);
         } catch (error) {
+            const reason = error instanceof AnalyticsUnavailableError ? error.reason : "exception";
+            const message = error instanceof Error ? error.message : String(error);
             if (error instanceof AnalyticsUnavailableError) {
                 console.warn(`analytics: rollup skipped for ${date} (${error.reason})`, error.message);
             } else {
                 console.error(`analytics: rollup failed for ${date}`, error);
             }
+            await recordRollupError(serverConfig, { date, reason, message });
             return;
         }
+    }
+
+    await clearRollupError(serverConfig);
+}
+
+/** 聚合失败落盘：落盘本身失败不影响主流程，只记日志。 */
+async function recordRollupError(
+    serverConfig: RollupConfig,
+    record: Omit<RollupErrorRecord, "at">,
+): Promise<void> {
+    try {
+        const payload: RollupErrorRecord = {
+            ...record,
+            at: new Date().toISOString(),
+            message: record.message.slice(0, 300),
+        };
+        await serverConfig.set(ANALYTICS_ERROR_KEY, JSON.stringify(payload), true);
+    } catch (error) {
+        console.error("analytics: failed to persist rollup error", error);
+    }
+}
+
+/** 聚合成功后清空错误落盘；同样保证不抛错。 */
+async function clearRollupError(serverConfig: RollupConfig): Promise<void> {
+    try {
+        await serverConfig.set(ANALYTICS_ERROR_KEY, "", true);
+    } catch (error) {
+        console.error("analytics: failed to clear rollup error", error);
     }
 }
