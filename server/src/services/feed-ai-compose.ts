@@ -17,6 +17,7 @@ import {
     generateAITextWithVision,
     stripReasoningTags,
     type AIChatMessage,
+    type AITextResult,
     type AIVisionContentPart,
 } from "../utils/ai";
 import {
@@ -84,6 +85,94 @@ export function decideComposeOutcome(input: { raw: string | null; error?: string
     }
 
     return { kind: "published", article };
+}
+
+/**
+ * 截断续写：模型返回 finish_reason === "length" 说明输出撞到了 token 上限。
+ * 把已生成的部分作为 assistant 历史发回去，让模型从中断处继续写，
+ * 而不是直接发布半成品（如 feed/25 断在半句话上）。
+ */
+const MAX_CONTINUATIONS = 2;
+
+const CONTINUE_PROMPT =
+    "你上一次的输出被截断了。请从中断处继续写完：不要重复 front-matter，不要重复已经写过的内容，直接续写正文。";
+
+export interface ComposeGeneration {
+    /** 拼接后的完整原始输出；全空时为 null。 */
+    raw: string | null;
+    /** true = 续写次数用完仍被截断：调用方应按失败处理，绝不发布半成品。 */
+    truncated: boolean;
+    error?: string;
+}
+
+/** 续写块不应再带 front-matter；模型不听话时防御性去掉。 */
+export function stripLeadingFrontMatter(chunk: string): string {
+    const text = chunk.replace(/^\s+/, "");
+    if (!text.startsWith("---")) return chunk;
+    const lines = text.split("\n");
+    const closing = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+    if (closing <= 0) return chunk;
+    return lines.slice(closing + 1).join("\n");
+}
+
+/**
+ * 带截断续写的文章生成。generate 由调用方注入以便测试；
+ * vision 模式与纯文本模式共用同一套续写循环。
+ * 续写时不再重复发送图片（data URL 又大又没必要），只保留文本历史。
+ */
+export async function generateArticleWithContinuation(
+    baseMessages: AIChatMessage[],
+    generate: (messages: AIChatMessage[]) => Promise<AITextResult>,
+    maxContinuations = MAX_CONTINUATIONS,
+): Promise<ComposeGeneration> {
+    const textOnlyBase: AIChatMessage[] = baseMessages.map((message) => {
+        if (typeof message.content === "string") return message;
+        const textParts = message.content
+            .filter((part) => part.type === "text")
+            .map((part) => part.text);
+        const imageCount = message.content.filter((part) => part.type === "image_url").length;
+        const note =
+            imageCount > 0 ? `\n[注：此处原有 ${imageCount} 张参考图片，内容已在上文中描述]` : "";
+        return { ...message, content: [...textParts, note].join("\n") };
+    });
+
+    const chunks: string[] = [];
+    // 首次请求原样发送（含图片）；只有续写时才剥离图片省 token。
+    let messages = baseMessages;
+    let truncated = false;
+
+    for (let attempt = 0; attempt <= maxContinuations; attempt++) {
+        let result: AITextResult;
+        try {
+            result = await generate(messages);
+        } catch (error) {
+            const partial = chunks.join("");
+            return {
+                raw: partial ? partial : null,
+                truncated: false,
+                error: error instanceof Error ? error.message : String(error),
+            };
+        }
+
+        const piece = attempt === 0 ? (result.text ?? "") : stripLeadingFrontMatter(result.text ?? "");
+        chunks.push(piece);
+
+        if (result.finishReason === "length" && result.text?.trim()) {
+            truncated = true;
+            console.log(`[AI Compose] Output truncated (finish_reason=length), continuing (${attempt + 1}/${maxContinuations})`);
+            messages = [
+                ...textOnlyBase,
+                { role: "assistant", content: chunks.join("") },
+                { role: "user", content: CONTINUE_PROMPT },
+            ];
+            continue;
+        }
+        truncated = false;
+        break;
+    }
+
+    const raw = chunks.join("");
+    return { raw: raw ? raw : null, truncated };
 }
 
 export async function enqueueFeedAICompose(
@@ -362,41 +451,52 @@ export async function processFeedAIComposeTask(
         style: payload.style,
     });
 
-    let raw: string | null = null;
-    let requestError: string | undefined;
-
+    let generation: ComposeGeneration;
     try {
         const genOptions = {
             // Never let a configured ceiling truncate the length that was asked for.
             maxTokens: Math.max(writerConfig.max_tokens, composeMaxTokensFloor(length)),
             temperature: writerConfig.temperature,
         };
-        if (visionParts.length > 0) {
-            const messages: AIChatMessage[] = [
-                { role: "system", content: systemPrompt },
-                {
-                    role: "user",
-                    content: [...visionParts, { type: "text" as const, text: userText }],
-                },
-            ];
-            raw = await generateAITextWithVision(env, writerConfig, messages, genOptions);
-        } else {
-            raw = await generateAIText(
-                env,
-                writerConfig,
-                [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: userText },
-                ],
-                genOptions,
-            );
-        }
+        const withVision = visionParts.length > 0;
+        const baseMessages: AIChatMessage[] = withVision
+            ? [
+                  { role: "system", content: systemPrompt },
+                  {
+                      role: "user",
+                      content: [...visionParts, { type: "text" as const, text: userText }],
+                  },
+              ]
+            : [
+                  { role: "system", content: systemPrompt },
+                  { role: "user", content: userText },
+              ];
+        // finish_reason=length 时自动续写；续写用完仍截断则按失败处理，不发布半成品。
+        generation = await generateArticleWithContinuation(baseMessages, (messages) =>
+            withVision
+                ? generateAITextWithVision(env, writerConfig, messages, genOptions)
+                : generateAIText(env, writerConfig, messages, genOptions),
+        );
     } catch (error) {
         console.error("[AI Compose] Generation failed:", error);
-        requestError = error instanceof Error ? error.message : String(error);
+        generation = {
+            raw: null,
+            truncated: false,
+            error: error instanceof Error ? error.message : String(error),
+        };
     }
 
-    const outcome = decideComposeOutcome({ raw, error: requestError });
+    if (generation.truncated) {
+        const error = "AI 输出被截断且续写后仍未完成，未发布；请重试";
+        await db
+            .update(feeds)
+            .set(buildStatusUpdate("failed", { aiComposeError: error }))
+            .where(eq(feeds.id, feed.id));
+        await clearFeedCache(cache, feed.id, feed.alias, feed.alias);
+        return;
+    }
+
+    const outcome = decideComposeOutcome({ raw: generation.raw, error: generation.error });
 
     if (outcome.kind === "failed") {
         await db

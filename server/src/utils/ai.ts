@@ -52,6 +52,14 @@ export type AIChatMessage = {
 const DEFAULT_MAX_TOKENS = 500;
 const DEFAULT_TEMPERATURE = 0.3;
 
+/** 文本生成的结构化结果：正文 + 模型返回的 finish_reason。 */
+export interface AITextResult {
+    /** 生成的文本；空响应时为 null。 */
+    text: string | null;
+    /** 如 "stop" / "length"；拿不到时为 null。"length" 表示输出被截断。 */
+    finishReason: string | null;
+}
+
 export const AI_SUMMARY_SYSTEM_PROMPT =
     "你是一个中文内容摘要助手。请用简洁、准确、自然的中文总结用户提供的内容，不超过200字，不要添加原文没有的信息，不要输出标题或项目符号。";
 
@@ -111,6 +119,17 @@ export function extractAIText(response: unknown): string | null {
 }
 
 /**
+ * Best-effort extraction of the finish reason from a chat-completion response.
+ * OpenAI-compatible providers put it at choices[0].finish_reason.
+ * Workers AI binding responses generally don't carry one → null.
+ */
+export function extractFinishReason(response: unknown): string | null {
+    if (!response || typeof response !== "object") return null;
+    const reason = (response as Record<string, any>).choices?.[0]?.finish_reason;
+    return typeof reason === "string" && reason.length > 0 ? reason : null;
+}
+
+/**
  * Execute Worker AI request
  */
 async function executeWorkerAI(
@@ -118,7 +137,7 @@ async function executeWorkerAI(
     modelId: string,
     messages: AIChatMessage[],
     options?: AIGenerationOptions,
-): Promise<string | null> {
+): Promise<AITextResult> {
     if (!env.AI || typeof env.AI.run !== "function") {
         throw new Error("Workers AI binding is not configured");
     }
@@ -129,7 +148,7 @@ async function executeWorkerAI(
         temperature: options?.temperature ?? DEFAULT_TEMPERATURE,
     } as any);
 
-    return extractAIText(response);
+    return { text: extractAIText(response), finishReason: extractFinishReason(response) };
 }
 
 /**
@@ -184,7 +203,7 @@ async function executeExternalAI(
     },
     messages: AIChatMessage[],
     options?: AIGenerationOptions,
-): Promise<string | null> {
+): Promise<AITextResult> {
     const { provider, model, api_key, api_url } = config;
 
     if (!api_key) {
@@ -213,7 +232,10 @@ async function executeExternalAI(
     }
 
     const data = await response.json() as any;
-    return data.choices?.[0]?.message?.content?.trim() || null;
+    return {
+        text: data.choices?.[0]?.message?.content?.trim() || null,
+        finishReason: extractFinishReason(data),
+    };
 }
 
 /**
@@ -228,9 +250,9 @@ export async function generateAIText(
         api_key: string;
         api_url: string;
     },
-    messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+    messages: AIChatMessage[],
     options?: AIGenerationOptions,
-): Promise<string | null> {
+): Promise<AITextResult> {
     if (config.provider === 'worker-ai') {
         return executeWorkerAI(env, getWorkerAIModelId(config.model), messages, options);
     }
@@ -269,7 +291,7 @@ export async function generateAITextWithVision(
     },
     messages: AIChatMessage[],
     options?: AIGenerationOptions,
-): Promise<string | null> {
+): Promise<AITextResult> {
     const model = resolveVisionModel(config);
     if (config.provider === 'worker-ai') {
         return executeWorkerAI(env, getWorkerAIModelId(model), messages, options);
@@ -306,10 +328,10 @@ export async function testAIModel(
             { role: "user", content: testPrompt },
         ]);
 
-        if (result) {
+        if (result.text) {
             return {
                 success: true,
-                response: result,
+                response: result.text,
             };
         } else {
             return {
@@ -358,7 +380,7 @@ export async function generateAISummaryResult(
     try {
         const result = await generateAIText(env, config, summaryMessages);
 
-        if (!result || !result.trim()) {
+        if (!result.text || !result.text.trim()) {
             return {
                 summary: null,
                 skipped: false,
@@ -366,7 +388,7 @@ export async function generateAISummaryResult(
             };
         }
 
-        const cleaned = stripReasoningTags(result);
+        const cleaned = stripReasoningTags(result.text);
         if (!cleaned.trim()) {
             return {
                 summary: null,

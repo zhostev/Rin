@@ -95,31 +95,33 @@ export function registerFeedAIReviseRoutes(app: Hono<{ Bindings: Env; Variables:
 
                 let raw: string | null = null;
                 try {
-                    raw = await generateAIText(
-                        env,
-                        writerConfig,
-                        [
+                    raw = (
+                        await generateAIText(
+                            env,
+                            writerConfig,
+                            [
+                                {
+                                    role: "system",
+                                    content: writerConfig.system_prompt.trim() || REVISE_SYSTEM_PROMPT,
+                                },
+                                {
+                                    role: "user",
+                                    content: buildReviseUserMessage({
+                                        mode,
+                                        instruction: body.instruction,
+                                        content: feed.content,
+                                    }),
+                                },
+                            ],
                             {
-                                role: "system",
-                                content: writerConfig.system_prompt.trim() || REVISE_SYSTEM_PROMPT,
+                                maxTokens: Math.max(
+                                    writerConfig.max_tokens,
+                                    estimateReviseMaxTokens(feed.content),
+                                ),
+                                temperature: writerConfig.temperature,
                             },
-                            {
-                                role: "user",
-                                content: buildReviseUserMessage({
-                                    mode,
-                                    instruction: body.instruction,
-                                    content: feed.content,
-                                }),
-                            },
-                        ],
-                        {
-                            maxTokens: Math.max(
-                                writerConfig.max_tokens,
-                                estimateReviseMaxTokens(feed.content),
-                            ),
-                            temperature: writerConfig.temperature,
-                        },
-                    );
+                        )
+                    ).text;
                 } catch (error) {
                     console.error("[AI Revise] Generation failed:", error);
                     return c.text(error instanceof Error ? error.message : String(error), 500);
