@@ -290,9 +290,9 @@ export function filenameFromUrl(url: URL, mime: string): string {
 // ---------------------------------------------------------------------------
 
 /** Instagram 帖子/快拍视频页路径：/p/<code>、/reel/<code>、/reels/<code>、/tv/<code> */
-const INSTAGRAM_POST_PATH = /^\/(p|reel|reels|tv)\/[\w-]+\/?$/;
+const INSTAGRAM_POST_PATH = /^\/(p|reel|reels|tv)\/([\w-]+)\/?$/;
 
-/** 是否为 Instagram 帖子页 URL（公开帖子的 HTML 里带 og:image 直链）。 */
+/** 是否为 Instagram 帖子页 URL（解析交给 Apify，见 resolveInstagramImageUrl）。 */
 export function isInstagramPostUrl(url: URL): boolean {
     const host = url.hostname.toLowerCase();
     if (host !== "instagram.com" && host !== "www.instagram.com") {
@@ -301,115 +301,238 @@ export function isInstagramPostUrl(url: URL): boolean {
     return INSTAGRAM_POST_PATH.test(url.pathname);
 }
 
-/** Instagram 图片 CDN 域名白名单（解析出的 og:image 必须落在这上面）。 */
-const INSTAGRAM_CDN_SUFFIXES = [".cdninstagram.com", ".fbcdn.net"];
-
-/** HTML 实体反转义（og:image 的 content 里 & 会被转义成 &amp;）。 */
-function unescapeHtmlEntities(text: string): string {
-    return text
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/&#x27;/g, "'")
-        .replace(/&#39;/g, "'");
+/** 帖子短码；不是帖子页 URL 时返回 null。 */
+export function instagramShortcode(url: URL): string | null {
+    return INSTAGRAM_POST_PATH.exec(url.pathname)?.[2] ?? null;
 }
-
-/** 从 HTML 里提取 og:image（兼容 property/content 属性两种顺序）。 */
-function extractOgImage(html: string): string | null {
-    const patterns = [
-        /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
-        /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
-    ];
-    for (const pattern of patterns) {
-        const match = html.match(pattern);
-        if (match?.[1]) {
-            return unescapeHtmlEntities(match[1]);
-        }
-    }
-    return null;
-}
-
-/** 解析帖子页 HTML 的上限（og:image 在 <head> 里，2MB 足够）。 */
-const INSTAGRAM_HTML_MAX_BYTES = 2 * 1024 * 1024;
 
 /**
- * 把 Instagram 帖子页 URL 解析为图片直链。
- * 公开帖子无需登录即可在 HTML 的 og:image 里拿到 CDN 直链；
- * 帖子不存在/被限流/私密时抛 instagram_resolve_failed。
- * 注意：轮播帖只取首图。
+ * ?img_index=N 是 1-based 的媒体序号（图片和视频一起数，与浏览器里看到的一致）。
+ * 缺省或非法时返回 null，表示取首图。
  */
-export async function resolveInstagramImageUrl(
-    pageUrl: URL,
-    fetchFn: typeof fetch = fetch,
-): Promise<string> {
+export function instagramImageIndex(url: URL): number | null {
+    const raw = url.searchParams.get("img_index");
+    if (!raw || !/^\d+$/.test(raw)) {
+        return null;
+    }
+    const index = Number.parseInt(raw, 10);
+    return index > 0 ? index : null;
+}
+
+/** Instagram 图片 CDN 域名白名单（解析出的直链必须落在这上面）。 */
+const INSTAGRAM_CDN_SUFFIXES = [".cdninstagram.com", ".fbcdn.net"];
+
+export const APIFY_ACTOR_PRIMARY = "apify~instagram-scraper";
+/** 主 actor 对部分帖子只会回 restricted_page，这时换 data-slayer 取全量媒体对象。 */
+export const APIFY_ACTOR_FALLBACK = "data-slayer~instagram-post-details";
+const APIFY_BASE = "https://api.apify.com/v2/acts";
+const APIFY_TIMEOUT_MS = 60_000;
+
+type UnknownRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): UnknownRecord | null {
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? (value as UnknownRecord)
+        : null;
+}
+
+function asString(value: unknown): string {
+    return typeof value === "string" ? value : "";
+}
+
+export type InstagramMediaEntry = { kind: "image" | "video"; url: string };
+
+/** apify~instagram-scraper：轮播在 childPosts[]，单帖的同名字段在顶层。 */
+export function instagramMediaFromApify(item: unknown): InstagramMediaEntry[] {
+    const record = asRecord(item);
+    if (!record || record.error) {
+        return [];
+    }
+    const children = Array.isArray(record.childPosts) ? record.childPosts : [];
+    const entries = children.length > 0 ? children : [record];
+    const media: InstagramMediaEntry[] = [];
+
+    for (const entry of entries) {
+        const child = asRecord(entry);
+        if (!child) continue;
+        const url = asString(child.displayUrl) || asString(child.display_url);
+        if (!url) continue;
+        media.push({
+            kind: asString(child.type).toLowerCase() === "video" ? "video" : "image",
+            url,
+        });
+    }
+
+    return media;
+}
+
+/** data-slayer：carousel_media[]，图片在 image_versions.items 里按面积取最大的一档。 */
+export function instagramMediaFromDataslayer(item: unknown): InstagramMediaEntry[] {
+    const record = asRecord(item);
+    if (!record) {
+        return [];
+    }
+    const carousel = Array.isArray(record.carousel_media) ? record.carousel_media : [];
+    const entries = carousel.length > 0 ? carousel : [record];
+    const media: InstagramMediaEntry[] = [];
+
+    for (const entry of entries) {
+        const child = asRecord(entry);
+        if (!child) continue;
+
+        const videos = child.video_versions;
+        if (Array.isArray(videos) && videos.length > 0) {
+            const url = asString(asRecord(videos[0])?.url);
+            if (url) media.push({ kind: "video", url });
+            continue;
+        }
+
+        const items = asRecord(child.image_versions)?.items;
+        let bestUrl = asString(child.display_url);
+        let bestArea = -1;
+        if (Array.isArray(items)) {
+            for (const candidate of items) {
+                const image = asRecord(candidate);
+                if (!image) continue;
+                const area = Number(image.width ?? 0) * Number(image.height ?? 0);
+                if (area > bestArea) {
+                    bestArea = area;
+                    bestUrl = asString(image.url);
+                }
+            }
+        }
+        if (bestUrl) media.push({ kind: "image", url: bestUrl });
+    }
+
+    return media;
+}
+
+async function callApifyActor(
+    actor: string,
+    body: unknown,
+    token: string,
+    fetchFn: typeof fetch,
+): Promise<unknown[]> {
     let response: Response;
     try {
-        response = await fetchFn(pageUrl.toString(), {
+        response = await fetchFn(`${APIFY_BASE}/${actor}/run-sync-get-dataset-items?timeout=60`, {
+            method: "POST",
             headers: {
-                "User-Agent": FETCH_USER_AGENT,
-                Accept: "text/html",
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
             },
-            redirect: "follow",
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(APIFY_TIMEOUT_MS),
         });
     } catch (error) {
         throw new RemoteImageDownloadError(
             "instagram_resolve_failed",
-            `Instagram 帖子页抓取失败：${error instanceof Error ? error.message : String(error)}`,
+            `Apify 调用失败：${error instanceof Error ? error.message : String(error)}`,
         );
     }
+
     if (!response.ok) {
         throw new RemoteImageDownloadError(
             "instagram_resolve_failed",
-            response.status === 404
-                ? "Instagram 帖子不存在或已删除"
-                : `Instagram 帖子页抓取失败（HTTP ${response.status}，可能被限流）`,
+            `Apify 返回 HTTP ${response.status}`,
             response.status,
         );
     }
 
-    // 有界读取：og:image 在 <head>，读到 2MB 还没找到就放弃
-    const reader = response.body?.getReader();
-    if (!reader) {
-        throw new RemoteImageDownloadError("instagram_resolve_failed", "Instagram 帖子页返回为空");
-    }
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    let html = "";
+    let payload: unknown;
     try {
-        for (;;) {
-            const { done, value } = await reader.read();
-            if (done) {
-                break;
-            }
-            total += value.byteLength;
-            if (total > INSTAGRAM_HTML_MAX_BYTES) {
-                await reader.cancel().catch(() => {});
-                break;
-            }
-            chunks.push(value);
-        }
-    } finally {
-        reader.releaseLock();
+        payload = await response.json();
+    } catch {
+        throw new RemoteImageDownloadError("instagram_resolve_failed", "Apify 返回的不是合法 JSON");
     }
-    const bytes = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-        bytes.set(chunk, offset);
-        offset += chunk.byteLength;
-    }
-    html = new TextDecoder().decode(bytes);
+    return Array.isArray(payload) ? payload : [];
+}
 
-    const ogImage = extractOgImage(html);
-    if (!ogImage) {
+/**
+ * 把 Instagram 帖子页 URL 解析为图片直链。
+ *
+ * 帖子页 HTML 对机房 IP 会直接 429（抓不动），所以抓取这一步交给 Apify 的
+ * actor，这里只把 actor 的响应归一化成 CDN 直链。带 ?img_index=N 时取第 N 个
+ * 媒体（与浏览器里看到的一致），否则取首图。
+ * 没配 APIFY_TOKEN、帖子不存在/私密/被限流时抛 instagram_resolve_failed。
+ */
+export async function resolveInstagramImageUrl(
+    pageUrl: URL,
+    fetchFn: typeof fetch = fetch,
+    token: string = "",
+): Promise<string> {
+    const shortcode = instagramShortcode(pageUrl);
+    if (!shortcode) {
+        throw new RemoteImageDownloadError("instagram_resolve_failed", "不是 Instagram 帖子链接");
+    }
+
+    const apifyToken = token.trim();
+    if (!apifyToken) {
         throw new RemoteImageDownloadError(
             "instagram_resolve_failed",
-            "没能从 Instagram 帖子页解析出图片（可能需要登录或帖子为私密）",
+            "未配置 APIFY_TOKEN，无法解析 Instagram 帖子（wrangler secret put APIFY_TOKEN）",
         );
     }
+
+    const permalink = `https://www.instagram.com/p/${shortcode}/`;
+    const primary = await callApifyActor(
+        APIFY_ACTOR_PRIMARY,
+        { directUrls: [permalink], resultsType: "posts" },
+        apifyToken,
+        fetchFn,
+    );
+    let media = instagramMediaFromApify(primary[0]);
+
+    if (media.length === 0) {
+        // restricted_page（私密、区域限制、限流）在这里不是"帖子不存在"。
+        const fallback = await callApifyActor(
+            APIFY_ACTOR_FALLBACK,
+            { urls: [permalink] },
+            apifyToken,
+            fetchFn,
+        );
+        media = instagramMediaFromDataslayer(fallback[0]);
+    }
+
+    if (media.length === 0) {
+        throw new RemoteImageDownloadError(
+            "instagram_resolve_failed",
+            "没能解析出帖子内容：可能已删除、私密或受到区域限制",
+        );
+    }
+
+    const requested = instagramImageIndex(pageUrl);
+    let entry: InstagramMediaEntry | undefined;
+
+    if (requested === null) {
+        entry = media.find((item) => item.kind === "image");
+        if (!entry) {
+            throw new RemoteImageDownloadError("instagram_resolve_failed", "该帖子没有图片（只有视频）");
+        }
+    } else {
+        entry = media[requested - 1];
+        if (!entry) {
+            throw new RemoteImageDownloadError(
+                "instagram_resolve_failed",
+                `img_index=${requested} 超出范围（该帖共 ${media.length} 个媒体）`,
+            );
+        }
+        if (entry.kind !== "image") {
+            throw new RemoteImageDownloadError(
+                "instagram_resolve_failed",
+                `img_index=${requested} 是视频，这个入口只下载图片`,
+            );
+        }
+    }
+
+    return assertInstagramCdnUrl(entry.url);
+}
+
+/** 解析结果必须落在 Instagram CDN 上，避免被 actor 响应里的任意地址带偏。 */
+function assertInstagramCdnUrl(raw: string): string {
     let imageUrl: URL;
     try {
-        imageUrl = new URL(ogImage);
+        imageUrl = new URL(raw);
     } catch {
         throw new RemoteImageDownloadError("instagram_resolve_failed", "解析出的图片地址无效");
     }

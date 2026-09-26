@@ -642,7 +642,11 @@ export function AdminMediaService(): HonoApp {
         let targetUrl = parsed.url;
         if (isInstagramPostUrl(targetUrl)) {
             try {
-                const resolved = await resolveInstagramImageUrl(targetUrl);
+                const resolved = await resolveInstagramImageUrl(
+                    targetUrl,
+                    fetch,
+                    (env.APIFY_TOKEN ?? "").trim(),
+                );
                 const revalidated = parseRemoteImageUrl(resolved);
                 if ("error" in revalidated) {
                     return c.json({

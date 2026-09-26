@@ -56,8 +56,8 @@
       "from_url_too_large": "图片超过 10MB 上限",
       "from_url_not_image": "该 URL 返回的不是图片",
       "from_url_not_configured": "服务端存储未配置",
-      "from_url_hint": "支持图片直链；粘贴 Instagram 帖子链接会自动下载首图",
-      "from_url_instagram_failed": "Instagram 帖子解析失败，请确认帖子公开可访问，或改用图片直链"
+      "from_url_hint": "支持图片直链；粘贴 Instagram 帖子链接会经 Apify 解析并下载图片（可用 ?img_index=N 指定第几张）",
+      "from_url_instagram_failed": "Instagram 解析失败：请确认已配置 APIFY_TOKEN 且帖子公开可访问，或改用图片直链"
     }
   },
   "compat_tasks": {

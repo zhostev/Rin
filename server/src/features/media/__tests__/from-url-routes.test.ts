@@ -160,15 +160,27 @@ describe('AdminMediaService POST /from-url', () => {
         expect(data.error.code).toBe('storage_not_configured');
     });
 
-    it('resolves an Instagram post URL to its og:image and downloads it (201)', async () => {
-        await setup({ R2_BUCKET: r2Mock() });
+    it('resolves an Instagram post URL through Apify and downloads the first image (201)', async () => {
+        await setup({ R2_BUCKET: r2Mock(), APIFY_TOKEN: 'apify_api_test' });
         const cdnUrl =
             'https://scontent-lax3-2.cdninstagram.com/v/t51.82787-15/819629641_18069542963758159_8941759054600826811_n.jpg?stp=dst-jpg_e35_tt6';
         mockFetchImpl((url) => {
-            if (url.includes('www.instagram.com')) {
+            if (url.includes('api.apify.com')) {
                 return new Response(
-                    `<html><head><meta property="og:image" content="${cdnUrl}"></head></html>`,
-                    { status: 200, headers: { 'content-type': 'text/html' } },
+                    JSON.stringify([
+                        {
+                            shortCode: 'DdqNdIPmjpa',
+                            type: 'Sidecar',
+                            childPosts: [
+                                { type: 'Image', displayUrl: cdnUrl },
+                                {
+                                    type: 'Video',
+                                    displayUrl: 'https://scontent-lax3-2.cdninstagram.com/clip.mp4',
+                                },
+                            ],
+                        },
+                    ]),
+                    { status: 200, headers: { 'content-type': 'application/json' } },
                 );
             }
             return pngResponse();
@@ -186,12 +198,14 @@ describe('AdminMediaService POST /from-url', () => {
         expect(puts[0]).toMatch(/_n\.jpg$/);
     });
 
-    it('422 instagram_resolve_failed when the post page has no og:image', async () => {
-        await setup({ R2_BUCKET: r2Mock() });
-        mockFetchImpl(() => new Response('<html><head></head></html>', {
-            status: 200,
-            headers: { 'content-type': 'text/html' },
-        }));
+    it('422 instagram_resolve_failed when Apify has nothing for the post', async () => {
+        await setup({ R2_BUCKET: r2Mock(), APIFY_TOKEN: 'apify_api_test' });
+        mockFetchImpl(() =>
+            new Response(JSON.stringify([]), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            }),
+        );
         const res = await postFromUrl({ url: 'https://www.instagram.com/p/DdqNdIPmjpa/' });
         expect(res.status).toBe(422);
         const data = await res.json() as any;
@@ -199,8 +213,19 @@ describe('AdminMediaService POST /from-url', () => {
         expect(puts.length).toBe(0);
     });
 
-    it('422 instagram_resolve_failed when the Instagram post is gone', async () => {
+    it('422 with a config hint when APIFY_TOKEN is not set', async () => {
         await setup({ R2_BUCKET: r2Mock() });
+        mockFetchImpl(() => pngResponse());
+        const res = await postFromUrl({ url: 'https://www.instagram.com/p/DdqNdIPmjpa/' });
+        expect(res.status).toBe(422);
+        const data = await res.json() as any;
+        expect(data.error.code).toBe('instagram_resolve_failed');
+        expect(data.error.message).toContain('APIFY_TOKEN');
+        expect(puts.length).toBe(0);
+    });
+
+    it('422 instagram_resolve_failed when Apify rejects the call', async () => {
+        await setup({ R2_BUCKET: r2Mock(), APIFY_TOKEN: 'apify_api_test' });
         mockFetchImpl(() => new Response('not found', { status: 404 }));
         const res = await postFromUrl({ url: 'https://www.instagram.com/p/DdqNdIPmjpa/' });
         expect(res.status).toBe(422);
