@@ -248,6 +248,11 @@ export function AdminMediaLibraryPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [fromUrlOpen, setFromUrlOpen] = useState(false);
+  const [fromUrl, setFromUrl] = useState("");
+  const [fromUrlTitle, setFromUrlTitle] = useState("");
+  const [fromUrlAlt, setFromUrlAlt] = useState("");
+  const [downloading, setDownloading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const { showAlert, AlertUI } = useAlert();
 
@@ -301,6 +306,48 @@ export function AdminMediaLibraryPage() {
     }
   }
 
+  async function handleFromUrlDownload() {
+    const url = fromUrl.trim();
+    if (!url) {
+      showAlert(t("admin.media_library.from_url_invalid"));
+      return;
+    }
+    setDownloading(true);
+    try {
+      const { data, error } = await client.media.fromUrl({
+        url,
+        title: fromUrlTitle.trim() || undefined,
+        alt: fromUrlAlt.trim() || undefined,
+      });
+      if (error || !data) {
+        const status = error?.status;
+        const key =
+          status === 413
+            ? "from_url_too_large"
+            : status === 415
+              ? "from_url_not_image"
+              : status === 503
+                ? "from_url_not_configured"
+                : status === 400
+                  ? "from_url_invalid"
+                  : "from_url_failed";
+        showAlert(
+          typeof error?.value === "string" && error.value
+            ? error.value
+            : t(`admin.media_library.${key}`),
+        );
+        return;
+      }
+      setAssets((prev) => [data, ...prev]);
+      setFromUrlOpen(false);
+      setFromUrl("");
+      setFromUrlTitle("");
+      setFromUrlAlt("");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -322,6 +369,15 @@ export function AdminMediaLibraryPage() {
           {uploading && uploadProgress !== null && (
             <span className="text-xs text-neutral-500">{uploadProgress}%</span>
           )}
+          <button
+            type="button"
+            disabled={uploading || downloading}
+            onClick={() => setFromUrlOpen(true)}
+            className="rounded-full border border-black/10 px-4 py-1.5 text-xs font-medium t-secondary transition-colors hover:border-theme/40 hover:text-theme disabled:opacity-60 dark:border-white/10"
+          >
+            <i className="ri-link mr-1" />
+            {t("admin.media_library.from_url")}
+          </button>
           <button
             type="button"
             disabled={uploading}
@@ -378,6 +434,74 @@ export function AdminMediaLibraryPage() {
             </div>
           )}
         </>
+      )}
+      {fromUrlOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => {
+            if (!downloading) setFromUrlOpen(false);
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-black/10 bg-w p-5 dark:border-white/10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-4 text-sm font-medium t-primary">
+              {t("admin.media_library.from_url_title")}
+            </h3>
+            <label className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">
+              {t("admin.media_library.from_url_url")}
+            </label>
+            <input
+              type="url"
+              value={fromUrl}
+              disabled={downloading}
+              onChange={(e) => setFromUrl(e.target.value)}
+              placeholder={t("admin.media_library.from_url_url_placeholder")}
+              className="mb-3 w-full rounded-xl border border-black/10 bg-w p-3 text-sm t-primary outline-none focus:border-theme disabled:opacity-60 dark:border-white/10"
+            />
+            <label className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">
+              {t("admin.media_library.from_url_name")}
+            </label>
+            <input
+              type="text"
+              value={fromUrlTitle}
+              disabled={downloading}
+              onChange={(e) => setFromUrlTitle(e.target.value)}
+              className="mb-3 w-full rounded-xl border border-black/10 bg-w p-3 text-sm t-primary outline-none focus:border-theme disabled:opacity-60 dark:border-white/10"
+            />
+            <label className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">
+              {t("admin.media_library.from_url_alt")}
+            </label>
+            <input
+              type="text"
+              value={fromUrlAlt}
+              disabled={downloading}
+              onChange={(e) => setFromUrlAlt(e.target.value)}
+              className="w-full rounded-xl border border-black/10 bg-w p-3 text-sm t-primary outline-none focus:border-theme disabled:opacity-60 dark:border-white/10"
+            />
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={downloading}
+                onClick={() => setFromUrlOpen(false)}
+                className="rounded-full px-4 py-1.5 text-xs font-medium t-secondary hover:t-primary disabled:opacity-60"
+              >
+                {t("admin.media_library.from_url_cancel")}
+              </button>
+              <button
+                type="button"
+                disabled={downloading || !fromUrl.trim()}
+                onClick={() => void handleFromUrlDownload()}
+                className="rounded-full bg-theme px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-theme-hover disabled:opacity-60"
+              >
+                {downloading
+                  ? t("admin.media_library.from_url_downloading")
+                  : t("admin.media_library.from_url_confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       <AlertUI />
     </div>

@@ -65,7 +65,13 @@ import {
     validateDirectUploadRequest,
     type R2DirectKind,
 } from "../features/media/r2-direct";
-import { headStorageObject } from "../utils/storage";
+import {
+    downloadImageBytes,
+    filenameFromUrl,
+    parseRemoteImageUrl,
+    RemoteImageDownloadError,
+} from "../features/media/from-url";
+import { headStorageObject, putStorageObjectAtKey } from "../utils/storage";
 import { createS3Client, deleteObject } from "../utils/s3";
 import {
     applyStreamWebhook,
@@ -593,6 +599,105 @@ export function AdminMediaService(): HonoApp {
 
         const updated = await findMediaAssetById(db, id);
         return c.json(serializeMediaAsset(updated ?? row));
+    }));
+
+    // POST /admin/media/from-url —— 从 URL 下载图片并存入媒体库（服务端直抓 → R2）
+    //   JSON body: { url*, title?, alt? }
+    //   201 -> MediaAsset（asset.url 为站内 /api/blob/<key>）
+    //   400 invalid_url/url_not_allowed；413 image_too_large；415 not_an_image/empty_image；
+    //   502 download_failed/image_download_store_failed；503 storage_not_configured
+    app.post('/from-url', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+
+        let body: Record<string, unknown>;
+        try {
+            body = await c.req.json() as Record<string, unknown>;
+        } catch {
+            return c.json({ error: { code: 'invalid_json', message: 'Request body must be JSON' } }, 400);
+        }
+
+        const parsed = parseRemoteImageUrl(body['url']);
+        if ('error' in parsed) {
+            const message = parsed.error === 'invalid_url'
+                ? 'Invalid image URL (expected http(s) URL)'
+                : 'URL host is not allowed';
+            return c.json({ error: { code: parsed.error, message } }, 400);
+        }
+
+        const storageError = requireStorage(c, 'Image download');
+        if (storageError) {
+            return storageError;
+        }
+
+        const title = typeof body['title'] === 'string' ? body['title'].slice(0, 200) : '';
+        const alt = typeof body['alt'] === 'string' ? body['alt'].slice(0, 500) : '';
+
+        let downloaded: { bytes: Uint8Array; mime: string };
+        try {
+            downloaded = await downloadImageBytes(parsed.url.toString());
+        } catch (error) {
+            if (error instanceof RemoteImageDownloadError) {
+                const status = error.code === 'image_too_large'
+                    ? 413
+                    : error.code === 'not_an_image' || error.code === 'empty_image'
+                        ? 415
+                        : 502;
+                return c.json({
+                    error: {
+                        code: error.code,
+                        message: error.message,
+                        ...(error.upstreamStatus ? { upstreamStatus: error.upstreamStatus } : {}),
+                    },
+                }, status);
+            }
+            return upstreamError(c, error, 'image_download_failed');
+        }
+
+        const now = new Date();
+        const inserted = await insertMediaAsset(db, {
+            kind: 'image',
+            source: 'r2',
+            mime: downloaded.mime,
+            title,
+            altText: alt || title,
+            streamStatus: 'ready',
+            uploadSessionJson: JSON.stringify({
+                fromUrl: parsed.url.toString(),
+                downloadedAt: now.toISOString(),
+            }),
+            createdAt: now,
+            updatedAt: now,
+        });
+        if (!inserted) {
+            return c.text('Failed to insert media asset', 500);
+        }
+        const assetId = inserted.insertedId;
+
+        const key = buildDirectUploadKey(assetId, filenameFromUrl(parsed.url, downloaded.mime));
+        try {
+            await putStorageObjectAtKey(env, key, downloaded.bytes, downloaded.mime);
+        } catch (error) {
+            // R2 写入失败：删孤儿行，不留残留（R2 属于上游依赖，返回 502）
+            await deleteMediaAssetById(db, assetId);
+            console.error('[media] image_download_store_failed:', error);
+            return c.json({
+                error: {
+                    code: 'image_download_store_failed',
+                    message: 'Failed to write the downloaded image to storage',
+                },
+            }, 502);
+        }
+        await updateMediaAssetById(db, assetId, {
+            r2Key: key,
+            updatedAt: new Date(),
+        });
+
+        const row = await findMediaAssetById(db, assetId);
+        if (!row) {
+            return c.text('Failed to load media asset', 500);
+        }
+        return c.json(serializeMediaAsset(row), 201);
     }));
 
     // POST /admin/media/audio —— multipart 上传音频（R2 binding 优先，否则 S3）

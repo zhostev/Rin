@@ -41,7 +41,21 @@
       "upload_subtitles": "字幕をアップロード",
       "remove": "削除",
       "working": "処理中",
-      "unknown": "不明"
+      "unknown": "不明",
+      "from_url": "URL からダウンロード",
+      "from_url_title": "URL から画像をダウンロード",
+      "from_url_url": "画像 URL",
+      "from_url_url_placeholder": "https://…（画像の直接リンク）",
+      "from_url_name": "タイトル（任意）",
+      "from_url_alt": "代替テキスト（任意）",
+      "from_url_cancel": "キャンセル",
+      "from_url_confirm": "ダウンロード",
+      "from_url_downloading": "ダウンロード中…",
+      "from_url_invalid": "有効な画像 URL を入力してください（http/https）",
+      "from_url_failed": "ダウンロードに失敗しました",
+      "from_url_too_large": "画像が 10MB の上限を超えています",
+      "from_url_not_image": "その URL は画像を返しませんでした",
+      "from_url_not_configured": "サーバーのストレージが設定されていません"
     }
   },
   "compat_tasks": {

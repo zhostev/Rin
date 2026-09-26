@@ -10,6 +10,7 @@
 import type { AIComposeImageMode, AIWriterConfig } from "@rin/api";
 import type { DB } from "../core/hono-types";
 import { insertMediaAsset, updateMediaAssetById, deleteMediaAssetById, findMediaAssetById } from "../features/media/repository";
+import { extensionFromMime, sniffImageMime } from "../features/media/from-url";
 import { buildDirectUploadKey, R2_DIRECT_MAX_BYTES } from "../features/media/r2-direct";
 import { generateAIText } from "../utils/ai";
 import type { ComposeAsset } from "../utils/ai-compose";
@@ -167,28 +168,28 @@ export async function toImageBytes(
     response: unknown,
 ): Promise<{ bytes: Uint8Array; mime: string }> {
     if (response instanceof Uint8Array) {
-        return { bytes: response, mime: sniffImageMime(response) };
+        return { bytes: response, mime: sniffImageMimeOrPng(response) };
     }
     if (response instanceof ArrayBuffer) {
         const bytes = new Uint8Array(response);
-        return { bytes, mime: sniffImageMime(bytes) };
+        return { bytes, mime: sniffImageMimeOrPng(bytes) };
     }
     // Workers AI 图片模型（FLUX 等）返回 ReadableStream
     if (typeof ReadableStream !== "undefined" && response instanceof ReadableStream) {
         const buffer = await new Response(response as ReadableStream).arrayBuffer();
         const bytes = new Uint8Array(buffer);
-        return { bytes, mime: sniffImageMime(bytes) };
+        return { bytes, mime: sniffImageMimeOrPng(bytes) };
     }
     if (response && typeof (response as { arrayBuffer?: unknown }).arrayBuffer === "function") {
         const buffer = await (response as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer();
         const bytes = new Uint8Array(buffer);
-        return { bytes, mime: sniffImageMime(bytes) };
+        return { bytes, mime: sniffImageMimeOrPng(bytes) };
     }
     // REST 风格兜底：裸 base64 / data URL 字符串，或 { image: "base64..." }
     if (typeof response === "string") {
         const bytes = decodeBase64Image(response);
         if (bytes) {
-            return { bytes, mime: sniffImageMime(bytes) };
+            return { bytes, mime: sniffImageMimeOrPng(bytes) };
         }
     }
     if (response && typeof response === "object") {
@@ -196,47 +197,16 @@ export async function toImageBytes(
         if (typeof maybeImage === "string") {
             const bytes = decodeBase64Image(maybeImage);
             if (bytes) {
-                return { bytes, mime: sniffImageMime(bytes) };
+                return { bytes, mime: sniffImageMimeOrPng(bytes) };
             }
         }
     }
     throw new Error("图片生成返回了无法识别的格式");
 }
 
-function sniffImageMime(bytes: Uint8Array): string {
-    return sniffImageMimeStrict(bytes) ?? "image/png";
-}
-
-function sniffImageMimeStrict(bytes: Uint8Array): string | null {
-    if (
-        bytes.length >= 4 &&
-        bytes[0] === 0x89 &&
-        bytes[1] === 0x50 &&
-        bytes[2] === 0x4e &&
-        bytes[3] === 0x47
-    ) {
-        return "image/png";
-    }
-    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-        return "image/jpeg";
-    }
-    if (
-        bytes.length >= 12 &&
-        bytes[0] === 0x52 &&
-        bytes[1] === 0x49 &&
-        bytes[2] === 0x46 &&
-        bytes[3] === 0x46 &&
-        bytes[8] === 0x57 &&
-        bytes[9] === 0x45 &&
-        bytes[10] === 0x42 &&
-        bytes[11] === 0x50
-    ) {
-        return "image/webp";
-    }
-    if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
-        return "image/gif";
-    }
-    return null;
+/** 魔数识别失败时回退 png（Workers AI 生成链路的旧行为，保持不变）。 */
+function sniffImageMimeOrPng(bytes: Uint8Array): string {
+    return sniffImageMime(bytes) ?? "image/png";
 }
 
 function decodeBase64Image(raw: string): Uint8Array | null {
@@ -251,7 +221,7 @@ function decodeBase64Image(raw: string): Uint8Array | null {
             bytes[i] = binary.charCodeAt(i);
         }
         // 必须是可识别的图片魔数，防止把错误文本当成图片
-        return bytes.length > 0 && sniffImageMimeStrict(bytes) ? bytes : null;
+        return bytes.length > 0 && sniffImageMime(bytes) ? bytes : null;
     } catch {
         return null;
     }
@@ -293,21 +263,6 @@ function mimeFromContentType(contentType: string | null): string | null {
     }
     const mime = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
     return mime.startsWith("image/") ? mime : null;
-}
-
-function extensionFromMime(mime: string): string {
-    switch (mime) {
-        case "image/jpeg":
-            return "jpg";
-        case "image/png":
-            return "png";
-        case "image/webp":
-            return "webp";
-        case "image/gif":
-            return "gif";
-        default:
-            return "jpg";
-    }
 }
 
 async function searchOneImage(
