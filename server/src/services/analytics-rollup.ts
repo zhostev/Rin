@@ -66,12 +66,14 @@ function assertDate(date: string): string {
 
 export function buildFeedRollupSql(date: string): string {
     const day = assertDate(date);
+    // 注意：AE SQL API 不接受 toDate('YYYY-MM-DD') 这种字符串字面量写法（422），
+    // 日期直接用字符串字面量与 toDate(timestamp) 比较即可（assertDate 已校验格式）。
     return `
         SELECT index1 AS feed_id,
                SUM(_sample_interval) AS pv,
                COUNT(DISTINCT blob6) AS uv
         FROM ${ANALYTICS_DATASET}
-        WHERE toDate(timestamp) = toDate('${day}')
+        WHERE toDate(timestamp) = '${day}'
         GROUP BY index1
         FORMAT JSON
     `.trim();
@@ -82,7 +84,7 @@ export function buildDimensionRollupSql(date: string): string {
     const dimension = (column: string, type: string) => `
         SELECT '${type}' AS dim_type, ${column} AS dim_value, SUM(_sample_interval) AS count
         FROM ${ANALYTICS_DATASET}
-        WHERE toDate(timestamp) = toDate('${day}')
+        WHERE toDate(timestamp) = '${day}'
         GROUP BY ${column}
     `.trim();
 

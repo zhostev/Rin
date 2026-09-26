@@ -74,6 +74,8 @@ describe("buildFeedRollupSql", () => {
         expect(sql).toContain("COUNT(DISTINCT blob6)");
         expect(sql).toContain("'2026-09-20'");
         expect(sql).toContain("GROUP BY");
+        // AE SQL API 拒绝 toDate('YYYY-MM-DD') 字符串字面量（422），必须直接比较字符串
+        expect(sql).not.toContain("toDate('");
     });
 
     it("rejects a malformed date instead of interpolating it", () => {
@@ -88,6 +90,8 @@ describe("buildDimensionRollupSql", () => {
         expect(sql).toContain("blob3");
         expect(sql).toContain("blob5");
         expect(sql).toContain("'2026-09-20'");
+        // AE SQL API 拒绝 toDate('YYYY-MM-DD') 字符串字面量（422），必须直接比较字符串
+        expect(sql).not.toContain("toDate('");
     });
 
     it("rejects a malformed date", () => {
