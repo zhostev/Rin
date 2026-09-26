@@ -58,6 +58,8 @@ export interface AITextResult {
     text: string | null;
     /** 如 "stop" / "length"；拿不到时为 null。"length" 表示输出被截断。 */
     finishReason: string | null;
+    /** 推理模型的思考过程（DeepSeek 系的 reasoning_content）；没有时为 null。 */
+    reasoningContent: string | null;
 }
 
 export const AI_SUMMARY_SYSTEM_PROMPT =
@@ -119,6 +121,18 @@ export function extractAIText(response: unknown): string | null {
 }
 
 /**
+ * Best-effort extraction of the reasoning trace from a chat-completion
+ * response. Reasoning models (e.g. DeepSeek's thinker variants) expose it at
+ * choices[0].message.reasoning_content; it is null when the provider folds
+ * everything into content or doesn't think out loud.
+ */
+export function extractReasoningContent(response: unknown): string | null {
+    if (!response || typeof response !== "object") return null;
+    const content = (response as Record<string, any>).choices?.[0]?.message?.reasoning_content;
+    return typeof content === "string" && content.trim() ? content.trim() : null;
+}
+
+/**
  * Best-effort extraction of the finish reason from a chat-completion response.
  * OpenAI-compatible providers put it at choices[0].finish_reason.
  * Workers AI binding responses generally don't carry one → null.
@@ -148,7 +162,11 @@ async function executeWorkerAI(
         temperature: options?.temperature ?? DEFAULT_TEMPERATURE,
     } as any);
 
-    return { text: extractAIText(response), finishReason: extractFinishReason(response) };
+    return {
+        text: extractAIText(response),
+        finishReason: extractFinishReason(response),
+        reasoningContent: extractReasoningContent(response),
+    };
 }
 
 /**
@@ -235,6 +253,7 @@ async function executeExternalAI(
     return {
         text: data.choices?.[0]?.message?.content?.trim() || null,
         finishReason: extractFinishReason(data),
+        reasoningContent: extractReasoningContent(data),
     };
 }
 

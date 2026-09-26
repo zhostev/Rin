@@ -98,7 +98,7 @@ describe("generateArticleWithContinuation", () => {
   }
 
   it("returns the text as-is when the model stops normally", async () => {
-    const { calls, generate } = stubGenerate([{ text: "完整文章。", finishReason: "stop" }]);
+    const { calls, generate } = stubGenerate([{ text: "完整文章。", finishReason: "stop", reasoningContent: null }]);
 
     const out = await generateArticleWithContinuation(baseMessages, generate);
 
@@ -111,8 +111,8 @@ describe("generateArticleWithContinuation", () => {
 
   it("continues once after a length truncation and joins the chunks", async () => {
     const { calls, generate } = stubGenerate([
-      { text: "第一段没写完，", finishReason: "length" },
-      { text: "第二段写完了。", finishReason: "stop" },
+      { text: "第一段没写完，", finishReason: "length", reasoningContent: null },
+      { text: "第二段写完了。", finishReason: "stop", reasoningContent: null },
     ]);
 
     const out = await generateArticleWithContinuation(baseMessages, generate);
@@ -129,9 +129,9 @@ describe("generateArticleWithContinuation", () => {
 
   it("reports truncated when every attempt hits the length limit", async () => {
     const { calls, generate } = stubGenerate([
-      { text: "a", finishReason: "length" },
-      { text: "b", finishReason: "length" },
-      { text: "c", finishReason: "length" },
+      { text: "a", finishReason: "length", reasoningContent: null },
+      { text: "b", finishReason: "length", reasoningContent: null },
+      { text: "c", finishReason: "length", reasoningContent: null },
     ]);
 
     const out = await generateArticleWithContinuation(baseMessages, generate, 2);
@@ -142,7 +142,7 @@ describe("generateArticleWithContinuation", () => {
   });
 
   it("does not retry when finishReason is missing (e.g. Workers AI)", async () => {
-    const { calls, generate } = stubGenerate([{ text: "半句", finishReason: null }]);
+    const { calls, generate } = stubGenerate([{ text: "半句", finishReason: null, reasoningContent: null }]);
 
     const out = await generateArticleWithContinuation(baseMessages, generate);
 
@@ -153,8 +153,8 @@ describe("generateArticleWithContinuation", () => {
 
   it("strips a repeated front-matter block from the continuation chunk", async () => {
     const { generate } = stubGenerate([
-      { text: "---\ntitle: T\n---\n\n开头", finishReason: "length" },
-      { text: "---\ntitle: T\n---\n\n结尾", finishReason: "stop" },
+      { text: "---\ntitle: T\n---\n\n开头", finishReason: "length", reasoningContent: null },
+      { text: "---\ntitle: T\n---\n\n结尾", finishReason: "stop", reasoningContent: null },
     ]);
 
     const out = await generateArticleWithContinuation(baseMessages, generate);
@@ -175,8 +175,8 @@ describe("generateArticleWithContinuation", () => {
       },
     ];
     const { calls, generate } = stubGenerate([
-      { text: "第一段，", finishReason: "length" },
-      { text: "第二段。", finishReason: "stop" },
+      { text: "第一段，", finishReason: "length", reasoningContent: null },
+      { text: "第二段。", finishReason: "stop", reasoningContent: null },
     ]);
 
     await generateArticleWithContinuation(visionBase, generate);

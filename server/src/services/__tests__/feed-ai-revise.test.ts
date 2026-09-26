@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
     buildReviseUserMessage,
+    describeEmptyReviseResult,
     estimateReviseMaxTokens,
     normalizeReviseMode,
 } from "../feed-ai-revise";
@@ -54,5 +55,32 @@ describe("estimateReviseMaxTokens", () => {
         const large = estimateReviseMaxTokens("a".repeat(10000));
         expect(large).toBeGreaterThan(small);
         expect(small).toBeGreaterThan(500);
+    });
+});
+
+describe("describeEmptyReviseResult", () => {
+    it("calls out reasoning-only output from thinker models", () => {
+        const message = describeEmptyReviseResult({
+            finishReason: "stop",
+            reasoningContent: "思考过程…",
+        });
+        expect(message).toContain("reasoning");
+    });
+
+    it("calls out content-filter blocks", () => {
+        const message = describeEmptyReviseResult({
+            finishReason: "content_filter",
+            reasoningContent: null,
+        });
+        expect(message).toContain("content filter");
+    });
+
+    it("attaches the finish_reason for unknown empty responses", () => {
+        expect(
+            describeEmptyReviseResult({ finishReason: "length", reasoningContent: null }),
+        ).toContain("finish_reason: length");
+        expect(
+            describeEmptyReviseResult({ finishReason: null, reasoningContent: null }),
+        ).toBe("AI returned empty result. Please retry.");
     });
 });

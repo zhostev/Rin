@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import {
     buildExternalAIChatCompletionsUrl,
     extractFinishReason,
+    extractReasoningContent,
     generateAIText,
     normalizeExternalAIBaseUrl,
 } from "../ai";
@@ -18,6 +19,30 @@ describe("extractFinishReason", () => {
         expect(extractFinishReason({ choices: [{ finish_reason: "" }] })).toBeNull();
         expect(extractFinishReason(null)).toBeNull();
         expect(extractFinishReason("plain string")).toBeNull();
+    });
+});
+
+describe("extractReasoningContent", () => {
+    it("reads choices[0].message.reasoning_content from thinker responses", () => {
+        expect(
+            extractReasoningContent({
+                choices: [{ message: { content: "", reasoning_content: "  先想想…  " } }],
+            }),
+        ).toBe("先想想…");
+    });
+
+    it("returns null when there is no reasoning trace", () => {
+        expect(
+            extractReasoningContent({ choices: [{ message: { content: "正文" } }] }),
+        ).toBeNull();
+        expect(
+            extractReasoningContent({
+                choices: [{ message: { content: "正文", reasoning_content: "   " } }],
+            }),
+        ).toBeNull();
+        expect(extractReasoningContent({ response: "worker ok" })).toBeNull();
+        expect(extractReasoningContent(null)).toBeNull();
+        expect(extractReasoningContent("plain string")).toBeNull();
     });
 });
 
@@ -122,6 +147,7 @@ describe("generateAIText", () => {
 
     expect(result.text).toBe("worker ok");
     expect(result.finishReason).toBeNull();
+    expect(result.reasoningContent).toBeNull();
     expect(calls[0]?.model).toBe("@cf/meta/llama-3-8b-instruct");
     expect(calls[0]?.input.max_tokens).toBe(4000);
   });
@@ -141,6 +167,30 @@ describe("generateAIText", () => {
 
     expect(result.text).toBe("partial…");
     expect(result.finishReason).toBe("length");
+    expect(result.reasoningContent).toBeNull();
+  });
+
+  it("surfaces reasoning_content from thinker model responses", async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: { content: "", reasoning_content: "思考过程…" },
+              finish_reason: "stop",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )) as typeof fetch;
+
+    const result = await generateAIText({} as Env, externalConfig, [
+      { role: "user", content: "hi" },
+    ]);
+
+    expect(result.text).toBeNull();
+    expect(result.finishReason).toBe("stop");
+    expect(result.reasoningContent).toBe("思考过程…");
   });
 });
 
