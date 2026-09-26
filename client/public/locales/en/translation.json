@@ -660,6 +660,7 @@
       "block_rich_text": "Rich text",
       "block_video": "Video",
       "block_audio": "Audio",
+      "block_image": "Image",
       "slug": "Slug",
       "slug_placeholder": "URL slug, e.g. my-first-story",
       "status": "Status",
@@ -735,7 +736,13 @@
       "chapter_title_placeholder": "Chapter title",
       "chapter_start": "Starts at (seconds)",
       "chapter_add": "Add chapter",
-      "chapter_remove": "Remove chapter"
+      "chapter_remove": "Remove chapter",
+      "upload_image": "Upload image",
+      "image_upload_failed": "Image upload failed",
+      "image_caption": "Caption",
+      "image_caption_placeholder": "e.g. photo from the event",
+      "image_alt": "Alt text",
+      "image_alt_placeholder": "e.g. two speakers talking on stage"
     },
     "list": {
       "hint": "Each content package has one permanent address; text, video and audio are entries to the same story.",

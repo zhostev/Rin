@@ -660,6 +660,7 @@
       "block_rich_text": "富文本",
       "block_video": "视频",
       "block_audio": "音频",
+      "block_image": "图片",
       "slug": "别名",
       "slug_placeholder": "URL 别名，如 my-first-story",
       "status": "状态",
@@ -735,7 +736,13 @@
       "chapter_title_placeholder": "章节标题",
       "chapter_start": "开始时间（秒）",
       "chapter_add": "添加章节",
-      "chapter_remove": "删除章节"
+      "chapter_remove": "删除章节",
+      "upload_image": "上传图片",
+      "image_upload_failed": "图片上传失败",
+      "image_caption": "图注",
+      "image_caption_placeholder": "如：现场照片",
+      "image_alt": "替代文本",
+      "image_alt_placeholder": "如：两位嘉宾在台上交谈"
     },
     "list": {
       "hint": "每个内容包只有一个永久地址；文字、视频、音频是同一主题的不同入口。",

@@ -99,6 +99,15 @@ export interface AudioPayload {
   chapters?: AudioChapter[];
 }
 
+export interface ImagePayload {
+  caption?: string;
+  alt?: string;
+  asset_id?: number;
+  asset?: MediaAsset;
+  /** Fallback when no asset is attached (e.g. legacy content). */
+  url?: string;
+}
+
 export interface Story {
   id: number;
   slug: string;

@@ -1,16 +1,17 @@
 // AudioBlock: metadata form for an audio content block.
 //
-// Upload flow (Stage 2): multipart POST /api/admin/media/audio (fields
-// file*, title?; XHR, with progress); the returned asset (asset.url is the
-// in-site /api/blob/<key> address) is written into the payload. Chapters
-// are edited inline and rendered by the in-site AudioPlayer (see page/story.tsx).
+// Upload flow: R2 presigned direct upload via the shared uploadMediaFile
+// helper (mint -> PUT bytes straight to R2 -> complete), so large audio
+// files don't hit the Worker's 100MB request-body cap (HTTP 413). Falls back
+// to the legacy Worker-proxied multipart upload when the backend has no S3
+// credentials (503). Chapters are edited inline and rendered by the in-site
+// AudioPlayer (see page/story.tsx).
 
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { client } from "../../app/runtime";
 import type { AudioChapter, AudioPayload, MediaAsset } from "../../api/story";
+import { uploadMediaFile } from "../../utils/media-upload";
 import { MediaPicker } from "./media-picker";
-import { isNotConfiguredError } from "../../api/media";
 import { formatDuration } from "./block-utils";
 
 const inputClassName =
@@ -49,26 +50,22 @@ export function AudioBlock({
     if (upload.active) return;
     setUpload({ active: true, progress: 0 });
     try {
-      const asset = await client.media.uploadAudio(
-        file,
-        (loaded, total) => {
-          if (total > 0) {
-            setUpload({ active: true, progress: loaded / total });
+      const { asset } = await uploadMediaFile(file, "audio", {
+        t,
+        title: payload.title?.trim() || file.name,
+        onProgress: (percent) => {
+          if (percent != null) {
+            setUpload({ active: true, progress: percent / 100 });
           }
         },
-        payload.title?.trim() || file.name,
-      );
+      });
       onChange({ asset, asset_id: asset.id || undefined, duration: asset.duration });
       setUpload({ active: false, progress: 1 });
     } catch (err) {
       setUpload({
         active: false,
         progress: 0,
-        error: isNotConfiguredError(err as { status?: number })
-          ? t("story.editor.picker.not_configured")
-          : err instanceof Error
-            ? err.message
-            : t("story.editor.audio_upload_failed"),
+        error: err instanceof Error ? err.message : t("story.editor.audio_upload_failed"),
       });
     }
   }
