@@ -55,7 +55,9 @@
       "from_url_failed": "ダウンロードに失敗しました",
       "from_url_too_large": "画像が 10MB の上限を超えています",
       "from_url_not_image": "その URL は画像を返しませんでした",
-      "from_url_not_configured": "サーバーのストレージが設定されていません"
+      "from_url_not_configured": "サーバーのストレージが設定されていません",
+      "from_url_hint": "画像の直接リンクに対応；Instagram 投稿リンクは最初の画像を自動ダウンロード",
+      "from_url_instagram_failed": "Instagram 投稿を解決できませんでした。公開投稿か確認するか、画像の直接リンクを使ってください"
     }
   },
   "compat_tasks": {

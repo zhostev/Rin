@@ -55,7 +55,9 @@
       "from_url_failed": "Download failed",
       "from_url_too_large": "Image exceeds the 10MB limit",
       "from_url_not_image": "That URL did not return an image",
-      "from_url_not_configured": "Server storage is not configured"
+      "from_url_not_configured": "Server storage is not configured",
+      "from_url_hint": "Direct image links supported; Instagram post links download the first image automatically",
+      "from_url_instagram_failed": "Could not resolve the Instagram post. Make sure it is public, or use a direct image link instead"
     }
   },
   "compat_tasks": {

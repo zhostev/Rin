@@ -3,8 +3,10 @@ import {
     downloadImageBytes,
     extensionFromMime,
     filenameFromUrl,
+    isInstagramPostUrl,
     parseRemoteImageUrl,
     RemoteImageDownloadError,
+    resolveInstagramImageUrl,
     sniffImageMime,
 } from "../from-url";
 
@@ -142,6 +144,100 @@ function mockFetch(response: Response | ((url: string) => Response | Promise<Res
         return typeof response === "function" ? response(url) : response;
     }) as typeof fetch;
 }
+
+describe("isInstagramPostUrl", () => {
+    it.each([
+        "https://www.instagram.com/p/DdqNdIPmjpa/",
+        "https://www.instagram.com/p/DdqNdIPmjpa",
+        "https://instagram.com/p/abc123/",
+        "https://www.instagram.com/reel/C8xYz12/",
+        "https://www.instagram.com/reels/C8xYz12/",
+        "https://www.instagram.com/tv/C8xYz12/",
+    ])("帖子/快拍链接 %s 识别为 true", (raw) => {
+        expect(isInstagramPostUrl(new URL(raw))).toBe(true);
+    });
+
+    it.each([
+        "https://www.instagram.com/",
+        "https://www.instagram.com/username/",
+        "https://www.instagram.com/explore/",
+        "https://www.instagram.com/p/",
+        "https://example.com/p/abc123/",
+        "https://fakeinstagram.com/p/abc123/",
+        "https://www.instagram.com.evil.com/p/abc123/",
+    ])("非帖子链接 %s 识别为 false", (raw) => {
+        expect(isInstagramPostUrl(new URL(raw))).toBe(false);
+    });
+});
+
+const IG_HTML = (ogImage: string | null) => `<!DOCTYPE html><html><head>
+<meta property="og:title" content="post">
+${ogImage ? `<meta property="og:image" content="${ogImage}">` : ""}
+</head><body></body></html>`;
+
+const CDN_JPG =
+    "https://scontent-lax3-2.cdninstagram.com/v/t51.82787-15/819629641_18069542963758159_8941759054600826811_n.jpg?stp=dst-jpg_e35_tt6";
+
+describe("resolveInstagramImageUrl", () => {
+    const page = new URL("https://www.instagram.com/p/DdqNdIPmjpa/");
+
+    it("从 og:image 解析出直链", async () => {
+        const resolved = await resolveInstagramImageUrl(
+            page,
+            mockFetch(new Response(IG_HTML(CDN_JPG), { headers: { "content-type": "text/html" } })),
+        );
+        expect(resolved).toBe(CDN_JPG);
+    });
+
+    it("content 属性在 property 之前也能解析", async () => {
+        const html = `<meta content="${CDN_JPG}" property="og:image">`;
+        const resolved = await resolveInstagramImageUrl(page, mockFetch(new Response(html)));
+        expect(resolved).toBe(CDN_JPG);
+    });
+
+    it("反转义 &amp;", async () => {
+        const withEntity = CDN_JPG.replace("?", "?a=1&amp;b=2&").replace("?a=1&b=2&", "?a=1&amp;b=2&");
+        const resolved = await resolveInstagramImageUrl(
+            page,
+            mockFetch(new Response(IG_HTML(withEntity))),
+        );
+        expect(resolved).toContain("a=1&b=2");
+        expect(resolved).not.toContain("&amp;");
+    });
+
+    it("没有 og:image → instagram_resolve_failed", async () => {
+        const err = await resolveInstagramImageUrl(
+            page,
+            mockFetch(new Response(IG_HTML(null))),
+        ).catch((e) => e);
+        expect(err).toBeInstanceOf(RemoteImageDownloadError);
+        expect(err.code).toBe("instagram_resolve_failed");
+    });
+
+    it("帖子页 404 → instagram_resolve_failed（带 upstreamStatus）", async () => {
+        const err = await resolveInstagramImageUrl(
+            page,
+            mockFetch(new Response("not found", { status: 404 })),
+        ).catch((e) => e);
+        expect(err.code).toBe("instagram_resolve_failed");
+        expect(err.upstreamStatus).toBe(404);
+    });
+
+    it("og:image 不在 Instagram CDN 上 → 拒绝", async () => {
+        const err = await resolveInstagramImageUrl(
+            page,
+            mockFetch(new Response(IG_HTML("https://evil.example.com/x.jpg"))),
+        ).catch((e) => e);
+        expect(err.code).toBe("instagram_resolve_failed");
+    });
+
+    it("fetch 抛错 → instagram_resolve_failed", async () => {
+        const err = await resolveInstagramImageUrl(page, (async () => {
+            throw new Error("boom");
+        }) as typeof fetch).catch((e) => e);
+        expect(err.code).toBe("instagram_resolve_failed");
+    });
+});
 
 function pngResponse(headers: Record<string, string> = {}): Response {
     return new Response(PNG, {

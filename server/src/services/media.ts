@@ -68,8 +68,10 @@ import {
 import {
     downloadImageBytes,
     filenameFromUrl,
+    isInstagramPostUrl,
     parseRemoteImageUrl,
     RemoteImageDownloadError,
+    resolveInstagramImageUrl,
 } from "../features/media/from-url";
 import { headStorageObject, putStorageObjectAtKey } from "../utils/storage";
 import { createS3Client, deleteObject } from "../utils/s3";
@@ -605,7 +607,9 @@ export function AdminMediaService(): HonoApp {
     //   JSON body: { url*, title?, alt? }
     //   201 -> MediaAsset（asset.url 为站内 /api/blob/<key>）
     //   400 invalid_url/url_not_allowed；413 image_too_large；415 not_an_image/empty_image；
+    //   422 instagram_resolve_failed（Instagram 帖子页解析失败）；
     //   502 download_failed/image_download_store_failed；503 storage_not_configured
+    //   Instagram 帖子/快拍链接（/p/、/reel/）会自动解析 og:image 首图下载。
     app.post('/from-url', adminOnly(async (c) => {
         const db = c.get('db');
         const env = c.get('env');
@@ -634,8 +638,33 @@ export function AdminMediaService(): HonoApp {
         const alt = typeof body['alt'] === 'string' ? body['alt'].slice(0, 500) : '';
 
         let downloaded: { bytes: Uint8Array; mime: string };
+        // Instagram 帖子页先解析出 og:image 直链再下载（轮播帖取首图）
+        let targetUrl = parsed.url;
+        if (isInstagramPostUrl(targetUrl)) {
+            try {
+                const resolved = await resolveInstagramImageUrl(targetUrl);
+                const revalidated = parseRemoteImageUrl(resolved);
+                if ("error" in revalidated) {
+                    return c.json({
+                        error: { code: "instagram_resolve_failed", message: "解析出的图片地址无效" },
+                    }, 422);
+                }
+                targetUrl = revalidated.url;
+            } catch (error) {
+                if (error instanceof RemoteImageDownloadError) {
+                    return c.json({
+                        error: {
+                            code: error.code,
+                            message: error.message,
+                            ...(error.upstreamStatus ? { upstreamStatus: error.upstreamStatus } : {}),
+                        },
+                    }, 422);
+                }
+                return upstreamError(c, error, "instagram_resolve_failed");
+            }
+        }
         try {
-            downloaded = await downloadImageBytes(parsed.url.toString());
+            downloaded = await downloadImageBytes(targetUrl.toString());
         } catch (error) {
             if (error instanceof RemoteImageDownloadError) {
                 const status = error.code === 'image_too_large'
@@ -674,7 +703,7 @@ export function AdminMediaService(): HonoApp {
         }
         const assetId = inserted.insertedId;
 
-        const key = buildDirectUploadKey(assetId, filenameFromUrl(parsed.url, downloaded.mime));
+        const key = buildDirectUploadKey(assetId, filenameFromUrl(targetUrl, downloaded.mime));
         try {
             await putStorageObjectAtKey(env, key, downloaded.bytes, downloaded.mime);
         } catch (error) {

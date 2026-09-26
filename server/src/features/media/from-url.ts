@@ -161,7 +161,8 @@ export type RemoteImageDownloadErrorCode =
     | "download_failed"
     | "image_too_large"
     | "not_an_image"
-    | "empty_image";
+    | "empty_image"
+    | "instagram_resolve_failed";
 
 export class RemoteImageDownloadError extends Error {
     readonly code: RemoteImageDownloadErrorCode;
@@ -282,4 +283,142 @@ export function filenameFromUrl(url: URL, mime: string): string {
     }
     const base = stem.replace(/\.[^.]*$/, "") || "image";
     return `${base}.${extensionFromMime(mime)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Instagram 帖子链接解析
+// ---------------------------------------------------------------------------
+
+/** Instagram 帖子/快拍视频页路径：/p/<code>、/reel/<code>、/reels/<code>、/tv/<code> */
+const INSTAGRAM_POST_PATH = /^\/(p|reel|reels|tv)\/[\w-]+\/?$/;
+
+/** 是否为 Instagram 帖子页 URL（公开帖子的 HTML 里带 og:image 直链）。 */
+export function isInstagramPostUrl(url: URL): boolean {
+    const host = url.hostname.toLowerCase();
+    if (host !== "instagram.com" && host !== "www.instagram.com") {
+        return false;
+    }
+    return INSTAGRAM_POST_PATH.test(url.pathname);
+}
+
+/** Instagram 图片 CDN 域名白名单（解析出的 og:image 必须落在这上面）。 */
+const INSTAGRAM_CDN_SUFFIXES = [".cdninstagram.com", ".fbcdn.net"];
+
+/** HTML 实体反转义（og:image 的 content 里 & 会被转义成 &amp;）。 */
+function unescapeHtmlEntities(text: string): string {
+    return text
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#x27;/g, "'")
+        .replace(/&#39;/g, "'");
+}
+
+/** 从 HTML 里提取 og:image（兼容 property/content 属性两种顺序）。 */
+function extractOgImage(html: string): string | null {
+    const patterns = [
+        /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+        /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
+    ];
+    for (const pattern of patterns) {
+        const match = html.match(pattern);
+        if (match?.[1]) {
+            return unescapeHtmlEntities(match[1]);
+        }
+    }
+    return null;
+}
+
+/** 解析帖子页 HTML 的上限（og:image 在 <head> 里，2MB 足够）。 */
+const INSTAGRAM_HTML_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * 把 Instagram 帖子页 URL 解析为图片直链。
+ * 公开帖子无需登录即可在 HTML 的 og:image 里拿到 CDN 直链；
+ * 帖子不存在/被限流/私密时抛 instagram_resolve_failed。
+ * 注意：轮播帖只取首图。
+ */
+export async function resolveInstagramImageUrl(
+    pageUrl: URL,
+    fetchFn: typeof fetch = fetch,
+): Promise<string> {
+    let response: Response;
+    try {
+        response = await fetchFn(pageUrl.toString(), {
+            headers: {
+                "User-Agent": FETCH_USER_AGENT,
+                Accept: "text/html",
+            },
+            redirect: "follow",
+        });
+    } catch (error) {
+        throw new RemoteImageDownloadError(
+            "instagram_resolve_failed",
+            `Instagram 帖子页抓取失败：${error instanceof Error ? error.message : String(error)}`,
+        );
+    }
+    if (!response.ok) {
+        throw new RemoteImageDownloadError(
+            "instagram_resolve_failed",
+            response.status === 404
+                ? "Instagram 帖子不存在或已删除"
+                : `Instagram 帖子页抓取失败（HTTP ${response.status}，可能被限流）`,
+            response.status,
+        );
+    }
+
+    // 有界读取：og:image 在 <head>，读到 2MB 还没找到就放弃
+    const reader = response.body?.getReader();
+    if (!reader) {
+        throw new RemoteImageDownloadError("instagram_resolve_failed", "Instagram 帖子页返回为空");
+    }
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    let html = "";
+    try {
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) {
+                break;
+            }
+            total += value.byteLength;
+            if (total > INSTAGRAM_HTML_MAX_BYTES) {
+                await reader.cancel().catch(() => {});
+                break;
+            }
+            chunks.push(value);
+        }
+    } finally {
+        reader.releaseLock();
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    html = new TextDecoder().decode(bytes);
+
+    const ogImage = extractOgImage(html);
+    if (!ogImage) {
+        throw new RemoteImageDownloadError(
+            "instagram_resolve_failed",
+            "没能从 Instagram 帖子页解析出图片（可能需要登录或帖子为私密）",
+        );
+    }
+    let imageUrl: URL;
+    try {
+        imageUrl = new URL(ogImage);
+    } catch {
+        throw new RemoteImageDownloadError("instagram_resolve_failed", "解析出的图片地址无效");
+    }
+    const host = imageUrl.hostname.toLowerCase();
+    const onCdn =
+        imageUrl.protocol === "https:" &&
+        INSTAGRAM_CDN_SUFFIXES.some((suffix) => host.endsWith(suffix));
+    if (!onCdn) {
+        throw new RemoteImageDownloadError("instagram_resolve_failed", "解析出的图片地址不在 Instagram CDN 上");
+    }
+    return imageUrl.toString();
 }

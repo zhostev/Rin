@@ -160,6 +160,55 @@ describe('AdminMediaService POST /from-url', () => {
         expect(data.error.code).toBe('storage_not_configured');
     });
 
+    it('resolves an Instagram post URL to its og:image and downloads it (201)', async () => {
+        await setup({ R2_BUCKET: r2Mock() });
+        const cdnUrl =
+            'https://scontent-lax3-2.cdninstagram.com/v/t51.82787-15/819629641_18069542963758159_8941759054600826811_n.jpg?stp=dst-jpg_e35_tt6';
+        mockFetchImpl((url) => {
+            if (url.includes('www.instagram.com')) {
+                return new Response(
+                    `<html><head><meta property="og:image" content="${cdnUrl}"></head></html>`,
+                    { status: 200, headers: { 'content-type': 'text/html' } },
+                );
+            }
+            return pngResponse();
+        });
+
+        const res = await postFromUrl({
+            url: 'https://www.instagram.com/p/DdqNdIPmjpa/',
+            title: 'Kumamoto',
+        });
+        expect(res.status).toBe(201);
+        const data = await res.json() as any;
+        expect(data.kind).toBe('image');
+        expect(data.mime).toBe('image/png');
+        expect(puts.length).toBe(1);
+        expect(puts[0]).toMatch(/_n\.jpg$/);
+    });
+
+    it('422 instagram_resolve_failed when the post page has no og:image', async () => {
+        await setup({ R2_BUCKET: r2Mock() });
+        mockFetchImpl(() => new Response('<html><head></head></html>', {
+            status: 200,
+            headers: { 'content-type': 'text/html' },
+        }));
+        const res = await postFromUrl({ url: 'https://www.instagram.com/p/DdqNdIPmjpa/' });
+        expect(res.status).toBe(422);
+        const data = await res.json() as any;
+        expect(data.error.code).toBe('instagram_resolve_failed');
+        expect(puts.length).toBe(0);
+    });
+
+    it('422 instagram_resolve_failed when the Instagram post is gone', async () => {
+        await setup({ R2_BUCKET: r2Mock() });
+        mockFetchImpl(() => new Response('not found', { status: 404 }));
+        const res = await postFromUrl({ url: 'https://www.instagram.com/p/DdqNdIPmjpa/' });
+        expect(res.status).toBe(422);
+        const data = await res.json() as any;
+        expect(data.error.code).toBe('instagram_resolve_failed');
+        expect(data.error.upstreamStatus).toBe(404);
+    });
+
     it('no orphan asset row when R2 put fails', async () => {
         await setup({
             R2_BUCKET: {
