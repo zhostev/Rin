@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseArticleBlocks, stripMarkdown, wrapText } from "../share_poster";
+import { articleImageScale, parseArticleBlocks, stripMarkdown, wrapText } from "../share_poster";
 
 describe("stripMarkdown", () => {
   test("removes code blocks, links, and formatting", () => {
@@ -106,3 +106,23 @@ describe("parseArticleBlocks", () => {
   });
 });
 
+
+describe("articleImageScale", () => {
+  test("keeps full 2x scale for short articles", () => {
+    expect(articleImageScale(1000)).toBe(2);
+    expect(articleImageScale(8192)).toBe(2);
+  });
+
+  test("scales down so device height stays within the cap", () => {
+    // 16384 / 10000 = 1.6384
+    expect(articleImageScale(10000)).toBeCloseTo(1.6384, 4);
+    // very long article: 16384 / 40000 = 0.4096
+    expect(articleImageScale(40000)).toBeCloseTo(0.4096, 4);
+  });
+
+  test("falls back to full scale for invalid heights", () => {
+    expect(articleImageScale(0)).toBe(2);
+    expect(articleImageScale(-5)).toBe(2);
+    expect(articleImageScale(NaN)).toBe(2);
+  });
+});
