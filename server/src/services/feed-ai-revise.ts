@@ -77,6 +77,24 @@ export function describeEmptyReviseResult(
     return `AI returned empty result${reason}. Please retry.`;
 }
 
+/**
+ * Reasoning models (e.g. DeepSeek V4.1 Flash, which thinks by default) bill
+ * their thinking as output tokens against the same max_tokens budget as the
+ * answer. Observed thinking runs reach several thousand tokens, so without
+ * headroom the model can burn the whole budget thinking and return an empty
+ * answer with finish_reason "length". Only generated tokens are billed, so
+ * unused budget costs nothing.
+ */
+const REVISE_THINKING_TOKEN_HEADROOM = 8000;
+
+/** Pure so the thinking-aware budget can be tested without IO. */
+export function resolveReviseMaxTokens(content: string, configuredMaxTokens: number): number {
+    return Math.max(
+        configuredMaxTokens,
+        estimateReviseMaxTokens(content) + REVISE_THINKING_TOKEN_HEADROOM,
+    );
+}
+
 export function registerFeedAIReviseRoutes(app: Hono<{ Bindings: Env; Variables: Variables }>) {
     // Must be registered before app.post('/:id', ...): see the ai-compose note in feed.ts.
     app.post(
@@ -113,46 +131,50 @@ export function registerFeedAIReviseRoutes(app: Hono<{ Bindings: Env; Variables:
                     return c.text("AI writer is not enabled", 400);
                 }
 
-                let result: AITextResult;
-                try {
-                    result = await generateAIText(
-                        env,
-                        writerConfig,
-                        [
-                            {
-                                role: "system",
-                                content: writerConfig.system_prompt.trim() || REVISE_SYSTEM_PROMPT,
-                            },
-                            {
-                                role: "user",
-                                content: buildReviseUserMessage({
-                                    mode,
-                                    instruction: body.instruction,
-                                    content: feed.content,
-                                }),
-                            },
-                        ],
-                        {
-                            maxTokens: Math.max(
-                                writerConfig.max_tokens,
-                                estimateReviseMaxTokens(feed.content),
-                            ),
+                const maxTokens = resolveReviseMaxTokens(feed.content, writerConfig.max_tokens);
+                const messages: { role: "system" | "user"; content: string }[] = [
+                    {
+                        role: "system",
+                        content: writerConfig.system_prompt.trim() || REVISE_SYSTEM_PROMPT,
+                    },
+                    {
+                        role: "user",
+                        content: buildReviseUserMessage({
+                            mode,
+                            instruction: body.instruction,
+                            content: feed.content,
+                        }),
+                    },
+                ];
+
+                // Retry once: a brand-new model build occasionally returns an
+                // empty answer on the first attempt (immediate EOS), and the
+                // second attempt usually succeeds.
+                let result: AITextResult | null = null;
+                let revised = "";
+                for (let attempt = 0; attempt < 2 && !revised; attempt++) {
+                    try {
+                        result = await generateAIText(env, writerConfig, messages, {
+                            maxTokens,
                             temperature: writerConfig.temperature,
-                        },
-                    );
-                } catch (error) {
-                    console.error("[AI Revise] Generation failed:", error);
-                    return c.text(error instanceof Error ? error.message : String(error), 500);
+                        });
+                    } catch (error) {
+                        console.error("[AI Revise] Generation failed:", error);
+                        return c.text(error instanceof Error ? error.message : String(error), 500);
+                    }
+                    revised = stripReasoningTags(result.text ?? "").trim();
                 }
 
-                const revised = stripReasoningTags(result.text ?? "").trim();
                 if (!revised) {
-                    console.error("[AI Revise] Empty result:", {
+                    console.error("[AI Revise] Empty result after retry:", {
                         model: writerConfig.model,
-                        finishReason: result.finishReason,
-                        hasReasoningContent: !!result.reasoningContent,
+                        finishReason: result?.finishReason ?? null,
+                        hasReasoningContent: !!result?.reasoningContent,
                     });
-                    return c.text(describeEmptyReviseResult(result), 500);
+                    return c.text(
+                        result ? describeEmptyReviseResult(result) : "AI returned empty result",
+                        500,
+                    );
                 }
 
                 return c.json({ revised });

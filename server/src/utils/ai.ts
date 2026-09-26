@@ -91,6 +91,33 @@ export function buildExternalAIChatCompletionsUrl(
     return `${normalizedApiUrl}/chat/completions`;
 }
 
+/**
+ * Extract readable text from a chat message `content` field.
+ * Multimodal models (e.g. DeepSeek V4.1 Flash) may return content as an
+ * array of parts instead of a plain string; without this the text is lost
+ * and callers see an "empty result".
+ */
+export function extractMessageContentText(content: unknown): string | null {
+    if (typeof content === "string") {
+        return content.trim() ? content.trim() : null;
+    }
+    if (Array.isArray(content)) {
+        const text = content
+            .map((part) => {
+                if (typeof part === "string") return part;
+                if (part && typeof part === "object") {
+                    const textField = (part as Record<string, any>).text;
+                    if (typeof textField === "string") return textField;
+                }
+                return "";
+            })
+            .join("")
+            .trim();
+        return text ? text : null;
+    }
+    return null;
+}
+
 export function extractAIText(response: unknown): string | null {
     if (typeof response === "string") {
         return response;
@@ -107,9 +134,9 @@ export function extractAIText(response: unknown): string | null {
     if (typeof responseObj.output === "string") return responseObj.output;
     if (typeof responseObj.result === "string") return responseObj.result;
 
-    const messageContent = responseObj.choices?.[0]?.message?.content;
-    if (typeof messageContent === "string" && messageContent.trim()) {
-        return messageContent.trim();
+    const messageText = extractMessageContentText(responseObj.choices?.[0]?.message?.content);
+    if (messageText) {
+        return messageText;
     }
 
     const outputText = responseObj.output?.[0]?.content?.[0]?.text;
@@ -251,7 +278,7 @@ async function executeExternalAI(
 
     const data = await response.json() as any;
     return {
-        text: data.choices?.[0]?.message?.content?.trim() || null,
+        text: extractMessageContentText(data.choices?.[0]?.message?.content),
         finishReason: extractFinishReason(data),
         reasoningContent: extractReasoningContent(data),
     };
