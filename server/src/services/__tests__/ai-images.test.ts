@@ -3,6 +3,7 @@ import {
     normalizeImageCount,
     normalizeImageMode,
     parsePlannedImages,
+    resolveImagePlanMaxTokens,
     toImageBytes,
 } from "../ai-images";
 
@@ -190,5 +191,12 @@ describe("parsePlannedImages 容错", () => {
         expect(parsePlannedImages("   ", 3)).toEqual([]);
         expect(parsePlannedImages(JSON.stringify({ prompt: "x" }), 3)).toEqual([]);
         expect(parsePlannedImages('{"a": 1}', 3)).toEqual([]);
+    });
+});
+
+describe("resolveImagePlanMaxTokens", () => {
+    it("reserves thinking headroom on top of the configured budget", () => {
+        expect(resolveImagePlanMaxTokens(800)).toBe(8800);
+        expect(resolveImagePlanMaxTokens(0)).toBe(8000);
     });
 });
