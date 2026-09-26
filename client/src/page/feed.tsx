@@ -243,12 +243,6 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                         {feed.uv}
                       </span>
                     </p>}
-                    <div className="flex flex-row items-center">
-                      <h1 className="text-2xl font-bold t-primary break-all">
-                        {feed.title}
-                      </h1>
-                      <div className="flex-1 w-0" />
-                    </div>
                   </div>
                   <div className="pt-2">
                     {profile?.permission && (
@@ -301,6 +295,9 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                     )}
                   </div>
                 </div>
+                <h1 className="text-2xl font-bold t-primary break-all mt-1">
+                  {feed.title}
+                </h1>
                 {(hasAISummary || showAISummaryState) && (
                   <div className="my-4 p-4 rounded-xl bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border border-purple-100 dark:border-purple-800/30">
                     <div className="flex items-center justify-between gap-2 mb-2">
