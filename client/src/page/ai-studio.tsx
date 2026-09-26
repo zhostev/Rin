@@ -16,10 +16,12 @@ import type {
   AIJob,
   AIJobInput,
   AIJobKind,
+  AIJobMaterial,
   AIJobStatus,
   AISettings,
   AIUsageResponse,
 } from "../api/ai-studio";
+import { buildAIJobInput } from "../api/ai-studio";
 import { client } from "../app/runtime";
 import { Button } from "../components/button";
 import { useAlert } from "../components/dialog";
@@ -174,7 +176,7 @@ function leafValueText(value: unknown): string {
 // New-job wizard: material -> capability -> review -> submit
 // ---------------------------------------------------------------------------
 
-type MaterialKind = "story" | "asset" | "text";
+type MaterialKind = AIJobMaterial;
 type DeriveType = "summary" | "chapters" | "platform_copy";
 type CheckItem = "broken_links" | "missing_alt" | "stale_facts" | "metadata";
 
@@ -239,8 +241,10 @@ function JobWizard({
   }, [open ]);
 
   const materialValid = useMemo(() => {
-    if (material === "story") return storyId !== "";
-    if (material === "asset") return assetId !== "";
+    // Backend requires integer ids; the pickers hold string values, so
+    // validate the numeric conversion here (and convert in buildPayload).
+    if (material === "story") return storyId !== "" && Number.isInteger(Number(storyId));
+    if (material === "asset") return assetId !== "" && Number.isInteger(Number(assetId));
     return text.trim().length > 0;
   }, [material, storyId, assetId, text]);
 
@@ -254,10 +258,9 @@ function JobWizard({
   const canNext = step === 1 ? materialValid : step === 2 ? capabilityValid : true;
 
   function buildPayload(): { kind: AIJobKind; input: AIJobInput; params?: Record<string, unknown> } {
-    const input: AIJobInput = {};
-    if (material === "story") input.storyId = storyId;
-    else if (material === "asset") input.assetId = assetId;
-    else input.text = text.trim();
+    // buildAIJobInput converts picker string ids to numbers; the backend
+    // schema requires integers ("input.assetId must be a number" otherwise).
+    const input = buildAIJobInput(material, { storyId, assetId, text });
     if (capability === "retrieval-test") input.question = question.trim();
     const params: Record<string, unknown> = {};
     if (capability === "derive") params.derive = deriveType;

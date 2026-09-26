@@ -36,10 +36,27 @@ export type AIJobStatus = "pending" | "processing" | "ready" | "failed";
 export type AIJobKind = "transcribe" | "derive" | "check" | "retrieval-test" | "embed";
 
 export interface AIJobInput {
-  storyId?: number | string;
-  assetId?: number | string;
+  storyId?: number;
+  assetId?: number;
   text?: string;
   question?: string;
+}
+
+export type AIJobMaterial = "story" | "asset" | "text";
+
+/**
+ * Build the job input from wizard picker values. The backend schema
+ * requires integer ids, but the pickers hold string values — convert here
+ * so the wire format is always numeric. Callers must validate non-empty /
+ * integer ids before submitting (the wizard's `materialValid` does this).
+ */
+export function buildAIJobInput(
+  material: AIJobMaterial,
+  values: { storyId: string; assetId: string; text: string },
+): AIJobInput {
+  if (material === "story") return { storyId: Number(values.storyId) };
+  if (material === "asset") return { assetId: Number(values.assetId) };
+  return { text: values.text.trim() };
 }
 
 export interface CreateAIJobRequest {
