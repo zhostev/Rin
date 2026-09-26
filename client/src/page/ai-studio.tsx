@@ -184,6 +184,21 @@ const CAPABILITIES: AIJobKind[] = ["transcribe", "derive", "check", "retrieval-t
 const DERIVE_TYPES: DeriveType[] = ["summary", "chapters", "platform_copy"];
 const CHECK_ITEMS: CheckItem[] = ["broken_links", "missing_alt", "stale_facts", "metadata"];
 
+/**
+ * Capabilities that make sense for each material kind. Mirrors the backend's
+ * validateJobInput: transcribe needs a media asset, derive/check need a story.
+ * retrieval-test and embed don't consume the material, so they're always shown.
+ */
+const CAPABILITIES_BY_MATERIAL: Record<MaterialKind, AIJobKind[]> = {
+  story: ["derive", "check", "retrieval-test", "embed"],
+  asset: ["transcribe", "retrieval-test", "embed"],
+  text: ["retrieval-test", "embed"],
+};
+
+export function capabilitiesForMaterial(material: MaterialKind): AIJobKind[] {
+  return CAPABILITIES_BY_MATERIAL[material] ?? CAPABILITIES;
+}
+
 function JobWizard({
   open,
   onClose,
@@ -200,12 +215,11 @@ function JobWizard({
   const [storyId, setStoryId] = useState("");
   const [assetId, setAssetId] = useState("");
   const [text, setText] = useState("");
-  const [capability, setCapability] = useState<AIJobKind>("transcribe");
+  const [capability, setCapability] = useState<AIJobKind>("derive");
   const [deriveType, setDeriveType] = useState<DeriveType>("summary");
   const [checks, setChecks] = useState<CheckItem[]>(["broken_links"]);
   const [question, setQuestion] = useState("");
-  const [stories, setStories] = useState<Array<{ value: string; label: string }>>([]);
-  const [assets, setAssets] = useState<Array<{ value: string; label: string }>>([]);
+  const [stories, setStories] = useState<Array<{ value: string; label: string }>>([]);  const [assets, setAssets] = useState<Array<{ value: string; label: string }>>([]);
   const [submitting, setSubmitting] = useState(false);
 
   // Load pickers lazily when the wizard opens.
@@ -256,6 +270,16 @@ function JobWizard({
   }, [capability, checks, question]);
 
   const canNext = step === 1 ? materialValid : step === 2 ? capabilityValid : true;
+
+  const availableCapabilities = capabilitiesForMaterial(material);
+
+  function selectMaterial(kind: MaterialKind) {
+    setMaterial(kind);
+    const allowed = capabilitiesForMaterial(kind);
+    if (!allowed.includes(capability)) {
+      setCapability(allowed[0]);
+    }
+  }
 
   function buildPayload(): { kind: AIJobKind; input: AIJobInput; params?: Record<string, unknown> } {
     // buildAIJobInput converts picker string ids to numbers; the backend
@@ -312,7 +336,7 @@ function JobWizard({
                 <button
                   key={kind}
                   type="button"
-                  onClick={() => setMaterial(kind)}
+                  onClick={() => selectMaterial(kind)}
                   className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
                     material === kind ? "bg-w text-theme shadow" : "t-secondary hover:t-primary"
                   }`}
@@ -355,7 +379,7 @@ function JobWizard({
 
         {step === 2 ? (
           <div className="flex flex-col gap-3">
-            {CAPABILITIES.map((kind) => (
+            {availableCapabilities.map((kind) => (
               <button
                 key={kind}
                 type="button"
