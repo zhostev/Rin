@@ -118,6 +118,21 @@ function parsePlainKeywordLines(raw: string, count: number): PlannedImage[] {
     return lines.slice(0, count).map((prompt) => ({ prompt, alt: "" }));
 }
 
+/** 模型返回直接进 JSON 解析（无文本兜底）时，给配图规划预留的最大 token。 */
+const IMAGE_PLAN_MAX_TOKENS = 800;
+
+/**
+ * 推理模型（如默认开启 thinking 的 DeepSeek V4.1 Flash）把思考过程也
+ * 计入 max_tokens 预算。实测思考可达数千 token，800 的规划预算会被烧光，
+ * 模型返回空 content → 配图规划失败。多给的预算不计费（只按实际生成计费）。
+ */
+const IMAGE_PLAN_THINKING_TOKEN_HEADROOM = 8000;
+
+/** Pure so the thinking-aware budget can be tested without IO. */
+export function resolveImagePlanMaxTokens(configuredMaxTokens: number): number {
+    return configuredMaxTokens + IMAGE_PLAN_THINKING_TOKEN_HEADROOM;
+}
+
 async function planImages(
     env: Env,
     writerConfig: AIWriterConfig,
@@ -141,17 +156,25 @@ async function planImages(
         },
     ];
     let raw: string | null = null;
-    try {
-        raw = (
-            await generateAIText(env, writerConfig, messages, {
-                maxTokens: 800,
-                temperature: 0.7,
-            })
-        ).text;
-    } catch (error) {
-        throw new Error(
-            `配图规划失败：${error instanceof Error ? error.message : String(error)}`,
-        );
+    // Retry once: 推理模型偶发第一次返回空答案（思考烧完预算），
+    // 第二次通常成功；与 AI 修改（feed-ai-revise）同一处理。
+    for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+            raw = (
+                await generateAIText(env, writerConfig, messages, {
+                    maxTokens: resolveImagePlanMaxTokens(IMAGE_PLAN_MAX_TOKENS),
+                    temperature: 0.7,
+                })
+            ).text;
+        } catch (error) {
+            throw new Error(
+                `配图规划失败：${error instanceof Error ? error.message : String(error)}`,
+            );
+        }
+        if (parsePlannedImages(raw, count).length > 0) {
+            break;
+        }
+        raw = null;
     }
     const planned = parsePlannedImages(raw, count);
     if (planned.length === 0) {
