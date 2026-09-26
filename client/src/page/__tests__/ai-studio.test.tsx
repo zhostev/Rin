@@ -104,9 +104,29 @@ describe("AIStudioPage", () => {
     await user.type(getByPlaceholderText("ai_studio.wizard.paste_text_placeholder"), "待处理文本");
     await user.click(getByText("ai_studio.wizard.next"));
 
-    // Step 2: capability cards.
-    expect(getByText("ai_studio.wizard.capability_transcribe")).toBeDefined();
-    expect(getByText("ai_studio.wizard.capability_derive")).toBeDefined();
-    expect(getByText("ai_studio.wizard.capability_check")).toBeDefined();
+    // Step 2: capability cards are filtered by material: pasted text only
+    // offers retrieval-test and embed (transcribe needs a media asset).
+    expect(() => getByText("ai_studio.wizard.capability_transcribe")).toThrow();
+    expect(() => getByText("ai_studio.wizard.capability_derive")).toThrow();
+    expect(() => getByText("ai_studio.wizard.capability_check")).toThrow();
+    expect(getByText("ai_studio.wizard.capability_retrieval_test")).toBeDefined();
+    expect(getByText("ai_studio.wizard.capability_embed")).toBeDefined();
+  });
+});
+
+describe("capabilitiesForMaterial", () => {
+  it("only offers transcribe for media assets", async () => {
+    const { capabilitiesForMaterial } = await import("../ai-studio");
+    expect(capabilitiesForMaterial("asset")).toEqual(["transcribe", "retrieval-test", "embed"]);
+  });
+
+  it("only offers derive/check for stories", async () => {
+    const { capabilitiesForMaterial } = await import("../ai-studio");
+    expect(capabilitiesForMaterial("story")).toEqual(["derive", "check", "retrieval-test", "embed"]);
+  });
+
+  it("hides transcribe/derive/check for pasted text", async () => {
+    const { capabilitiesForMaterial } = await import("../ai-studio");
+    expect(capabilitiesForMaterial("text")).toEqual(["retrieval-test", "embed"]);
   });
 });
