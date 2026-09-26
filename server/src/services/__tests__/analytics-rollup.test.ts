@@ -85,18 +85,24 @@ describe("buildFeedRollupSql", () => {
 });
 
 describe("buildDimensionRollupSql", () => {
-    it("unions the three dimensions for one day", () => {
-        const sql = buildDimensionRollupSql("2026-09-20");
+    it("builds one UNION-free query per dimension", () => {
+        const sql = buildDimensionRollupSql("2026-09-20", "referrer", "blob2");
         expect(sql).toContain("blob2");
-        expect(sql).toContain("blob3");
-        expect(sql).toContain("blob5");
+        expect(sql).toContain("'referrer'");
         expect(sql).toContain("'2026-09-20'");
         // AE SQL API 拒绝 toDate('YYYY-MM-DD') 字符串字面量（422），必须直接比较字符串
         expect(sql).not.toContain("toDate('");
+        // AE SQL API 不支持 UNION ALL（422），维度必须各自独立查询
+        expect(sql).not.toMatch(/UNION/i);
     });
 
     it("rejects a malformed date", () => {
-        expect(() => buildDimensionRollupSql("nope")).toThrow();
+        expect(() => buildDimensionRollupSql("nope", "referrer", "blob2")).toThrow();
+    });
+
+    it("rejects an unknown dimension instead of interpolating it", () => {
+        expect(() => buildDimensionRollupSql("2026-09-20", "referrer", "blob9")).toThrow();
+        expect(() => buildDimensionRollupSql("2026-09-20", "evil', 'x", "blob2")).toThrow();
     });
 });
 
@@ -150,7 +156,12 @@ describe("analyticsCrontab (D1/cursor integration)", () => {
             }
             const body = String(init?.body ?? "");
             if (body.includes("dim_type")) {
-                return new Response(JSON.stringify({ data: rows.dim ?? [] }), { status: 200 });
+                // 每个维度独立查询：只返回 SQL 里该维度字面量对应的行
+                const dimRows = (rows.dim ?? []) as Array<{ dim_type?: unknown }>;
+                const matched = dimRows.filter(
+                    (row) => typeof row.dim_type === "string" && body.includes(`'${row.dim_type}'`),
+                );
+                return new Response(JSON.stringify({ data: matched }), { status: 200 });
             }
             return new Response(JSON.stringify({ data: rows.feed ?? [] }), { status: 200 });
         }) as unknown as typeof fetch;
@@ -309,8 +320,8 @@ describe("analyticsCrontab (D1/cursor integration)", () => {
 
         const windowStart = analyticsWindowStart("2026-09-20");
         expect(serverConfig.store.get(ANALYTICS_CURSOR_KEY)).toBe(addDays(windowStart, MAX_ROLLUP_DATES_PER_RUN));
-        // 2 Analytics Engine subrequests per date.
-        expect(fetchCount).toBe(MAX_ROLLUP_DATES_PER_RUN * 2);
+        // 4 Analytics Engine subrequests per date (1 feed + 3 dimensions, UNION ALL 不可用）.
+        expect(fetchCount).toBe(MAX_ROLLUP_DATES_PER_RUN * 4);
     });
 
     it("creates a visit_stats row with zero baselines for a feed with no prior row", async () => {
