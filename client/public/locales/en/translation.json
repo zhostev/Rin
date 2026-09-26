@@ -7,6 +7,7 @@
     "back_to_site": "Back to site",
     "compat_tasks_description": "Run compatibility jobs in bulk to backfill missing AI summaries and image blurhash metadata for older posts.",
     "health_description": "Review required configuration, missing integrations, and risks that can affect runtime behavior.",
+    "menu": "Menu",
     "queue_status_description": "Inspect AI summary queue progress, recent task results, and failures.",
     "settings_description": "Manage site behavior, integrations, and publishing rules in one place.",
     "title": "Admin",
