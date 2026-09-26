@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import { AIStudioAPI, AskAPI } from "../ai-studio";
+import { AIStudioAPI, AskAPI, buildAIJobInput } from "../ai-studio";
 
 // Capture calls through a fake http surface instead of the real HttpClient.
 const calls: Array<{ method: string; path: string; body?: unknown }> = [];
@@ -121,5 +121,27 @@ describe("AskAPI contract", () => {
       method: "GET",
       path: "/api/ask/recommend?storyId=my-story",
     });
+  });
+});
+
+describe("buildAIJobInput", () => {
+  it("converts picker string ids to numbers (backend requires integers)", () => {
+    expect(buildAIJobInput("story", { storyId: "3", assetId: "", text: "" })).toEqual({ storyId: 3 });
+    expect(buildAIJobInput("asset", { storyId: "", assetId: "9", text: "" })).toEqual({ assetId: 9 });
+  });
+
+  it("trims pasted text", () => {
+    expect(buildAIJobInput("text", { storyId: "", assetId: "", text: "  hello  " })).toEqual({
+      text: "hello",
+    });
+  });
+
+  it("never emits string ids", () => {
+    const story = buildAIJobInput("story", { storyId: "42", assetId: "", text: "" });
+    const asset = buildAIJobInput("asset", { storyId: "", assetId: "7", text: "" });
+    expect(typeof story.storyId).toBe("number");
+    expect(typeof asset.assetId).toBe("number");
+    expect(Number.isInteger(story.storyId)).toBe(true);
+    expect(Number.isInteger(asset.assetId)).toBe(true);
   });
 });
