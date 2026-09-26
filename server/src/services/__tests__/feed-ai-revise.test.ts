@@ -4,6 +4,7 @@ import {
     describeEmptyReviseResult,
     estimateReviseMaxTokens,
     normalizeReviseMode,
+    resolveReviseMaxTokens,
 } from "../feed-ai-revise";
 
 describe("normalizeReviseMode", () => {
@@ -82,5 +83,19 @@ describe("describeEmptyReviseResult", () => {
         expect(
             describeEmptyReviseResult({ finishReason: null, reasoningContent: null }),
         ).toBe("AI returned empty result. Please retry.");
+    });
+});
+
+describe("resolveReviseMaxTokens", () => {
+    it("reserves thinking headroom above the answer estimate", () => {
+        const content = "x".repeat(679);
+        const resolved = resolveReviseMaxTokens(content, 4000);
+        expect(resolved).toBeGreaterThan(estimateReviseMaxTokens(content));
+        expect(resolved).toBeGreaterThan(4000);
+    });
+
+    it("never goes below the configured max tokens", () => {
+        const resolved = resolveReviseMaxTokens("short", 20000);
+        expect(resolved).toBe(20000);
     });
 });

@@ -1,11 +1,52 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import {
     buildExternalAIChatCompletionsUrl,
+    extractAIText,
     extractFinishReason,
     extractReasoningContent,
+    extractMessageContentText,
     generateAIText,
     normalizeExternalAIBaseUrl,
 } from "../ai";
+
+describe("extractMessageContentText", () => {
+    it("returns trimmed plain string content", () => {
+        expect(extractMessageContentText("  hello  ")).toBe("hello");
+        expect(extractMessageContentText("   ")).toBeNull();
+        expect(extractMessageContentText(null)).toBeNull();
+    });
+
+    it("joins text from array content parts (multimodal models)", () => {
+        expect(
+            extractMessageContentText([
+                { type: "text", text: "hello " },
+                { type: "text", text: "world" },
+            ]),
+        ).toBe("hello world");
+    });
+
+    it("ignores non-text parts and returns null when nothing readable", () => {
+        expect(extractMessageContentText([{ type: "image_url", image_url: {} }])).toBeNull();
+        expect(extractMessageContentText([])).toBeNull();
+    });
+});
+
+describe("extractAIText", () => {
+    it("reads array-form message content from chat completions", () => {
+        const response = {
+            choices: [
+                {
+                    message: {
+                        role: "assistant",
+                        content: [{ type: "text", text: "改写后的正文" }],
+                    },
+                    finish_reason: "stop",
+                },
+            ],
+        };
+        expect(extractAIText(response)).toBe("改写后的正文");
+    });
+});
 
 describe("extractFinishReason", () => {
     it("reads choices[0].finish_reason from OpenAI-compatible responses", () => {
