@@ -5,6 +5,7 @@ import { createMockDB, createMockEnv, cleanupTestDB } from "../../../tests/fixtu
 import { analyticsDaily, analyticsDimDaily, visitStats } from "../../db/schema";
 import {
     ANALYTICS_CURSOR_KEY,
+    ANALYTICS_ERROR_KEY,
     MAX_ROLLUP_DATES_PER_RUN,
     addDays,
     analyticsCrontab,
@@ -326,5 +327,59 @@ describe("analyticsCrontab (D1/cursor integration)", () => {
         expect(stats[0].uvBaseline).toBe(0);
         expect(stats[0].pv).toBe(4);
         expect(stats[0].uv).toBe(2);
+    });
+
+    it("persists the error when the AE query fails and leaves the cursor untouched", async () => {
+        const serverConfig = createTestServerConfig({ [ANALYTICS_CURSOR_KEY]: "2026-09-18" });
+        stubAnalyticsFetch({}, { fail: true });
+
+        await analyticsCrontab(env, db, serverConfig);
+
+        // 游标不动，下一轮重试
+        expect(serverConfig.store.get(ANALYTICS_CURSOR_KEY)).toBe("2026-09-18");
+        const raw = serverConfig.store.get(ANALYTICS_ERROR_KEY) as string;
+        expect(typeof raw).toBe("string");
+        const record = JSON.parse(raw);
+        expect(record.date).toBe("2026-09-19");
+        expect(record.reason).toBe("request_failed");
+        expect(record.message).toContain("500");
+        expect(new Date(record.at).toString()).not.toBe("Invalid Date");
+    });
+
+    it("clears the persisted error after a successful run", async () => {
+        const stale = JSON.stringify({
+            date: "2026-09-19",
+            at: "2026-09-20T00:00:00.000Z",
+            reason: "request_failed",
+            message: "old",
+        });
+        const serverConfig = createTestServerConfig({
+            [ANALYTICS_CURSOR_KEY]: "2026-09-18",
+            [ANALYTICS_ERROR_KEY]: stale,
+        });
+        stubAnalyticsFetch({ feed: [], dim: [] });
+
+        await analyticsCrontab(env, db, serverConfig);
+
+        expect(serverConfig.store.get(ANALYTICS_CURSOR_KEY)).toBe("2026-09-19");
+        expect(serverConfig.store.get(ANALYTICS_ERROR_KEY)).toBe("");
+    });
+
+    it("clears a stale error when there is nothing to roll up", async () => {
+        const stale = JSON.stringify({
+            date: "2026-09-19",
+            at: "2026-09-20T00:00:00.000Z",
+            reason: "request_failed",
+            message: "old",
+        });
+        const serverConfig = createTestServerConfig({
+            [ANALYTICS_CURSOR_KEY]: "2026-09-19",
+            [ANALYTICS_ERROR_KEY]: stale,
+        });
+        stubAnalyticsFetch({ feed: [], dim: [] });
+
+        await analyticsCrontab(env, db, serverConfig);
+
+        expect(serverConfig.store.get(ANALYTICS_ERROR_KEY)).toBe("");
     });
 });
