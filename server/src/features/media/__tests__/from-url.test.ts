@@ -3,6 +3,8 @@ import {
     downloadImageBytes,
     extensionFromMime,
     filenameFromUrl,
+    instagramImageIndex,
+    instagramShortcode,
     isInstagramPostUrl,
     parseRemoteImageUrl,
     RemoteImageDownloadError,
@@ -170,6 +172,24 @@ describe("isInstagramPostUrl", () => {
     });
 });
 
+describe("instagramShortcode / instagramImageIndex", () => {
+    it("从帖子链接取短码", () => {
+        expect(
+            instagramShortcode(new URL("https://www.instagram.com/p/DdVLeIFE91D/?img_index=5")),
+        ).toBe("DdVLeIFE91D");
+        expect(instagramShortcode(new URL("https://www.instagram.com/reel/C8xYz12/"))).toBe("C8xYz12");
+        expect(instagramShortcode(new URL("https://www.instagram.com/explore/"))).toBeNull();
+    });
+
+    it("img_index 是 1-based；缺省与非法值都回落到 null（取首图）", () => {
+        expect(instagramImageIndex(new URL("https://www.instagram.com/p/abc12345/?img_index=5"))).toBe(5);
+        expect(instagramImageIndex(new URL("https://www.instagram.com/p/abc12345/"))).toBeNull();
+        expect(instagramImageIndex(new URL("https://www.instagram.com/p/abc12345/?img_index=0"))).toBeNull();
+        expect(instagramImageIndex(new URL("https://www.instagram.com/p/abc12345/?img_index=x"))).toBeNull();
+        expect(instagramImageIndex(new URL("https://www.instagram.com/p/abc12345/?img_index=-2"))).toBeNull();
+    });
+});
+
 const CDN_JPG =
     "https://scontent-lax3-2.cdninstagram.com/v/t51.82787-15/819629641_18069542963758159_8941759054600826811_n.jpg?stp=dst-jpg_e35_tt6";
 
@@ -316,6 +336,19 @@ describe("resolveInstagramImageUrl（经 Apify 解析）", () => {
         const { fn } = recordingFetch(() => apifySidecar([{ type: "Video", url: video }]));
         const err = await resolveInstagramImageUrl(page, fn, TOKEN).catch((e) => e);
         expect(err.message).toContain("没有图片");
+    });
+
+    it("Apify 返回非 JSON → instagram_resolve_failed（不冒泡成 500）", async () => {
+        const { fn } = recordingFetch(
+            () =>
+                new Response("<html>gateway</html>", {
+                    status: 200,
+                    headers: { "content-type": "text/html" },
+                }),
+        );
+        const err = await resolveInstagramImageUrl(page, fn, TOKEN).catch((e) => e);
+        expect(err).toBeInstanceOf(RemoteImageDownloadError);
+        expect(err.code).toBe("instagram_resolve_failed");
     });
 
     it("fetch 抛错 → instagram_resolve_failed", async () => {
