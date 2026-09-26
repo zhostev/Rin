@@ -97,21 +97,35 @@ export function buildFeedRollupSql(date: string): string {
     `.trim();
 }
 
-export function buildDimensionRollupSql(date: string): string {
+/**
+ * Analytics Engine SQL API 不支持 UNION ALL（连 `SELECT 1 UNION ALL SELECT 2` 都返回 422），
+ * 维度聚合必须每个维度独立查询一次，再在应用层合并。
+ * type/column 只能取自 DIMENSION_COLUMNS，防止 SQL 注入。
+ */
+export const DIMENSION_COLUMNS = [
+    { type: "referrer", column: "blob2" },
+    { type: "country", column: "blob3" },
+    { type: "device", column: "blob5" },
+] as const;
+
+export type DimensionColumn = (typeof DIMENSION_COLUMNS)[number];
+
+function assertDimension(type: string, column: string): DimensionColumn {
+    const found = DIMENSION_COLUMNS.find((d) => d.type === type && d.column === column);
+    if (!found) {
+        throw new Error(`Refusing to build SQL with an unknown dimension: ${type}/${column}`);
+    }
+    return found;
+}
+
+export function buildDimensionRollupSql(date: string, type: string, column: string): string {
     const day = assertDate(date);
-    const dimension = (column: string, type: string) => `
-        SELECT '${type}' AS dim_type, ${column} AS dim_value, SUM(_sample_interval) AS count
+    const dim = assertDimension(type, column);
+    return `
+        SELECT '${dim.type}' AS dim_type, ${dim.column} AS dim_value, SUM(_sample_interval) AS count
         FROM ${ANALYTICS_DATASET}
         WHERE toDate(timestamp) = '${day}'
-        GROUP BY ${column}
-    `.trim();
-
-    return `
-        ${dimension("blob2", "referrer")}
-        UNION ALL
-        ${dimension("blob3", "country")}
-        UNION ALL
-        ${dimension("blob5", "device")}
+        GROUP BY ${dim.column}
         FORMAT JSON
     `.trim();
 }
@@ -308,7 +322,12 @@ async function rollupDimensionRows(db: DB, date: string, rows: DimensionRollupRo
 
 async function rollupDate(env: Env, db: DB, date: string): Promise<void> {
     const feedRows = await queryAnalyticsEngine<FeedRollupRow>(env, buildFeedRollupSql(date));
-    const dimRows = await queryAnalyticsEngine<DimensionRollupRow>(env, buildDimensionRollupSql(date));
+    // AE 不支持 UNION ALL：三个维度各查一次，结果在应用层合并。
+    const dimRows: DimensionRollupRow[] = [];
+    for (const { type, column } of DIMENSION_COLUMNS) {
+        const rows = await queryAnalyticsEngine<DimensionRollupRow>(env, buildDimensionRollupSql(date, type, column));
+        dimRows.push(...rows);
+    }
 
     await rollupFeedRows(db, date, feedRows);
     await rollupDimensionRows(db, date, dimRows);
