@@ -3,8 +3,11 @@ import {
     normalizeImageCount,
     normalizeImageMode,
     parsePlannedImages,
+    planImagesWithRetry,
+    salvagePartialPrompts,
     toImageBytes,
 } from "../ai-images";
+import type { AITextResult } from "../../utils/ai";
 
 describe("normalizeImageMode", () => {
     it("passes through the supported modes", () => {
@@ -190,5 +193,117 @@ describe("parsePlannedImages 容错", () => {
         expect(parsePlannedImages("   ", 3)).toEqual([]);
         expect(parsePlannedImages(JSON.stringify({ prompt: "x" }), 3)).toEqual([]);
         expect(parsePlannedImages('{"a": 1}', 3)).toEqual([]);
+    });
+});
+
+describe("salvagePartialPrompts", () => {
+    it("rescues a prompt from truncated single-line JSON", () => {
+        // 2026-09-26 用户实测：模型返回写到一半被截断
+        const raw = `[{"prompt": "Cinematic realistic photograph of a lone upright Ming dynasty official in plain blue robes standing before a grand imperial palace hall, facing a c`;
+        const result = salvagePartialPrompts(raw, 2);
+        expect(result).toHaveLength(1);
+        expect(result[0].prompt).toContain("Ming dynasty official");
+        expect(result[0].alt).toBe("");
+    });
+
+    it("rescues each prompt from partially truncated JSON", () => {
+        const raw = `[{"prompt": "a misty mountain at dawn", "alt": "晨雾"}, {"prompt": "a river in the vall`;
+        const result = salvagePartialPrompts(raw, 3);
+        expect(result.map((r) => r.prompt)).toEqual([
+            "a misty mountain at dawn",
+            "a river in the vall",
+        ]);
+    });
+
+    it("accepts the keyword field name", () => {
+        expect(salvagePartialPrompts(`[{"keyword": "city night skyline"`, 2)).toEqual([
+            { prompt: "city night skyline", alt: "" },
+        ]);
+    });
+
+    it("ignores too-short fragments and dedupes", () => {
+        const raw = `[{"prompt": "abc"}, {"prompt": "a misty mountain at dawn"}, {"prompt": "a misty mountain at dawn"`;
+        expect(salvagePartialPrompts(raw, 3)).toEqual([
+            { prompt: "a misty mountain at dawn", alt: "" },
+        ]);
+    });
+
+    it("caps at count and returns [] for null or prompt-less input", () => {
+        const raw = `[{"prompt": "mountain sunrise over the calm lake"}, {"prompt": "forest path in autumn mist"}]`;
+        expect(salvagePartialPrompts(raw, 1)).toHaveLength(1);
+        expect(salvagePartialPrompts(null, 2)).toEqual([]);
+        expect(salvagePartialPrompts("no prompts here", 2)).toEqual([]);
+    });
+});
+
+describe("planImagesWithRetry", () => {
+    const ok = (text: string | null, finishReason: string | null = "stop"): AITextResult => ({
+        text,
+        finishReason,
+    });
+    const payload = JSON.stringify([{ prompt: "a misty mountain at dawn", alt: "晨雾" }]);
+
+    function stubGenerate(results: (AITextResult | Error)[]) {
+        const calls: number[] = [];
+        const generate = async (): Promise<AITextResult> => {
+            calls.push(1);
+            const next = results[calls.length - 1];
+            if (next instanceof Error) throw next;
+            if (!next) throw new Error("stub ran out of results");
+            return next;
+        };
+        return { calls, generate };
+    }
+
+    it("returns the plan on first success without retrying", async () => {
+        const { calls, generate } = stubGenerate([ok(payload)]);
+        const { planned, raw } = await planImagesWithRetry(generate, 2);
+        expect(planned).toEqual([{ prompt: "a misty mountain at dawn", alt: "晨雾" }]);
+        expect(raw).toBe(payload);
+        expect(calls).toHaveLength(1);
+    });
+
+    it("retries once when the model returns empty", async () => {
+        const { calls, generate } = stubGenerate([ok(""), ok(payload)]);
+        const { planned } = await planImagesWithRetry(generate, 2);
+        expect(planned).toHaveLength(1);
+        expect(calls).toHaveLength(2);
+    });
+
+    it("retries once when the output is truncated (finish_reason=length)", async () => {
+        const truncated = `[{"prompt": "Cinematic realistic photograph of a lone upright Ming dynasty official in plain blue robes standing before a grand imperial palace hall, facing a c`;
+        const { calls, generate } = stubGenerate([ok(truncated, "length"), ok(payload)]);
+        const { planned } = await planImagesWithRetry(generate, 2);
+        expect(planned).toHaveLength(1);
+        expect(calls).toHaveLength(2);
+    });
+
+    it("salvages a partial prompt when the retry also fails", async () => {
+        const truncated = `[{"prompt": "Cinematic realistic photograph of a lone upright Ming dynasty official in plain blue robes standing before a grand imperial palace hall, facing a c`;
+        const { calls, generate } = stubGenerate([ok(truncated, "length"), ok("", "stop")]);
+        const { planned } = await planImagesWithRetry(generate, 2);
+        expect(planned).toHaveLength(1);
+        expect(planned[0].prompt).toContain("Ming dynasty official");
+        expect(calls).toHaveLength(2);
+    });
+
+    it("returns an empty plan when everything fails (caller throws the user-facing error)", async () => {
+        const { calls, generate } = stubGenerate([ok(""), ok("   ")]);
+        const { planned, raw } = await planImagesWithRetry(generate, 2);
+        expect(planned).toEqual([]);
+        expect(raw).toBe("   ");
+        expect(calls).toHaveLength(2);
+    });
+
+    it("does not retry unparseable non-truncated output", async () => {
+        const { calls, generate } = stubGenerate([ok("a".repeat(130))]);
+        const { planned } = await planImagesWithRetry(generate, 2);
+        expect(planned).toEqual([]);
+        expect(calls).toHaveLength(1);
+    });
+
+    it("propagates generate errors to the caller", async () => {
+        const { generate } = stubGenerate([new Error("boom")]);
+        await expect(planImagesWithRetry(generate, 2)).rejects.toThrow("boom");
     });
 });
