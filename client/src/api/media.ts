@@ -14,6 +14,11 @@
 //       200 -> MediaAsset
 //   POST /api/admin/media/audio                         (multipart: file*, title?)
 //       201 -> MediaAsset                               (asset.url is /api/blob/<key>)
+//   POST /api/admin/media/from-url
+//       JSON body { url*, title?, alt? } — the server downloads the image
+//       bytes itself and stores them in R2.
+//       201 -> MediaAsset; 400 invalid_url/url_not_allowed; 413 image_too_large;
+//       415 not_an_image/empty_image; 502 download_failed; 503 storage_not_configured
 //   GET  /api/admin/media?kind=video|audio|image|gallery|attachment&page=&limit=
 //       200 -> { size, data: MediaAsset[], hasNext }
 //   DELETE /api/admin/media/:id
@@ -71,6 +76,14 @@ export interface R2DirectUploadResponse {
   asset: MediaAsset;
   uploadURL: string;
   key: string;
+}
+
+/** Body for POST /api/admin/media/from-url. */
+export interface MediaFromUrlRequest {
+  /** direct image URL (http/https only; IG post page URLs won't work) */
+  url: string;
+  title?: string;
+  alt?: string;
 }
 
 export interface MediaListResponse {
@@ -237,6 +250,17 @@ export class MediaAPI {
     return this.http.post<MediaAsset>(
       `/api/admin/media/images/${encodeURIComponent(imagesId)}/finalize`,
     );
+  }
+
+  /**
+   * Download an image from a URL into the media library: the server fetches
+   * the bytes, verifies it's an image (magic bytes), and stores it in R2.
+   * 201 -> the new MediaAsset. 400 on invalid/blocked URL, 413 when the
+   * image exceeds 10MB, 415 when the URL doesn't serve an image,
+   * 502 when the download itself fails.
+   */
+  async fromUrl(body: MediaFromUrlRequest): Promise<ApiResponse<MediaAsset>> {
+    return this.http.post<MediaAsset>("/api/admin/media/from-url", body);
   }
 
   /** List media library assets, optionally filtered by kind, paginated. */

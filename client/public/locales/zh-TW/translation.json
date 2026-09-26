@@ -41,7 +41,21 @@
       "upload_subtitles": "上傳字幕",
       "remove": "移除",
       "working": "處理中",
-      "unknown": "未知"
+      "unknown": "未知",
+      "from_url": "從 URL 下載",
+      "from_url_title": "從 URL 下載圖片",
+      "from_url_url": "圖片 URL",
+      "from_url_url_placeholder": "https://…（直接圖片網址）",
+      "from_url_name": "標題（可選）",
+      "from_url_alt": "替代文字（可選）",
+      "from_url_cancel": "取消",
+      "from_url_confirm": "下載",
+      "from_url_downloading": "下載中…",
+      "from_url_invalid": "請輸入有效的圖片 URL（http/https）",
+      "from_url_failed": "下載失敗",
+      "from_url_too_large": "圖片超過 10MB 上限",
+      "from_url_not_image": "該 URL 回傳的不是圖片",
+      "from_url_not_configured": "伺服器端儲存未設定"
     }
   },
   "compat_tasks": {

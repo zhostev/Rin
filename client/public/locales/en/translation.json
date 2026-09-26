@@ -41,7 +41,21 @@
       "upload_subtitles": "Upload subtitles",
       "remove": "Remove",
       "working": "Working",
-      "unknown": "Unknown"
+      "unknown": "Unknown",
+      "from_url": "Download from URL",
+      "from_url_title": "Download image from URL",
+      "from_url_url": "Image URL",
+      "from_url_url_placeholder": "https://… (direct image link)",
+      "from_url_name": "Title (optional)",
+      "from_url_alt": "Alt text (optional)",
+      "from_url_cancel": "Cancel",
+      "from_url_confirm": "Download",
+      "from_url_downloading": "Downloading…",
+      "from_url_invalid": "Please enter a valid image URL (http/https)",
+      "from_url_failed": "Download failed",
+      "from_url_too_large": "Image exceeds the 10MB limit",
+      "from_url_not_image": "That URL did not return an image",
+      "from_url_not_configured": "Server storage is not configured"
     }
   },
   "compat_tasks": {
