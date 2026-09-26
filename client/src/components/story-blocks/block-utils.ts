@@ -50,6 +50,8 @@ function defaultPayload(type: BlockType): Record<string, unknown> {
   switch (type) {
     case "rich_text":
       return { markdown: "" };
+    case "image":
+      return {};
     case "video":
       return { title: "" };
     case "audio":

@@ -1,11 +1,12 @@
 // VideoBlock: metadata form for a video content block.
 //
-// Upload flow (R2):
-//   1. Probe the file client-side (duration / dimensions) via probeMediaFile.
-//   2. POST /api/admin/media/video (multipart, progress bar) creates the asset;
-//      R2 is ready immediately — no transcoding poll.
-//   3. Optionally attach a poster image (POST .../poster) and a WebVTT file
-//      (POST .../subtitles); each can be replaced or removed.
+// Upload flow: R2 presigned direct upload via the shared uploadMediaFile
+// helper (mint -> PUT bytes straight to R2 -> complete), so large videos
+// don't hit the Worker's 100MB request-body cap (HTTP 413). Falls back to
+// the legacy Worker-proxied multipart upload when the backend has no S3
+// credentials (503).
+// Optionally attach a poster image (POST .../poster) and a WebVTT file
+// (POST .../subtitles); each can be replaced or removed.
 // Existing assets (R2 or Stream) can also be picked via MediaPicker.
 // A stream_uid can still be entered manually for Cloudflare Stream assets,
 // which keep playing through the StreamPlayer.
@@ -14,7 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { client } from "../../app/runtime";
 import type { MediaAsset, VideoPayload } from "../../api/story";
-import { probeMediaFile } from "../../utils/media-probe";
+import { uploadMediaFile } from "../../utils/media-upload";
 import { MediaPicker } from "./media-picker";
 import { formatDuration } from "./block-utils";
 
@@ -68,22 +69,19 @@ export function VideoBlock({
     if (upload.phase === "uploading") return;
     setUpload({ phase: "uploading", progress: 0 });
     try {
-      const probed = await probeMediaFile(file);
-      if (cancelledRef.current) return;
-      const created = await client.media.uploadVideo(
-        file,
-        (loaded, total) => {
-          if (!cancelledRef.current && total > 0) {
-            setUpload({ phase: "uploading", progress: loaded / total });
+      // R2 presigned direct upload (mint -> PUT -> complete); the browser PUT
+      // bypasses the Worker so large videos don't hit the 100MB body cap
+      // (HTTP 413). Falls back to the legacy proxied upload when the backend
+      // has no S3 credentials (503).
+      const { asset: created } = await uploadMediaFile(file, "video", {
+        t,
+        title: payload.title?.trim() || file.name,
+        onProgress: (percent) => {
+          if (!cancelledRef.current && percent != null) {
+            setUpload({ phase: "uploading", progress: percent / 100 });
           }
         },
-        {
-          title: payload.title || file.name,
-          duration: probed.duration,
-          width: probed.width,
-          height: probed.height,
-        },
-      );
+      });
       if (cancelledRef.current) return;
       onChange({ asset: created, asset_id: created.id || undefined, stream_uid: undefined });
       setUpload(IDLE_UPLOAD);

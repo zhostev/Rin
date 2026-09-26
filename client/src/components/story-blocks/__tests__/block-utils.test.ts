@@ -60,6 +60,14 @@ describe('createBlock', () => {
     expect(typeof block.id).toBe('string')
   })
 
+  it('creates an image block with an empty payload', () => {
+    const block = createBlock('image', 0)
+    expect(block.type).toBe('image')
+    expect(block.position).toBe(0)
+    expect(block.payload).toEqual({})
+    expect(typeof block.id).toBe('string')
+  })
+
   it('generates unique ids', () => {
     expect(createBlock('video', 0).id).not.toBe(createBlock('video', 0).id)
   })

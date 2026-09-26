@@ -48,6 +48,8 @@ type Translate = (key: string, options?: Record<string, unknown>) => string;
 type UploadMediaOptions = {
   t: Translate;
   onProgress?: (percent: number | null) => void;
+  /** Asset title override; defaults to the file name. */
+  title?: string;
 };
 
 export interface R2DirectUploadFileOptions extends UploadMediaOptions {
@@ -215,7 +217,7 @@ export async function uploadMediaFile(
       const probed = await probeMediaFile(file).catch(() => null);
       const asset = await uploadR2DirectFile(file, "video", {
         ...options,
-        title: file.name,
+        title: options.title ?? file.name,
         duration: probed?.duration,
         width: probed?.width,
         height: probed?.height,
@@ -223,10 +225,16 @@ export async function uploadMediaFile(
       return { asset, provider: "r2" };
     }
     if (type === "audio") {
-      const asset = await uploadR2DirectFile(file, "audio", { ...options, title: file.name });
+      const asset = await uploadR2DirectFile(file, "audio", {
+        ...options,
+        title: options.title ?? file.name,
+      });
       return { asset, provider: "r2" };
     }
-    const asset = await uploadR2DirectFile(file, "image", { ...options, title: file.name });
+    const asset = await uploadR2DirectFile(file, "image", {
+      ...options,
+      title: options.title ?? file.name,
+    });
     return { asset, provider: "r2" };
   } catch (error) {
     if (!isNotConfiguredError(error as { status?: number })) {

@@ -1,7 +1,7 @@
 // StoryEditorPage: content-package editor (Stage 1 skeleton).
 // Mirrors the interaction of page/writing.tsx (title / alias / summary /
 // status) but works on ordered content blocks instead of a single markdown
-// document. Supported block types in Stage 1: rich_text, video, audio.
+// document. Supported block types in Stage 1: rich_text, image, video, audio.
 
 import { useEffect, useState } from "react";
 import { Helmet } from "react-helmet";
@@ -16,6 +16,7 @@ import type { BlockType, ContentBlock, StoryStatus } from "../api/story";
 import {
   AudioBlock,
   BlockShell,
+  ImageBlock,
   RichTextBlock,
   VideoBlock,
   createBlock,
@@ -28,6 +29,7 @@ const STATUSES: StoryStatus[] = ["draft", "scheduled", "published", "updated", "
 
 const BLOCK_BUTTONS: { type: BlockType; icon: string; labelKey: string }[] = [
   { type: "rich_text", icon: "ri-text", labelKey: "story.editor.block_rich_text" },
+  { type: "image", icon: "ri-image-line", labelKey: "story.editor.block_image" },
   { type: "video", icon: "ri-video-line", labelKey: "story.editor.block_video" },
   { type: "audio", icon: "ri-music-2-line", labelKey: "story.editor.block_audio" },
 ];
@@ -118,6 +120,8 @@ export function StoryEditorPage({ storyKey }: { storyKey?: string }) {
     switch (type) {
       case "rich_text":
         return t("story.editor.block_rich_text");
+      case "image":
+        return t("story.editor.block_image");
       case "video":
         return t("story.editor.block_video");
       case "audio":
@@ -241,6 +245,12 @@ export function StoryEditorPage({ storyKey }: { storyKey?: string }) {
                     {block.type === "rich_text" && (
                       <RichTextBlock
                         payload={block.payload as { markdown: string }}
+                        onChange={(patch) => setBlocks((prev) => updateBlockPayload(prev, block.id, patch))}
+                      />
+                    )}
+                    {block.type === "image" && (
+                      <ImageBlock
+                        payload={block.payload as { caption?: string; alt?: string }}
                         onChange={(patch) => setBlocks((prev) => updateBlockPayload(prev, block.id, patch))}
                       />
                     )}

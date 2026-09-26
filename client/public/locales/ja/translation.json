@@ -651,6 +651,7 @@
       "block_rich_text": "リッチテキスト",
       "block_video": "動画",
       "block_audio": "音声",
+      "block_image": "画像",
       "slug": "スラッグ",
       "slug_placeholder": "URLスラッグ（例：my-first-story）",
       "status": "ステータス",
@@ -726,7 +727,13 @@
       "chapter_title_placeholder": "チャプター名",
       "chapter_start": "開始位置（秒）",
       "chapter_add": "チャプターを追加",
-      "chapter_remove": "チャプターを削除"
+      "chapter_remove": "チャプターを削除",
+      "upload_image": "画像をアップロード",
+      "image_upload_failed": "画像のアップロードに失敗しました",
+      "image_caption": "キャプション",
+      "image_caption_placeholder": "例：会場の写真",
+      "image_alt": "代替テキスト",
+      "image_alt_placeholder": "例：ステージ上で話す2人の登壇者"
     },
     "list": {
       "hint": "各コンテンツパッケージは1つの永続アドレスを持ちます。テキスト・動画・音声は同じストーリーへの入口です。",
