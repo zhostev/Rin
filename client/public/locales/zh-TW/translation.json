@@ -7,6 +7,7 @@
     "back_to_site": "返回站點",
     "compat_tasks_description": "批次觸發向前相容任務，用於補齊歷史文章缺失的 AI 摘要與圖片 blurhash 中繼資料。",
     "health_description": "檢查關鍵配置、缺失的整合項，以及可能影響服務正常運行的風險。",
+    "menu": "選單",
     "queue_status_description": "查看 AI 摘要佇列進度、最近任務結果與失敗資訊。",
     "settings_description": "在統一的後台空間中管理站點行為、整合配置與發佈規則。",
     "title": "後台管理",
