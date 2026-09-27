@@ -9,6 +9,16 @@ export function wechatTitleByteLength(title: string): number {
     return new TextEncoder().encode(title).length;
 }
 
+/**
+ * 规范化 WECHAT_RELAY_URL：去掉首尾空白（Dashboard 粘贴常带空格/换行，
+ * 会导致 fetch 报 Invalid URL）再去掉末尾斜杠。空字符串视为未配置。
+ * 纯函数，可单测。
+ */
+export function normalizeRelayUrl(url: string | undefined): string | undefined {
+    const normalized = url?.trim().replace(/\/+$/, "");
+    return normalized || undefined;
+}
+
 export function registerFeedWechatDraftRoutes(app: Hono<{ Bindings: Env; Variables: Variables }>) {
     // Must be registered before app.post('/:id', ...) below: see the ai-compose note in feed.ts.
     app.post(
@@ -22,8 +32,8 @@ export function registerFeedWechatDraftRoutes(app: Hono<{ Bindings: Env; Variabl
                 return c.text("Invalid id", 400);
             }
 
-            const relayUrl = env.WECHAT_RELAY_URL?.replace(/\/+$/, "");
-            const relaySecret = env.WECHAT_RELAY_SECRET;
+            const relayUrl = normalizeRelayUrl(env.WECHAT_RELAY_URL);
+            const relaySecret = env.WECHAT_RELAY_SECRET?.trim() || undefined;
             if (!relayUrl || !relaySecret) {
                 return c.text("微信中转服务未配置（WECHAT_RELAY_URL / WECHAT_RELAY_SECRET）", 400);
             }
