@@ -10,12 +10,22 @@ export function wechatTitleByteLength(title: string): number {
 }
 
 /**
- * 规范化 WECHAT_RELAY_URL：去掉首尾空白（Dashboard 粘贴常带空格/换行，
- * 会导致 fetch 报 Invalid URL）再去掉末尾斜杠。空字符串视为未配置。
- * 纯函数，可单测。
+ * 去掉字符串中的全部空白与不可见格式字符：零宽空格 U+200B、零宽非断空格
+ * U+FEFF（属 \s，能被 trim 去掉，列出仅为明确）、零宽连字 U+200C/U+200D、
+ * 词连接符 U+2060、软连字符 U+00AD。这些字符 trim() 去不掉，iOS 从网页/
+ * 富文本复制粘贴时常带入，会让 new URL / fetch 报 "Invalid URL"。
+ * URL 与 Bearer token 里永远不会合法出现这类字符。纯函数，可单测。
+ */
+export function stripInvisibleChars(value: string): string {
+    return value.replace(/[\s\u200B-\u200D\u2060\u00AD]/g, "");
+}
+
+/**
+ * 规范化 WECHAT_RELAY_URL：先清掉全部不可见字符（见 stripInvisibleChars），
+ * 再去掉末尾斜杠。空字符串视为未配置。纯函数，可单测。
  */
 export function normalizeRelayUrl(url: string | undefined): string | undefined {
-    const normalized = url?.trim().replace(/\/+$/, "");
+    const normalized = url ? stripInvisibleChars(url).replace(/\/+$/, "") : "";
     return normalized || undefined;
 }
 
@@ -33,9 +43,16 @@ export function registerFeedWechatDraftRoutes(app: Hono<{ Bindings: Env; Variabl
             }
 
             const relayUrl = normalizeRelayUrl(env.WECHAT_RELAY_URL);
-            const relaySecret = env.WECHAT_RELAY_SECRET?.trim() || undefined;
+            const relaySecret = env.WECHAT_RELAY_SECRET
+                ? stripInvisibleChars(env.WECHAT_RELAY_SECRET) || undefined
+                : undefined;
             if (!relayUrl || !relaySecret) {
                 return c.text("微信中转服务未配置（WECHAT_RELAY_URL / WECHAT_RELAY_SECRET）", 400);
+            }
+            try {
+                new URL(relayUrl);
+            } catch {
+                return c.text("WECHAT_RELAY_URL 不是合法的 URL", 400);
             }
 
             const feed = await db.query.feeds.findFirst({ where: eq(feeds.id, id) });
