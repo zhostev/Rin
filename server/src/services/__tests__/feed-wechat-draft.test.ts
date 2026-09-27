@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { normalizeRelayUrl, wechatTitleByteLength } from "../feed-wechat-draft";
+import { normalizeRelayUrl, stripInvisibleChars, wechatTitleByteLength } from "../feed-wechat-draft";
 
 describe("wechatTitleByteLength", () => {
     it("counts UTF-8 bytes, not chars", () => {
@@ -7,6 +7,28 @@ describe("wechatTitleByteLength", () => {
         expect(wechatTitleByteLength("标题")).toBe(6);
         expect(wechatTitleByteLength("中".repeat(21))).toBe(63);
         expect(wechatTitleByteLength("中".repeat(22))).toBe(66);
+    });
+});
+
+describe("stripInvisibleChars", () => {
+    it("removes zero-width chars that trim() cannot (iOS paste from web pages)", () => {
+        // U+200B zero-width space: survives trim(), breaks new URL() with "Invalid URL".
+        expect(stripInvisibleChars("http://116.62.59.244:18080\u200B")).toBe("http://116.62.59.244:18080");
+        expect(stripInvisibleChars("http://116.62.59.\u200B244:18080")).toBe("http://116.62.59.244:18080");
+        expect(stripInvisibleChars("Bearer\u00A0abc")).toBe("Bearerabc");
+    });
+
+    it("removes other format characters (ZWJ/ZWNJ/word joiner/soft hyphen)", () => {
+        expect(stripInvisibleChars("a\u200Cb\u200Dc\u2060d\u00ADe")).toBe("abcde");
+    });
+
+    it("removes ordinary whitespace anywhere in the string", () => {
+        expect(stripInvisibleChars("  http://x:1\u00A0\n")).toBe("http://x:1");
+    });
+
+    it("leaves clean strings untouched", () => {
+        expect(stripInvisibleChars("http://116.62.59.244:18080")).toBe("http://116.62.59.244:18080");
+        expect(stripInvisibleChars("")).toBe("");
     });
 });
 
@@ -19,6 +41,11 @@ describe("normalizeRelayUrl", () => {
 
     it("strips trailing slashes", () => {
         expect(normalizeRelayUrl("http://116.62.59.244:18080///")).toBe("http://116.62.59.244:18080");
+    });
+
+    it("strips zero-width chars that trim() cannot (iOS paste from web pages)", () => {
+        expect(normalizeRelayUrl("http://116.62.59.244:18080\u200B/")).toBe("http://116.62.59.244:18080");
+        expect(normalizeRelayUrl("http://116.62.59.\u200B244:18080")).toBe("http://116.62.59.244:18080");
     });
 
     it("treats empty or whitespace-only values as unconfigured", () => {
