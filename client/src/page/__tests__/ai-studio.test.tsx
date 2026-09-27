@@ -13,6 +13,12 @@ if (typeof globalThis.requestAnimationFrame === "undefined") {
 }
 
 let settingsResponse: AISettings = { ai_enabled: true, daily_call_quota: 200 };
+let storiesResponse = { stories: [] as Array<{ id: number; title: string }>, total: 0 };
+let mediaResponse = {
+  size: 0,
+  data: [] as Array<{ id: number; kind: string; title: string }>,
+  hasNext: false,
+};
 let jobsResponse: AIJob[] = [
   {
     id: 1,
@@ -42,11 +48,11 @@ mock.module("../../app/runtime", () => ({
       rejectArtifact: async () => ({ data: { ok: true } }),
     },
     story: {
-      list: async () => ({ data: { stories: [], total: 0 } }),
+      list: async () => ({ data: storiesResponse }),
       get: async () => ({ error: { value: "no" } }),
     },
     media: {
-      list: async () => ({ data: { size: 0, data: [], hasNext: false } }),
+      list: async () => ({ data: mediaResponse }),
     },
   },
 }));
@@ -64,6 +70,8 @@ const { AIStudioPage } = await import("../ai-studio");
 describe("AIStudioPage", () => {
   beforeEach(() => {
     settingsResponse = { ai_enabled: true, daily_call_quota: 200 };
+    storiesResponse = { stories: [], total: 0 };
+    mediaResponse = { size: 0, data: [], hasNext: false };
   });
 
   afterEach(() => {
@@ -91,9 +99,9 @@ describe("AIStudioPage", () => {
     expect((getByText("ai_studio.jobs.new") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("opens the new-task wizard and walks to capability selection", async () => {
+  it("only offers capabilities compatible with pasted text", async () => {
     const user = userEvent.setup();
-    const { findByText, getByText, getByPlaceholderText } = render(<AIStudioPage />);
+    const { findByText, getByText, getByPlaceholderText, queryByText } = render(<AIStudioPage />);
 
     await findByText("ai_studio.jobs.status.ready");
     await user.click(getByText("ai_studio.jobs.new"));
@@ -104,9 +112,55 @@ describe("AIStudioPage", () => {
     await user.type(getByPlaceholderText("ai_studio.wizard.paste_text_placeholder"), "待处理文本");
     await user.click(getByText("ai_studio.wizard.next"));
 
-    // Step 2: capability cards.
-    expect(getByText("ai_studio.wizard.capability_transcribe")).toBeDefined();
+    // Step 2: only retrieval-test and embed accept free text; the rest
+    // require storyId/assetId and must not be offered.
+    expect(getByText("ai_studio.wizard.capability_retrieval_test")).toBeDefined();
+    expect(getByText("ai_studio.wizard.capability_embed")).toBeDefined();
+    expect(queryByText("ai_studio.wizard.capability_transcribe")).toBeNull();
+    expect(queryByText("ai_studio.wizard.capability_derive")).toBeNull();
+    expect(queryByText("ai_studio.wizard.capability_check")).toBeNull();
+  });
+
+  it("only offers capabilities compatible with a story", async () => {
+    storiesResponse = { stories: [{ id: 1, title: "测试文章" }], total: 1 };
+    const user = userEvent.setup();
+    const { findByText, getByText, queryByText } = render(<AIStudioPage />);
+
+    await findByText("ai_studio.jobs.status.ready");
+    await user.click(getByText("ai_studio.jobs.new"));
+
+    // Step 1: story is the default material; pick a story.
+    await user.click(getByText("ai_studio.wizard.pick_story"));
+    await user.click(await findByText("测试文章"));
+    await user.click(getByText("ai_studio.wizard.next"));
+
+    // Step 2: transcribe needs an assetId, retrieval-test needs a question.
     expect(getByText("ai_studio.wizard.capability_derive")).toBeDefined();
     expect(getByText("ai_studio.wizard.capability_check")).toBeDefined();
+    expect(getByText("ai_studio.wizard.capability_embed")).toBeDefined();
+    expect(queryByText("ai_studio.wizard.capability_transcribe")).toBeNull();
+    expect(queryByText("ai_studio.wizard.capability_retrieval_test")).toBeNull();
+  });
+
+  it("only offers capabilities compatible with a media asset", async () => {
+    mediaResponse = { size: 1, data: [{ id: 7, kind: "audio", title: "t.mp3" }], hasNext: false };
+    const user = userEvent.setup();
+    const { findByText, getByText, queryByText } = render(<AIStudioPage />);
+
+    await findByText("ai_studio.jobs.status.ready");
+    await user.click(getByText("ai_studio.jobs.new"));
+
+    // Step 1: switch to the media-asset material and pick an asset.
+    await user.click(getByText("ai_studio.wizard.material_asset"));
+    await user.click(getByText("ai_studio.wizard.pick_asset"));
+    await user.click(await findByText("t.mp3"));
+    await user.click(getByText("ai_studio.wizard.next"));
+
+    // Step 2: only transcribe and embed accept an assetId.
+    expect(getByText("ai_studio.wizard.capability_transcribe")).toBeDefined();
+    expect(getByText("ai_studio.wizard.capability_embed")).toBeDefined();
+    expect(queryByText("ai_studio.wizard.capability_derive")).toBeNull();
+    expect(queryByText("ai_studio.wizard.capability_check")).toBeNull();
+    expect(queryByText("ai_studio.wizard.capability_retrieval_test")).toBeNull();
   });
 });
