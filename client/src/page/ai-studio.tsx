@@ -186,6 +186,17 @@ const CAPABILITIES: AIJobKind[] = ["transcribe", "derive", "check", "retrieval-t
 const DERIVE_TYPES: DeriveType[] = ["summary", "chapters", "platform_copy"];
 const CHECK_ITEMS: CheckItem[] = ["broken_links", "missing_alt", "stale_facts", "metadata"];
 
+/**
+ * 素材来源与任务类型的兼容矩阵。后端对每种任务要求固定的输入
+ *（transcribe 要 assetId，derive/check 要 storyId，retrieval-test 要
+ * question），无效组合提交会被服务端打回，这里直接不在第二步列出。
+ */
+const MATERIAL_CAPABILITIES: Record<MaterialKind, AIJobKind[]> = {
+  story: ["derive", "check", "embed"],
+  asset: ["transcribe", "embed"],
+  text: ["retrieval-test", "embed"],
+};
+
 function JobWizard({
   open,
   onClose,
@@ -266,6 +277,21 @@ function JobWizard({
   const selectedAsset = useMemo(
     () => assets.find((option) => option.value === assetId) ?? null,
     [assets, assetId],
+  );
+
+  // 素材来源变化（或向导打开）时，若当前任务类型与素材不兼容，
+  // 自动切到该素材的第一个可用任务，避免提交无效组合被服务端打回。
+  useEffect(() => {
+    if (!open) return;
+    const allowed = MATERIAL_CAPABILITIES[material];
+    if (!allowed.includes(capability)) {
+      setCapability(allowed[0]);
+    }
+  }, [open, material, capability]);
+
+  const visibleCapabilities = useMemo(
+    () => CAPABILITIES.filter((kind) => MATERIAL_CAPABILITIES[material].includes(kind)),
+    [material],
   );
 
   /**
@@ -422,7 +448,7 @@ function JobWizard({
 
         {step === 2 ? (
           <div className="flex flex-col gap-3">
-            {CAPABILITIES.map((kind) => (
+            {visibleCapabilities.map((kind) => (
               <button
                 key={kind}
                 type="button"
