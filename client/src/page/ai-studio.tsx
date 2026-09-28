@@ -140,9 +140,20 @@ function MockBadge() {
   );
 }
 
-function formatDateTime(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+/**
+ * 服务端返回秒级 Unix 时间戳（number），mock 数据用 ISO 字符串；
+ * 两种都转成本地时间显示。空值显示占位符，非法值原样返回。
+ */
+export function formatDateTime(value: string | number | null | undefined): string {
+  if (value == null || value === "") return "—";
+  const text = String(value).trim();
+  if (/^\d+(\.\d+)?$/.test(text)) {
+    const n = Number(text);
+    const date = new Date(n < 1e12 ? n * 1000 : n); // 秒 → 毫秒
+    return Number.isNaN(date.getTime()) ? text : date.toLocaleString();
+  }
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? text : date.toLocaleString();
 }
 
 /** Render any JSON value as a compact key-value tree. */
