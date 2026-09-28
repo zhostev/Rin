@@ -300,6 +300,19 @@ function JobWizard({
   );
 
   /**
+   * 转录只收音/视频：选择器里直接过滤掉图片等无效类型，
+   * 免得选完到第 2 步才被红字拦下。第 2 步的 transcribeAssetInvalid
+   * 红字警告保留作兜底（比如先选图再切任务类型的路径）。
+   */
+  const assetOptions = useMemo(
+    () =>
+      capability === "transcribe"
+        ? assets.filter((option) => option.kind === "audio" || option.kind === "video")
+        : assets,
+    [assets, capability],
+  );
+
+  /**
    * 转写仅支持音频/视频素材：选了图片等其他类型时在向导里直接拦截并提示，
    * 不再放行到服务端（服务端同样会 400 打回）。
    */
@@ -468,7 +481,7 @@ function JobWizard({
               <SearchableSelect
                 value={assetId}
                 onChange={setAssetId}
-                options={assets}
+                options={assetOptions}
                 placeholder={t("ai_studio.wizard.pick_asset")}
                 searchPlaceholder={t("ai_studio.wizard.pick_asset")}
                 emptyLabel={t("ai_studio.wizard.pick_empty")}

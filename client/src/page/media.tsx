@@ -54,6 +54,7 @@ import {
   saveVideoProgress,
 } from "../utils/media-progress";
 import type {
+  AssetTranscript,
   MediaCenterChapter,
   MediaCenterItem,
   MediaCenterListResponse,
@@ -292,10 +293,86 @@ function VideoSection({ items }: { items: MediaCenterItem[] }) {
 // Audio section: episode list + play queue + speed (Stage 2 AudioPlayer).
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Transcript panel: AI 转录文稿（分段时间戳），点时间码跳到对应位置播放。
+// ---------------------------------------------------------------------------
+
+function TranscriptPanel({
+  item,
+  onSeek,
+}: {
+  item: MediaCenterItem;
+  onSeek: (start: number) => void;
+}) {
+  const { t } = useTranslation();
+  const [transcript, setTranscript] = useState<AssetTranscript | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setFailed(false);
+    setTranscript(null);
+    client.mediaCenter
+      .getTranscript(item.id)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (!error && data) {
+          setTranscript(data);
+        } else {
+          setFailed(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id]);
+
+  return (
+    <div className="mt-2 rounded-xl bg-secondary/60 p-3 dark:bg-white/5">
+      {loading ? (
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">{t("media_page.audio.transcript_loading")}</p>
+      ) : failed || !transcript ? (
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">{t("media_page.audio.transcript_failed")}</p>
+      ) : transcript.segments.length > 0 ? (
+        <ol className="flex max-h-64 flex-col gap-1.5 overflow-y-auto">
+          {transcript.segments.map((segment, index) => (
+            <li key={index} className="flex items-baseline gap-2 text-sm leading-6">
+              <button
+                type="button"
+                onClick={() => onSeek(segment.start)}
+                className="shrink-0 rounded px-1 font-mono text-xs text-theme hover:underline"
+              >
+                {formatDuration(segment.start)}
+              </button>
+              <span className="t-primary">{segment.text}</span>
+            </li>
+          ))}
+        </ol>
+      ) : transcript.text ? (
+        <p className="whitespace-pre-wrap text-sm leading-6 t-primary">{transcript.text}</p>
+      ) : (
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">{t("media_page.audio.transcript_empty")}</p>
+      )}
+    </div>
+  );
+}
+
 function AudioSection({ items, playId }: { items: MediaCenterItem[]; playId?: string }) {
   const { t } = useTranslation();
   const [queue, setQueue] = useState<MediaCenterItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  /** 展开文稿的资产 id（同一时间只展开一个） */
+  const [transcriptOpenId, setTranscriptOpenId] = useState<string | null>(null);
+  /** 时间码点播：nonce 递增，保证重复点同一时间码也能重新 seek */
+  const [seek, setSeek] = useState<{ at: number; nonce: number } | null>(null);
 
   // Build the queue from the loaded page; a ?play=<assetId> deep link puts
   // that episode first so "继续收听" resumes the right one.
@@ -322,7 +399,20 @@ function AudioSection({ items, playId }: { items: MediaCenterItem[]; playId?: st
 
   function playAt(index: number) {
     if (index < 0 || index >= queue.length) return;
+    setSeek(null);
     setCurrentIndex(index);
+  }
+
+  /**
+   * 点文稿时间码：切到对应条目并 seek 到该位置。
+   * AudioPlayer 只在挂载时消费 initialTime，所以用 key remount 生效。
+   */
+  function seekToSegment(item: MediaCenterItem, start: number) {
+    const index = queue.findIndex((entry) => String(entry.id) === String(item.id));
+    if (index >= 0) {
+      setCurrentIndex(index);
+    }
+    setSeek((prev) => ({ at: start, nonce: (prev?.nonce ?? 0) + 1 }));
   }
 
   function handlePlay(item: MediaCenterItem) {
@@ -383,8 +473,9 @@ function AudioSection({ items, playId }: { items: MediaCenterItem[]; playId?: st
             </div>
           </div>
           <AudioPlayer
-            key={String(current.id)}
+            key={seek ? `${String(current.id)}:seek:${seek.nonce}` : String(current.id)}
             payload={currentPayload}
+            initialTime={seek?.at}
             onPlay={() => handlePlay(current)}
             onEnded={handleEnded}
           />
@@ -412,13 +503,16 @@ function AudioSection({ items, playId }: { items: MediaCenterItem[]; playId?: st
             })(),
           );
           const active = index === currentIndex;
+          const itemKey = String(item.id);
+          const transcriptOpen = transcriptOpenId === itemKey;
           return (
             <li
-              key={String(item.id)}
-              className={`flex items-center gap-3 rounded-2xl p-3 transition-colors ${
+              key={itemKey}
+              className={`rounded-2xl p-3 transition-colors ${
                 active ? "bg-w ring-1 ring-theme/40" : "bg-w hover:bg-secondary/60"
               }`}
             >
+              <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => playAt(index)}
@@ -439,6 +533,19 @@ function AudioSection({ items, playId }: { items: MediaCenterItem[]; playId?: st
                   {item.storyTitle ? ` · ${item.storyTitle}` : ""}
                 </p>
               </div>
+              {item.hasTranscript && (
+                <button
+                  type="button"
+                  onClick={() => setTranscriptOpenId(transcriptOpen ? null : itemKey)}
+                  aria-expanded={transcriptOpen}
+                  className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs transition-colors ${
+                    transcriptOpen ? "text-theme" : "text-neutral-400 hover:text-theme"
+                  }`}
+                >
+                  <i className="ri-file-text-line text-sm" />
+                  {t("media_page.audio.transcript")}
+                </button>
+              )}
               {item.storySlug && (
                 <Link
                   href={`/story/${item.storySlug}`}
@@ -447,6 +554,10 @@ function AudioSection({ items, playId }: { items: MediaCenterItem[]; playId?: st
                 >
                   <i className="ri-book-open-line" />
                 </Link>
+              )}
+              </div>
+              {transcriptOpen && item.hasTranscript && (
+                <TranscriptPanel item={item} onSeek={(start) => seekToSegment(item, start)} />
               )}
             </li>
           );

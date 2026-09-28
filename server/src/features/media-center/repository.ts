@@ -237,6 +237,30 @@ export async function findTranscriptsByKeyword(db: DB, keyword: string, limit = 
 }
 
 // ---------------------------------------------------------------------------
+// 转录文本（AI Studio 产物 accept 后写入 transcripts，供媒体页文稿展示）
+// ---------------------------------------------------------------------------
+
+/**
+ * 批量查哪些资产有转录文本，返回有转录的 assetId 集合。
+ * 列表序列化时一次查出打标，避免 N+1。
+ */
+export async function findTranscriptAssetIds(db: DB, assetIds: number[]): Promise<Set<number>> {
+    if (assetIds.length === 0) return new Set();
+    const rows = await db
+        .select({ assetId: transcripts.assetId })
+        .from(transcripts)
+        .where(inArray(transcripts.assetId, assetIds));
+    return new Set(rows.map((row) => row.assetId));
+}
+
+/** 取单个资产的转录文本（公开接口用；调用方需先校验资产归属可见 story）。 */
+export async function findTranscriptByAssetId(db: DB, assetId: number) {
+    return db.query.transcripts.findFirst({
+        where: eq(transcripts.assetId, assetId),
+    });
+}
+
+// ---------------------------------------------------------------------------
 // 聚合事件
 // ---------------------------------------------------------------------------
 

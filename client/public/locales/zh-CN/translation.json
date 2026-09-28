@@ -1037,7 +1037,11 @@
       "play_episode": "播放：{{title}}",
       "untitled": "未命名音频",
       "resume_at": "上次听到 {{time}}",
-      "open_story": "打开主题"
+      "open_story": "打开主题",
+      "transcript": "文稿",
+      "transcript_loading": "文稿加载中…",
+      "transcript_failed": "文稿加载失败",
+      "transcript_empty": "暂无文稿内容"
     },
     "image": {
       "untitled_story": "未命名主题",

@@ -201,6 +201,31 @@ describe("AIStudioPage", () => {
     expect(queryByText("ai_studio.detail.accept")).toBeNull();
     expect(getByText("ai_studio.detail.reject")).toBeDefined();
   });
+
+  it("hides images from the asset picker when transcribing", async () => {
+    mediaResponse = {
+      size: 3,
+      data: [
+        { id: 7, kind: "audio", title: "t.mp3" },
+        { id: 8, kind: "image", title: "pic.png" },
+        { id: 9, kind: "video", title: "v.mp4" },
+      ],
+      hasNext: false,
+    };
+    const user = userEvent.setup();
+    const { findByText, getByText, queryByText } = render(<AIStudioPage />);
+
+    await findByText("ai_studio.jobs.status.completed");
+    await user.click(getByText("ai_studio.jobs.new"));
+
+    // Step 1: media-asset material defaults to the transcribe capability,
+    // so the picker must only offer audio/video — never images.
+    await user.click(getByText("ai_studio.wizard.material_asset"));
+    await user.click(getByText("ai_studio.wizard.pick_asset"));
+    expect(await findByText("t.mp3")).toBeDefined();
+    expect(await findByText("v.mp4")).toBeDefined();
+    expect(queryByText("pic.png")).toBeNull();
+  });
 });
 
 describe("formatDateTime", () => {
