@@ -29,6 +29,8 @@ export const WORKER_AI_MODELS: Record<string, string> = {
     "bge-base-en": "@cf/baai/bge-base-en-v1.5",
     // 读图（截图生文）：llama-3.2 视觉指令模型，支持 OpenAI 式 vision 消息。
     "llama-3.2-11b-vision": "@cf/meta/llama-3.2-11b-vision-instruct",
+    // 文章播客化 TTS：MeloTTS 中文语音合成（env.AI.run 输入 { prompt, lang }，输出音频字节）。
+    "melotts": "@cf/myshell-ai/melotts",
 };
 
 /** worker-ai 渠道读图时的默认视觉模型（vision_model 为空时使用）。 */

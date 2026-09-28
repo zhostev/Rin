@@ -1286,5 +1286,23 @@
     "pushing": "送信中…",
     "hint": "ECS中継でWeChat公式アカウントの下書きに送信",
     "success": "WeChatの下書きに送信しました（draft_media_id={{mediaId}}）"
+  },
+  "tts": {
+    "title": "朗読音声を生成",
+    "hint": "記事をAI朗読音声に変換",
+    "generating": "生成中…",
+    "generate": "朗読音声を生成",
+    "regenerate": "再生成",
+    "delete": "音声を削除",
+    "delete_confirm": "この記事の朗読音声を削除しますか？",
+    "status_idle": "未生成",
+    "status_pending": "待機中",
+    "status_processing": "合成中",
+    "status_completed": "生成済み",
+    "status_failed": "失敗",
+    "stale_hint": "記事が更新されました。再生成をおすすめします",
+    "listen": "この記事を聴く",
+    "about_minutes": "約{{minutes}}分",
+    "player_title": "朗読版"
   }
 }

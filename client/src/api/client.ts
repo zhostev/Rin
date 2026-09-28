@@ -56,6 +56,7 @@ import type {
   CreateAIReviseRequest,
   AIReviseResponse,
   WechatDraftResponse,
+  FeedTTSStatusResponse,
 } from "@rin/api";
 
 export interface SettingsConfigResponse {
@@ -383,6 +384,21 @@ class FeedAPI {
   // POST /api/feed/:id/wechat-draft — 推送到微信公众号草稿箱（经 ECS 中转）
   async wechatDraft(id: number): Promise<ApiResponse<WechatDraftResponse>> {
     return this.http.post<WechatDraftResponse>(`/api/feed/${id}/wechat-draft`, {});
+  }
+
+  // POST /api/feed/:id/tts — 生成朗读音频（MeloTTS，异步队列任务）
+  async ttsGenerate(id: number): Promise<ApiResponse<{ status: string; error: string }>> {
+    return this.http.post<{ status: string; error: string }>(`/api/feed/${id}/tts`, {});
+  }
+
+  // GET /api/feed/:id/tts — 管理员看完整状态；访客仅在公开且已生成时拿到播放地址
+  async ttsStatus(id: number): Promise<ApiResponse<FeedTTSStatusResponse>> {
+    return this.http.get<FeedTTSStatusResponse>(`/api/feed/${id}/tts`);
+  }
+
+  // DELETE /api/feed/:id/tts — 删除朗读音频（R2 对象 + 资产行）
+  async ttsDelete(id: number): Promise<ApiResponse<{ ok: boolean }>> {
+    return this.http.delete<{ ok: boolean }>(`/api/feed/${id}/tts`);
   }
 }
 

@@ -29,6 +29,12 @@ export interface Feed {
   ai_summary: string;
   ai_summary_status: "idle" | "pending" | "processing" | "completed" | "failed";
   ai_summary_error: string;
+  /** 播客化 TTS：朗读音频生成状态（公开序列化时剥离，走 GET /api/feed/:id/tts）。 */
+  ai_tts_status?: "idle" | "pending" | "processing" | "completed" | "failed";
+  /** 仅管理员可见（公开序列化时剥离）。 */
+  ai_tts_error?: string;
+  /** 朗读音频的 media_assets id（公开序列化时剥离）；null = 未生成。 */
+  tts_asset_id?: number | null;
   hashtags: Array<{ id: number; name: string }>;
   user: {
     avatar: string | null;
@@ -784,6 +790,29 @@ export interface AIReviseResponse {
 
 export interface WechatDraftResponse {
   draft_media_id: string;
+}
+
+// ============================================================================
+// Feed TTS（播客化朗读版，server/src/services/feed-ai-tts.ts）
+// ============================================================================
+
+/** GET /api/feed/:id/tts（管理员）：完整生成状态。 */
+export interface FeedTTSStatusResponse {
+  status: "idle" | "pending" | "processing" | "completed" | "failed";
+  assetId: number | null;
+  /** 预估时长（秒），MeloTTS 按语速估算；null = 未生成。 */
+  durationSec: number | null;
+  error: string;
+  /** 文章更新时间晚于音频生成时间 → 建议重新生成。 */
+  stale: boolean;
+  /** 试听地址；completed 时非空（管理员与访客都可用）。 */
+  audioUrl: string | null;
+}
+
+/** GET /api/feed/:id/tts（访客）：仅文章公开且已生成时返回。 */
+export interface FeedTTSAudioResponse {
+  audioUrl: string;
+  durationSec: number | null;
 }
 
 // ============================================================================

@@ -1295,5 +1295,23 @@
     "pushing": "推送中…",
     "hint": "经 ECS 中转推送到微信公众号草稿箱",
     "success": "已送达公众号草稿箱（draft_media_id={{mediaId}}），去公众号后台草稿箱查看"
+  },
+  "tts": {
+    "title": "生成朗读音频",
+    "hint": "用 AI 把文章转成语音朗读版",
+    "generating": "生成中…",
+    "generate": "生成朗读音频",
+    "regenerate": "重新生成",
+    "delete": "删除音频",
+    "delete_confirm": "确定删除这篇朗读音频吗？",
+    "status_idle": "未生成",
+    "status_pending": "排队中",
+    "status_processing": "合成中",
+    "status_completed": "已生成",
+    "status_failed": "生成失败",
+    "stale_hint": "文章已更新，建议重新生成",
+    "listen": "听这篇文章",
+    "about_minutes": "约 {{minutes}} 分钟",
+    "player_title": "朗读版"
   }
 }

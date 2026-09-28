@@ -1,4 +1,4 @@
-import type { Feed } from "@rin/api";
+import type { Feed, FeedTTSStatusResponse } from "@rin/api";
 import { Modal } from "@rin/ui";
 import { useContext, useEffect, useRef, useState } from "react";
 import { Helmet } from "react-helmet";
@@ -23,6 +23,8 @@ import { Tips } from "../components/tips";
 import mermaid from "mermaid";
 import { AdjacentSection } from "../components/adjacent_feed.tsx";
 import { ShareButtons } from "../components/share_buttons";
+import { AudioPlayer } from "../components/audio-player";
+import { formatDuration } from "../components/story-blocks/block-utils";
 import { stripImageUrlMetadata } from "../utils/image-upload";
 
 function extractFirstMarkdownImageUrl(content: string) {
@@ -48,6 +50,9 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
   const [top, setTop] = useState<number>(0);
   const [showRevise, setShowRevise] = useState(false);
   const [pushingWechat, setPushingWechat] = useState(false);
+  const [tts, setTts] = useState<FeedTTSStatusResponse | null>(null);
+  const [ttsBusy, setTtsBusy] = useState(false);
+  const [showTtsPlayer, setShowTtsPlayer] = useState(false);
   const config = useContext(ClientConfigContext);
   const counterEnabled = config.getBoolean('counter.enabled');
   const hasAISummary = Boolean(feed?.ai_summary?.trim());
@@ -68,6 +73,56 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
       .finally(() => {
         setPushingWechat(false);
       });
+  }
+  function loadTtsStatus(feedId: number) {
+    client.feed
+      .ttsStatus(feedId)
+      .then(({ data, error }) => {
+        if (error || !data) {
+          setTts(null);
+        } else {
+          setTts(data);
+        }
+      })
+      .catch(() => setTts(null));
+  }
+  function generateTts() {
+    if (!feed || ttsBusy) return;
+    setTtsBusy(true);
+    client.feed
+      .ttsGenerate(feed.id)
+      .then(({ error }) => {
+        if (error) {
+          showAlert(error.value as string);
+        } else if (feed) {
+          loadTtsStatus(feed.id);
+        }
+      })
+      .finally(() => {
+        setTtsBusy(false);
+      });
+  }
+  function deleteTts() {
+    if (!feed || ttsBusy) return;
+    showConfirm(
+      t("tts.delete"),
+      t("tts.delete_confirm"),
+      () => {
+        setTtsBusy(true);
+        client.feed
+          .ttsDelete(feed.id)
+          .then(({ error }) => {
+            if (error) {
+              showAlert(error.value as string);
+            } else {
+              setTts(null);
+              setShowTtsPlayer(false);
+            }
+          })
+          .finally(() => {
+            setTtsBusy(false);
+          });
+      })
   }
   function deleteFeed() {
     // Confirm
@@ -133,6 +188,21 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
       });
     ref.current = id;
   }, [id]);
+  // 朗读音频状态：文章切换时加载；管理员在生成中时轮询
+  useEffect(() => {
+    if (!feed) return;
+    setTts(null);
+    setShowTtsPlayer(false);
+    loadTtsStatus(feed.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feed?.id]);
+  useEffect(() => {
+    if (!profile?.permission || !feed || !tts) return;
+    if (tts.status !== "pending" && tts.status !== "processing") return;
+    const timer = setInterval(() => loadTtsStatus(feed.id), 3000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tts?.status, feed?.id]);
   useEffect(() => {
     mermaid.initialize({
       startOnLoad: false,
@@ -277,6 +347,19 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                             )}
                           </button>
                           <button
+                            aria-label={t("tts.title")}
+                            title={t("tts.hint")}
+                            onClick={generateTts}
+                            disabled={ttsBusy || tts?.status === "pending" || tts?.status === "processing"}
+                            className="flex-1 flex flex-col items-end justify-center px-2 py bg-secondary bg-button rounded-full transition disabled:opacity-60"
+                          >
+                            {ttsBusy || tts?.status === "pending" || tts?.status === "processing" ? (
+                              <ReactLoading type="spin" height={14} width={14} />
+                            ) : (
+                              <i className="ri-volume-up-line dark:text-neutral-400" />
+                            )}
+                          </button>
+                          <button
                             aria-label={t("delete.title")}
                             onClick={deleteFeed}
                             className="flex-1 flex flex-col items-end justify-center px-2 py bg-secondary bg-button rounded-full transition"
@@ -291,6 +374,35 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                             listed={feed.listed === 1}
                           />
                         )}
+                        {tts?.status && tts.status !== "idle" && (
+                          <div className="flex flex-wrap items-center gap-2 text-xs t-secondary">
+                            <span className="rounded-full bg-secondary px-2 py-1 font-medium">
+                              {t(`tts.status_${tts.status}`)}
+                              {tts.status === "completed" && tts.durationSec
+                                ? ` · ${formatDuration(tts.durationSec)}`
+                                : ""}
+                            </span>
+                            {tts.status === "failed" && tts.error ? (
+                              <span className="text-rose-500 [overflow-wrap:anywhere]">
+                                {tts.error}
+                              </span>
+                            ) : null}
+                            {tts.status === "completed" && tts.stale ? (
+                              <span className="text-amber-500">
+                                {t("tts.stale_hint")}
+                              </span>
+                            ) : null}
+                            {tts.status === "completed" || tts.status === "failed" ? (
+                              <button
+                                onClick={deleteTts}
+                                disabled={ttsBusy}
+                                className="underline underline-offset-2 disabled:opacity-60"
+                              >
+                                {t("tts.delete")}
+                              </button>
+                            ) : null}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -298,6 +410,36 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                 <h1 className="text-2xl font-bold t-primary break-all mt-1">
                   {feed.title}
                 </h1>
+                {tts?.audioUrl && !showTtsPlayer && (
+                  <button
+                    onClick={() => setShowTtsPlayer(true)}
+                    className="mt-3 flex items-center gap-2 rounded-full bg-secondary bg-button px-4 py-2 text-sm t-primary transition hover:opacity-80"
+                  >
+                    <i className="ri-play-circle-line text-lg" />
+                    <span>
+                      {t("tts.listen")}
+                      {tts.durationSec
+                        ? ` · ${t("tts.about_minutes", { minutes: Math.max(1, Math.round(tts.durationSec / 60)) })}`
+                        : ""}
+                    </span>
+                  </button>
+                )}
+                {tts?.audioUrl && showTtsPlayer && (
+                  <div className="my-4">
+                    <AudioPlayer
+                      payload={{
+                        asset: {
+                          id: feed.id,
+                          kind: "audio",
+                          url: tts.audioUrl,
+                          duration: tts.durationSec ?? undefined,
+                        },
+                        title: `${feed.title ?? ""} · ${t("tts.player_title")}`,
+                        duration: tts.durationSec ?? undefined,
+                      }}
+                    />
+                  </div>
+                )}
                 {(hasAISummary || showAISummaryState) && (
                   <div className="my-4 p-4 rounded-xl bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border border-purple-100 dark:border-purple-800/30">
                     <div className="flex items-center justify-between gap-2 mb-2">
