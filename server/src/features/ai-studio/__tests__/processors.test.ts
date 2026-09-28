@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { aiSettings } from "../../../db/schema";
-import { buildStoryChunks, parseJsonArray, parseJsonObject, processAIStudioTask } from "../processors";
+import { buildStoryChunks, parseJsonArray, parseJsonObject, processAIStudioTask, resolveDeriveMaxTokens } from "../processors";
 
 const story = { id: 7, slug: "hello", title: "标题", summary: "摘要" };
 
@@ -90,6 +90,14 @@ describe("parseJsonArray", () => {
 
     it("returns null for non-array JSON", () => {
         expect(parseJsonArray('{"a": 1}')).toBeNull();
+    });
+});
+
+describe("resolveDeriveMaxTokens", () => {
+    it("reserves thinking headroom so reasoning models do not truncate the JSON", () => {
+        // 与 feed-ai-revise / ai-images 一致：推理模型的思考过程计入 max_tokens，
+        // 没有预留会导致 derive 的 JSON 被截断 → "AI 返回的 JSON 无法解析或缺少 summary"。
+        expect(resolveDeriveMaxTokens()).toBeGreaterThan(4000);
     });
 });
 
