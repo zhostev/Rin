@@ -54,7 +54,7 @@ const MOCK_JOBS: AIJob[] = [
   {
     id: "mock-2",
     job_type: "derive",
-    status: "ready",
+    status: "completed",
     input: { storyId: 3 },
     params: { derive: "summary" },
     created_at: new Date(Date.now() - 1000 * 60 * 42).toISOString(),
@@ -103,14 +103,14 @@ const MOCK_SETTINGS: AISettings = { ai_enabled: true, daily_call_quota: 200 };
 
 /** Card tone (SettingsCard supports default/success/danger/warning). */
 function cardToneForStatus(status: AIJobStatus): "success" | "warning" | "danger" {
-  if (status === "ready") return "success";
+  if (status === "completed") return "success";
   if (status === "failed") return "danger";
   return "warning";
 }
 
 /** Badge tone (SettingsBadge supports neutral/success/warning). */
 function toneForStatus(status: AIJobStatus): "success" | "warning" | "neutral" {
-  if (status === "ready") return "success";
+  if (status === "completed") return "success";
   if (status === "pending" || status === "processing") return "warning";
   return "neutral";
 }
@@ -118,6 +118,17 @@ function toneForStatus(status: AIJobStatus): "success" | "warning" | "neutral" {
 function StatusBadge({ status }: { status: AIJobStatus }) {
   const { t } = useTranslation();
   return <SettingsBadge tone={toneForStatus(status)}>{t(`ai_studio.jobs.status.${status}`)}</SettingsBadge>;
+}
+
+/** 失败任务的 error artifact：{kind:'error', message, rawPreview?} */
+function errorArtifactInfo(output: unknown): { message: string; rawPreview?: string } | null {
+  if (!output || typeof output !== "object" || Array.isArray(output)) return null;
+  const record = output as Record<string, unknown>;
+  if (record.kind !== "error") return null;
+  return {
+    message: typeof record.message === "string" && record.message ? record.message : "未知错误",
+    rawPreview: typeof record.rawPreview === "string" ? record.rawPreview : undefined,
+  };
 }
 
 function MockBadge() {
@@ -272,12 +283,24 @@ function JobWizard({
     return true;
   }, [capability, checks, question]);
 
-  const canNext = step === 1 ? materialValid : step === 2 ? capabilityValid : true;
-
   const selectedAsset = useMemo(
     () => assets.find((option) => option.value === assetId) ?? null,
     [assets, assetId],
   );
+
+  /**
+   * 转写仅支持音频/视频素材：选了图片等其他类型时在向导里直接拦截并提示，
+   * 不再放行到服务端（服务端同样会 400 打回）。
+   */
+  const transcribeAssetInvalid =
+    material === "asset" &&
+    capability === "transcribe" &&
+    selectedAsset != null &&
+    selectedAsset.kind !== "audio" &&
+    selectedAsset.kind !== "video";
+
+  const canNext =
+    step === 1 ? materialValid : step === 2 ? capabilityValid && !transcribeAssetInvalid : true;
 
   // 素材来源变化（或向导打开）时，若当前任务类型与素材不兼容，
   // 自动切到该素材的第一个可用任务，避免提交无效组合被服务端打回。
@@ -317,6 +340,12 @@ function JobWizard({
   }
 
   async function submit() {
+    if (transcribeAssetInvalid) {
+      showAlert(
+        t("ai_studio.wizard.transcribe_needs_audio_video", { kind: selectedAsset?.kind ?? "" }),
+      );
+      return;
+    }
     setSubmitting(true);
     try {
       let payload = buildPayload();
@@ -466,6 +495,14 @@ function JobWizard({
               </button>
             ))}
 
+            {transcribeAssetInvalid ? (
+              <p className="rounded-xl bg-rose-500/10 px-3.5 py-2.5 text-sm font-medium text-rose-700 dark:text-rose-300">
+                {t("ai_studio.wizard.transcribe_needs_audio_video", {
+                  kind: selectedAsset?.kind ?? "",
+                })}
+              </p>
+            ) : null}
+
             {capability === "derive" ? (
               <div className="flex flex-wrap gap-2 pl-1">
                 {DERIVE_TYPES.map((type) => (
@@ -539,6 +576,13 @@ function JobWizard({
                   {needsAudioExtraction ? (
                     <p className="text-neutral-500">{t("ai_studio.wizard.extract_audio_note")}</p>
                   ) : null}
+                  {transcribeAssetInvalid ? (
+                    <p className="font-medium text-rose-700 dark:text-rose-300">
+                      {t("ai_studio.wizard.transcribe_needs_audio_video", {
+                        kind: selectedAsset?.kind ?? "",
+                      })}
+                    </p>
+                  ) : null}
                 </div>
               </SettingsCardBody>
             </SettingsCard>
@@ -564,7 +608,7 @@ function JobWizard({
                       ? t("ai_studio.wizard.submitting")
                       : t("ai_studio.wizard.submit")
                 }
-                disabled={submitting}
+                disabled={submitting || transcribeAssetInvalid}
                 onClick={() => void submit()}
               />
             )}
@@ -641,6 +685,7 @@ function ArtifactCard({
   const [currentTextFailed, setCurrentTextFailed] = useState(false);
 
   const draftText = useMemo(() => extractDraftText(artifact.output_json), [artifact.output_json]);
+  const errorInfo = useMemo(() => errorArtifactInfo(artifact.output_json), [artifact.output_json]);
 
   // Load the current body/transcript for the diff view when it is first opened.
   useEffect(() => {
@@ -699,24 +744,26 @@ function ArtifactCard({
       />
       <SettingsCardBody>
         <div className="flex flex-col gap-3">
-          <div className="flex gap-2">
-            {(["result", "diff"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setView(tab)}
-                className={`rounded-full px-3.5 py-1 text-sm font-medium ${
-                  view === tab ? "bg-w text-theme shadow" : "t-secondary hover:t-primary"
-                }`}
-              >
-                {t(`ai_studio.detail.view_${tab}`)}
-              </button>
-            ))}
-          </div>
+          {!errorInfo ? (
+            <div className="flex gap-2">
+              {(["result", "diff"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setView(tab)}
+                  className={`rounded-full px-3.5 py-1 text-sm font-medium ${
+                    view === tab ? "bg-w text-theme shadow" : "t-secondary hover:t-primary"
+                  }`}
+                >
+                  {t(`ai_studio.detail.view_${tab}`)}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
-          {view === "result" ? <JsonTree value={artifact.output_json} /> : null}
+          {!errorInfo && view === "result" ? <JsonTree value={artifact.output_json} /> : null}
 
-          {view === "diff" ? (
+          {!errorInfo && view === "diff" ? (
             draftText && currentText !== null ? (
               <TextDiffView oldText={currentText} newText={draftText} />
             ) : draftText && currentTextFailed ? (
@@ -768,11 +815,13 @@ function ArtifactCard({
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">
-              <Button
-                title={acting === "accept" ? t("ai_studio.detail.accepting") : t("ai_studio.detail.accept")}
-                disabled={acting !== null}
-                onClick={() => void act("accept")}
-              />
+              {!errorInfo ? (
+                <Button
+                  title={acting === "accept" ? t("ai_studio.detail.accepting") : t("ai_studio.detail.accept")}
+                  disabled={acting !== null}
+                  onClick={() => void act("accept")}
+                />
+              ) : null}
               <Button
                 secondary
                 title={acting === "reject" ? t("ai_studio.detail.rejecting") : t("ai_studio.detail.reject")}
@@ -870,7 +919,7 @@ function JobDetail({ jobId, onClose }: { jobId: number | string; onClose: () => 
 // Jobs tab: list + filter + polling + wizard + detail
 // ---------------------------------------------------------------------------
 
-const JOB_FILTERS: JobFilter[] = ["all", "pending", "processing", "ready", "failed"];
+const JOB_FILTERS: JobFilter[] = ["all", "pending", "processing", "completed", "failed"];
 
 function JobsPanel({ aiEnabled }: { aiEnabled: boolean }) {
   const { t } = useTranslation();

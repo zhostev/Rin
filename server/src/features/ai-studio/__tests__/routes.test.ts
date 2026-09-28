@@ -17,6 +17,7 @@ interface BuildOptions {
     artifact?: any | null;
     existingTranscript?: any | null;
     insertedJob?: any;
+    mediaAsset?: any;
 }
 
 function tableName(table: unknown): string {
@@ -98,6 +99,18 @@ function buildApp(options: BuildOptions = {}) {
             transcripts: {
                 findFirst: async () => options.existingTranscript ?? null,
             },
+            mediaAssets: {
+                findFirst: async () =>
+                    options.mediaAsset === null
+                        ? null
+                        : (options.mediaAsset ?? {
+                              id: 9,
+                              kind: "audio",
+                              r2Key: "media/a.mp3",
+                              mime: "audio/mpeg",
+                              duration: 60,
+                          }),
+            },
         },
     };
 
@@ -169,6 +182,27 @@ describe("POST /jobs", () => {
         const { app } = buildApp();
         const res = await post(app, "/jobs", { kind: "transcribe", input: {} });
         expect(res.status).toBe(400);
+    });
+
+    it("rejects transcribe for missing assets with 400", async () => {
+        const { app, sent } = buildApp({ mediaAsset: null });
+        const res = await post(app, "/jobs", { kind: "transcribe", input: { assetId: 70 } });
+        expect(res.status).toBe(400);
+        const body = (await res.json()) as any;
+        expect(body.error.code).toBe("invalid_input");
+        expect(sent.length).toBe(0);
+    });
+
+    it("rejects transcribe for non-audio/video assets with 400", async () => {
+        const { app, sent } = buildApp({
+            mediaAsset: { id: 70, kind: "image", r2Key: "media/i.png", mime: "image/png", duration: null },
+        });
+        const res = await post(app, "/jobs", { kind: "transcribe", input: { assetId: 70 } });
+        expect(res.status).toBe(400);
+        const body = (await res.json()) as any;
+        expect(body.error.code).toBe("invalid_input");
+        expect(body.error.message).toContain("转写仅支持音频/视频资源");
+        expect(sent.length).toBe(0);
     });
 
     it("requires question for retrieval-test", async () => {

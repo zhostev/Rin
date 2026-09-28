@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { buildStoryChunks, parseJsonArray, parseJsonObject } from "../processors";
+import { aiSettings } from "../../../db/schema";
+import { buildStoryChunks, parseJsonArray, parseJsonObject, processAIStudioTask } from "../processors";
 
 const story = { id: 7, slug: "hello", title: "标题", summary: "摘要" };
 
@@ -89,5 +90,73 @@ describe("parseJsonArray", () => {
 
     it("returns null for non-array JSON", () => {
         expect(parseJsonArray('{"a": 1}')).toBeNull();
+    });
+});
+
+describe("processAIStudioTask", () => {
+    function fakeDispatcherDb(assetKind: string | null) {
+        let status = "pending";
+        const seenStatuses: string[] = [];
+        const settingsRows = [
+            { key: "ai_enabled", value: "1" },
+            { key: "daily_call_quota", value: "200" },
+        ];
+        const db: any = {
+            seenStatuses,
+            query: {
+                aiJobs: {
+                    findFirst: async () => ({
+                        id: 1,
+                        jobType: "aistudio.transcribe",
+                        status,
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                    }),
+                },
+                mediaAssets: {
+                    findFirst: async () =>
+                        assetKind === null
+                            ? null
+                            : {
+                                  id: 70,
+                                  kind: assetKind,
+                                  r2Key: "media/k",
+                                  mime: "image/png",
+                                  duration: null,
+                              },
+                },
+            },
+            select: () => ({
+                from: (table: unknown) => {
+                    if (table === aiSettings) return Promise.resolve(settingsRows);
+                    return { where: async () => [{ n: 0 }] };
+                },
+            }),
+            insert: () => ({
+                values: () => ({
+                    returning: async () => [
+                        { id: 1, jobId: 1, outputJson: "{}", acceptedAt: null, createdAt: new Date() },
+                    ],
+                }),
+            }),
+            update: () => ({
+                set: (values: any) => {
+                    status = values.status;
+                    seenStatuses.push(values.status);
+                    return { where: async () => undefined };
+                },
+            }),
+        };
+        return db;
+    }
+
+    it("keeps failed status when a processor validation fails (no completed overwrite)", async () => {
+        const db = fakeDispatcherDb("image");
+        await processAIStudioTask({} as any, db, {
+            type: "aistudio.transcribe",
+            payload: { jobId: 1, assetId: 70 } as any,
+        });
+        // processing → failed；修复前分发器会无条件再写 completed，把 failed 覆盖掉
+        expect(db.seenStatuses).toEqual(["processing", "failed"]);
     });
 });
