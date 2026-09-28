@@ -12,6 +12,10 @@ export const feeds = sqliteTable("feeds", {
     ai_summary: text("ai_summary").default("").notNull(),
     ai_summary_status: text("ai_summary_status").default("idle").notNull(),
     ai_summary_error: text("ai_summary_error").default("").notNull(),
+    // 播客化 TTS：朗读音频生成状态（feed-ai-tts.ts 读写；蛇形命名与 ai_summary_* 家族保持一致）
+    ai_tts_status: text("ai_tts_status").default("idle").notNull(),
+    ai_tts_error: text("ai_tts_error").default("").notNull(),
+    tts_asset_id: integer("tts_asset_id").references(() => mediaAssets.id, { onDelete: "set null" }),
     // 0019 · AI 写作任务状态（feed-ai-compose.ts 读写；迁移已建列，schema 后补）
     aiComposeStatus: text("ai_compose_status").default("idle").notNull(),
     aiComposeError: text("ai_compose_error").default("").notNull(),

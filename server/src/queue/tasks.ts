@@ -2,6 +2,8 @@ import type { AIComposeImageMode, ComposeLength } from "@rin/api";
 
 export const FEED_AI_SUMMARY_TASK = "feed.ai-summary.generate" as const;
 export const FEED_AI_COMPOSE_TASK = "feed.ai-compose.generate" as const;
+// 文章播客化 TTS：朗读音频生成（处理函数见 server/src/services/feed-ai-tts.ts）
+export const FEED_TTS_TASK = "feed.tts.generate" as const;
 
 // Stage 4 · AI Studio 任务（处理函数见 server/src/features/ai-studio/processors.ts）
 export const AISTUDIO_TRANSCRIBE_TASK = "aistudio.transcribe" as const;
@@ -71,7 +73,7 @@ export interface FeedAIComposeTask {
   payload: FeedAIComposeTaskPayload;
 }
 
-export type QueueTask = FeedAISummaryTask | FeedAIComposeTask | AIStudioTask;
+export type QueueTask = FeedAISummaryTask | FeedAIComposeTask | FeedTTSTask | AIStudioTask;
 
 export function createFeedAISummaryTask(
   payload: FeedAISummaryTaskPayload,
@@ -91,6 +93,25 @@ export function createFeedAIComposeTask(
   };
 }
 
+export type FeedTTSStatus = "idle" | "pending" | "processing" | "completed" | "failed";
+
+export interface FeedTTSTaskPayload {
+  feedId: number;
+  expectedUpdatedAtUnix: number;
+}
+
+export interface FeedTTSTask {
+  type: typeof FEED_TTS_TASK;
+  payload: FeedTTSTaskPayload;
+}
+
+export function createFeedTTSTask(payload: FeedTTSTaskPayload): FeedTTSTask {
+  return {
+    type: FEED_TTS_TASK,
+    payload,
+  };
+}
+
 export function createAIStudioTask(
   type: AIStudioTaskType,
   payload: AIStudioTaskPayload,
@@ -99,6 +120,18 @@ export function createAIStudioTask(
     type,
     payload,
   };
+}
+
+function isTTSPayload(value: unknown): value is FeedTTSTaskPayload {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const payload = value as Partial<FeedTTSTaskPayload>;
+  return (
+    typeof payload.feedId === "number" &&
+    typeof payload.expectedUpdatedAtUnix === "number"
+  );
 }
 
 function isSummaryPayload(value: unknown): value is FeedAISummaryTaskPayload {
@@ -154,6 +187,10 @@ export function isQueueTask(value: unknown): value is QueueTask {
 
   if (task.type === FEED_AI_COMPOSE_TASK) {
     return isComposePayload(task.payload);
+  }
+
+  if (task.type === FEED_TTS_TASK) {
+    return isTTSPayload(task.payload);
   }
 
   if (

@@ -1295,5 +1295,23 @@
     "pushing": "推送中…",
     "hint": "經 ECS 中轉推送到微信公眾號草稿箱",
     "success": "已送達公眾號草稿箱（draft_media_id={{mediaId}}），去公眾號後台草稿箱查看"
+  },
+  "tts": {
+    "title": "生成朗讀音頻",
+    "hint": "用 AI 把文章轉成語音朗讀版",
+    "generating": "生成中…",
+    "generate": "生成朗讀音頻",
+    "regenerate": "重新生成",
+    "delete": "刪除音頻",
+    "delete_confirm": "確定刪除這篇朗讀音頻嗎？",
+    "status_idle": "未生成",
+    "status_pending": "排隊中",
+    "status_processing": "合成中",
+    "status_completed": "已生成",
+    "status_failed": "生成失敗",
+    "stale_hint": "文章已更新，建議重新生成",
+    "listen": "聽這篇文章",
+    "about_minutes": "約 {{minutes}} 分鐘",
+    "player_title": "朗讀版"
   }
 }

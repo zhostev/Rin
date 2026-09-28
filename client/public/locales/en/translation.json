@@ -1295,5 +1295,23 @@
     "pushing": "Pushing…",
     "hint": "Push to WeChat Official Account draft box via ECS relay",
     "success": "Delivered to WeChat draft box (draft_media_id={{mediaId}})"
+  },
+  "tts": {
+    "title": "Generate narration audio",
+    "hint": "Turn this article into AI-narrated audio",
+    "generating": "Generating…",
+    "generate": "Generate narration",
+    "regenerate": "Regenerate",
+    "delete": "Delete audio",
+    "delete_confirm": "Delete the narration audio for this article?",
+    "status_idle": "Not generated",
+    "status_pending": "Queued",
+    "status_processing": "Synthesizing",
+    "status_completed": "Ready",
+    "status_failed": "Failed",
+    "stale_hint": "Article updated — regenerate recommended",
+    "listen": "Listen to this article",
+    "about_minutes": "about {{minutes}} min",
+    "player_title": "Narration"
   }
 }

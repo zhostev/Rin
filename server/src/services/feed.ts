@@ -26,6 +26,7 @@ import { extractImageWithMetadata, stripSiteOrigin } from "../utils/image";
 import { stripMarkdown } from "../utils/markdown";
 import { registerFeedAIComposeRoutes } from "./feed-ai-compose";
 import { registerFeedAIReviseRoutes } from "./feed-ai-revise";
+import { registerFeedTTSRoutes } from "./feed-ai-tts";
 import { registerFeedWechatDraftRoutes } from "./feed-wechat-draft";
 import { syncFeedAISummaryQueueState } from "./feed-ai-summary";
 import { bindTagToPost } from "./tag";
@@ -83,6 +84,7 @@ export function FeedService(): Hono<{
     // "ai-compose", silently swallowing this endpoint.
     registerFeedAIComposeRoutes(app);
     registerFeedAIReviseRoutes(app);
+    registerFeedTTSRoutes(app);
     registerFeedWechatDraftRoutes(app);
 
     // GET /feed - List feeds
@@ -302,7 +304,7 @@ export function FeedService(): Hono<{
 
         // Provider error text can carry an API status line or a self-hosted
         // api_url, so it stays admin-only.
-        const { ai_compose_error, ai_summary_error, ...publicFields } = other as Record<string, unknown>;
+        const { ai_compose_error, ai_summary_error, ai_tts_status, ai_tts_error, tts_asset_id, ...publicFields } = other as Record<string, unknown>;
         const visible = admin ? other : publicFields;
 
         return c.json({ ...visible, hashtags: hashtags_flatten, pv, uv });
