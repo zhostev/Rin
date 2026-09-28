@@ -23,7 +23,7 @@ let jobsResponse: AIJob[] = [
   {
     id: 1,
     job_type: "derive",
-    status: "ready",
+    status: "completed",
     input: { storyId: 3 },
     created_at: "2026-09-24T10:00:00.000Z",
     updated_at: "2026-09-24T10:02:00.000Z",
@@ -86,7 +86,7 @@ describe("AIStudioPage", () => {
     expect(getByText("ai_studio.tabs.settings")).toBeDefined();
 
     // Jobs arrive from the mocked listJobs call.
-    await findByText("ai_studio.jobs.status.ready");
+    await findByText("ai_studio.jobs.status.completed");
     expect(getByText("ai_studio.jobs.status.processing")).toBeDefined();
   });
 
@@ -103,7 +103,7 @@ describe("AIStudioPage", () => {
     const user = userEvent.setup();
     const { findByText, getByText, getByPlaceholderText, queryByText } = render(<AIStudioPage />);
 
-    await findByText("ai_studio.jobs.status.ready");
+    await findByText("ai_studio.jobs.status.completed");
     await user.click(getByText("ai_studio.jobs.new"));
     expect(getByText("ai_studio.wizard.title")).toBeDefined();
 
@@ -126,7 +126,7 @@ describe("AIStudioPage", () => {
     const user = userEvent.setup();
     const { findByText, getByText, queryByText } = render(<AIStudioPage />);
 
-    await findByText("ai_studio.jobs.status.ready");
+    await findByText("ai_studio.jobs.status.completed");
     await user.click(getByText("ai_studio.jobs.new"));
 
     // Step 1: story is the default material; pick a story.
@@ -147,7 +147,7 @@ describe("AIStudioPage", () => {
     const user = userEvent.setup();
     const { findByText, getByText, queryByText } = render(<AIStudioPage />);
 
-    await findByText("ai_studio.jobs.status.ready");
+    await findByText("ai_studio.jobs.status.completed");
     await user.click(getByText("ai_studio.jobs.new"));
 
     // Step 1: switch to the media-asset material and pick an asset.

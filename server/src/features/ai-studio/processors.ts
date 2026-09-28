@@ -617,7 +617,13 @@ export async function processAIStudioTask(
                 await failJob(db, job.id, `未知任务类型 ${task.type}`);
                 return;
         }
-        await setJobStatus(db, job.id, "completed");
+        // process* 内部可能已通过 failJob 把状态置为 failed（并存了 error
+        // artifact 说明原因）；只在仍为 processing 时才标记完成，否则失败
+        // 会被完成覆盖，用户看到的永远是"已完成"。
+        const current = await getJob(db, job.id);
+        if (current && current.status === "processing") {
+            await setJobStatus(db, job.id, "completed");
+        }
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[ai-studio] job ${job.id} failed:`, error);

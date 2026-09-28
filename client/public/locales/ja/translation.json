@@ -1084,13 +1084,13 @@
       "filter_all": "すべて",
       "filter_pending": "待機中",
       "filter_processing": "処理中",
-      "filter_ready": "完了",
+      "filter_completed": "完了",
       "filter_failed": "失敗",
       "status": {
         "pending": "待機中",
         "processing": "処理中",
-        "ready": "完了",
-        "failed": "失敗"
+        "failed": "失敗",
+        "completed": "完了"
       }
     },
     "wizard": {
@@ -1141,7 +1141,8 @@
       "extract_audio_failed_no_audio_track": "この動画には音声トラックがないため、文字起こしできません。",
       "extract_audio_failed_decode_failed": "音声のデコードに失敗しました。動画のコーデックがサポートされていない可能性があります。",
       "extract_audio_failed_unsupported": "このブラウザは音声抽出に対応していません。Safari または Chrome で再試行してください。",
-      "extract_audio_failed_upload": "音声のアップロードに失敗しました：{{message}}"
+      "extract_audio_failed_upload": "音声のアップロードに失敗しました：{{message}}",
+      "transcribe_needs_audio_video": "文字起こしは音声/動画アセットのみ対応です。選択中は「{{kind}}」です。前のステップに戻って選び直してください。"
     },
     "detail": {
       "title": "タスク #{{id}}",
@@ -1163,7 +1164,9 @@
       "reject": "却下",
       "rejecting": "却下中…",
       "applied": "適用済み",
-      "applied_at": "{{date}} に適用"
+      "applied_at": "{{date}} に適用",
+      "artifact_error_title": "タスク失敗",
+      "artifact_error_raw": "生のエラー出力"
     },
     "usage": {
       "title": "使用量 · 過去 {{days}} 日間",

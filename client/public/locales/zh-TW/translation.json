@@ -1093,13 +1093,13 @@
       "filter_all": "全部",
       "filter_pending": "等待中",
       "filter_processing": "處理中",
-      "filter_ready": "已就緒",
+      "filter_completed": "已完成",
       "filter_failed": "失敗",
       "status": {
         "pending": "等待中",
         "processing": "處理中",
-        "ready": "已就緒",
-        "failed": "失敗"
+        "failed": "失敗",
+        "completed": "已完成"
       }
     },
     "wizard": {
@@ -1150,7 +1150,8 @@
       "extract_audio_failed_no_audio_track": "該影片沒有音軌，無法轉錄。",
       "extract_audio_failed_decode_failed": "音訊解碼失敗，影片編碼可能不受支援。",
       "extract_audio_failed_unsupported": "目前瀏覽器不支援音訊擷取，請改用 Safari 或 Chrome 重試。",
-      "extract_audio_failed_upload": "音訊上傳失敗：{{message}}"
+      "extract_audio_failed_upload": "音訊上傳失敗：{{message}}",
+      "transcribe_needs_audio_video": "轉錄僅支援音訊或影片資源，目前選擇的是「{{kind}}」資源，請返回上一步更換。"
     },
     "detail": {
       "title": "任務 #{{id}}",
@@ -1172,7 +1173,9 @@
       "reject": "駁回",
       "rejecting": "駁回中…",
       "applied": "已套用",
-      "applied_at": "已於 {{date}} 套用"
+      "applied_at": "已於 {{date}} 套用",
+      "artifact_error_title": "任務失敗",
+      "artifact_error_raw": "原始錯誤訊息"
     },
     "usage": {
       "title": "用量 · 近 {{days}} 天",

@@ -1093,13 +1093,13 @@
       "filter_all": "All",
       "filter_pending": "Pending",
       "filter_processing": "Processing",
-      "filter_ready": "Ready",
+      "filter_completed": "Completed",
       "filter_failed": "Failed",
       "status": {
         "pending": "Pending",
         "processing": "Processing",
-        "ready": "Ready",
-        "failed": "Failed"
+        "failed": "Failed",
+        "completed": "Completed"
       }
     },
     "wizard": {
@@ -1150,7 +1150,8 @@
       "extract_audio_failed_no_audio_track": "This video has no audio track to transcribe.",
       "extract_audio_failed_decode_failed": "Audio decoding failed; the video codec may not be supported.",
       "extract_audio_failed_unsupported": "This browser doesn't support audio extraction. Please retry in Safari or Chrome.",
-      "extract_audio_failed_upload": "Audio upload failed: {{message}}"
+      "extract_audio_failed_upload": "Audio upload failed: {{message}}",
+      "transcribe_needs_audio_video": "Transcription only supports audio/video assets; the selected asset is \"{{kind}}\". Please go back and pick another one."
     },
     "detail": {
       "title": "Task #{{id}}",
@@ -1172,7 +1173,9 @@
       "reject": "Reject",
       "rejecting": "Rejecting…",
       "applied": "Applied",
-      "applied_at": "Applied at {{date}}"
+      "applied_at": "Applied at {{date}}",
+      "artifact_error_title": "Task failed",
+      "artifact_error_raw": "Raw error output"
     },
     "usage": {
       "title": "Usage · last {{days}} days",

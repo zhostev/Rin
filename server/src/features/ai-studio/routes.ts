@@ -17,7 +17,7 @@
  */
 import { t } from "@rin/api";
 import { Hono } from "hono";
-import type { AppContext, Variables } from "../../core/hono-types";
+import type { AppContext, DB, Variables } from "../../core/hono-types";
 import { adminOnly, withJsonBody } from "../../core/route-boundaries";
 import { createTaskQueue } from "../../queue";
 import {
@@ -39,6 +39,7 @@ import {
     getArtifact,
     getJobWithArtifacts,
     listJobs,
+    loadAudioAsset,
     rejectArtifact,
     saveArtifact,
     setJobStatus,
@@ -108,18 +109,32 @@ type CreateJobBody = {
     params?: Record<string, unknown>;
 };
 
-function validateJobInput(
+async function validateJobInput(
     kind: AIStudioJobKind,
     input: CreateJobBody["input"],
-): { ok: true; payload: AIStudioTaskPayload } | { ok: false; error: string } {
+    db: DB,
+): Promise<{ ok: true; payload: AIStudioTaskPayload } | { ok: false; error: string }> {
     // jobId 由创建后填入，这里先占位
     const base = { jobId: -1 };
     switch (kind) {
-        case "transcribe":
+        case "transcribe": {
             if (!Number.isInteger(input?.assetId)) {
                 return { ok: false, error: "transcribe 需要 input.assetId（整数）" };
             }
+            // 建任务时就校验素材类型：图片等非音视频素材直接 400 打回，
+            // 避免任务进队列几分钟后才失败（用户看到的是"已完成"却无可用产物）。
+            const asset = await loadAudioAsset(db, input!.assetId as number);
+            if (!asset) {
+                return { ok: false, error: `找不到 media asset ${input!.assetId}` };
+            }
+            if (asset.kind !== "audio" && asset.kind !== "video") {
+                return {
+                    ok: false,
+                    error: `asset ${asset.id} 是${asset.kind}资源，转写仅支持音频/视频资源`,
+                };
+            }
             return { ok: true, payload: { ...base, assetId: input!.assetId } };
+        }
         case "derive":
         case "check":
             if (!Number.isInteger(input?.storyId)) {
@@ -184,7 +199,7 @@ export function AIStudioService(): HonoApp {
                 }
                 const kind = body.kind;
 
-                const validated = validateJobInput(kind, body.input);
+                const validated = await validateJobInput(kind, body.input, db);
                 if (!validated.ok) {
                     return c.json({ error: { code: "invalid_input", message: validated.error } }, 400);
                 }

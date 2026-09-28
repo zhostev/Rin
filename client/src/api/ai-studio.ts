@@ -31,7 +31,7 @@ export interface AIStudioHttp {
   put<T>(path: string, body?: unknown, options?: unknown): Promise<ApiResponse<T>>;
 }
 
-export type AIJobStatus = "pending" | "processing" | "ready" | "failed";
+export type AIJobStatus = "pending" | "processing" | "completed" | "failed";
 
 export type AIJobKind = "transcribe" | "derive" | "check" | "retrieval-test" | "embed";
 
