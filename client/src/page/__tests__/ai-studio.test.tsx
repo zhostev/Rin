@@ -2,7 +2,7 @@ import "../../test/setup";
 import { cleanup, render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import type { AIJob, AISettings } from "../../api/ai-studio";
+import type { AIArtifact, AIJob, AIJobDetailResponse, AISettings } from "../../api/ai-studio";
 
 // react-modal (used by the job wizard) needs rAF; the shared jsdom setup
 // does not provide it, so polyfill locally for this test file.
@@ -37,13 +37,15 @@ let jobsResponse: AIJob[] = [
     updated_at: "2026-09-24T11:01:00.000Z",
   },
 ];
+// 为空时 getJob mock 回退到 jobsResponse[0] + 无产物。
+let jobDetailResponse: AIJobDetailResponse | null = null;
 
 mock.module("../../app/runtime", () => ({
   client: {
     aiStudio: {
       getSettings: async () => ({ data: settingsResponse }),
       listJobs: async () => ({ data: { jobs: jobsResponse, page: 1, hasNext: false } }),
-      getJob: async () => ({ data: { job: jobsResponse[0], artifacts: [] } }),
+      getJob: async () => ({ data: jobDetailResponse ?? { job: jobsResponse[0], artifacts: [] } }),
       acceptArtifact: async () => ({ data: { ok: true, applied: true } }),
       rejectArtifact: async () => ({ data: { ok: true } }),
     },
@@ -72,6 +74,7 @@ describe("AIStudioPage", () => {
     settingsResponse = { ai_enabled: true, daily_call_quota: 200 };
     storiesResponse = { stories: [], total: 0 };
     mediaResponse = { size: 0, data: [], hasNext: false };
+    jobDetailResponse = null;
   });
 
   afterEach(() => {
@@ -167,6 +170,36 @@ describe("AIStudioPage", () => {
     expect(queryByText("ai_studio.wizard.capability_derive")).toBeNull();
     expect(queryByText("ai_studio.wizard.capability_check")).toBeNull();
     expect(queryByText("ai_studio.wizard.capability_retrieval_test")).toBeNull();
+  });
+
+  it("renders the red error panel for failed artifacts without an accept button", async () => {
+    const user = userEvent.setup();
+    const failedJob: AIJob = { ...jobsResponse[1], status: "failed" };
+    const errorArtifact: AIArtifact = {
+      id: 7,
+      output_json: {
+        kind: "error",
+        message: "AI 返回的 JSON 无法解析或缺少 summary",
+        rawPreview: '{"summary": "截断',
+      },
+      accepted_at: null,
+      created_at: "2026-09-24T11:02:00.000Z",
+    };
+    jobDetailResponse = { job: failedJob, artifacts: [errorArtifact] };
+    const { findByText, getByText, queryByText, getAllByRole } = render(<AIStudioPage />);
+
+    await findByText("ai_studio.jobs.status.processing");
+    // 展开第二个任务（#2），加载其失败产物。
+    const toggles = getAllByRole("button", { name: "ai_studio.jobs.toggle_detail" });
+    await user.click(toggles[1]);
+
+    // 红色错误面板：标题 + 具体错误 + 可展开 rawPreview。
+    expect(await findByText("ai_studio.detail.artifact_error_title")).toBeDefined();
+    expect(getByText("AI 返回的 JSON 无法解析或缺少 summary")).toBeDefined();
+    expect(getByText("ai_studio.detail.artifact_error_raw")).toBeDefined();
+    // 失败产物不可接受，只能驳回。
+    expect(queryByText("ai_studio.detail.accept")).toBeNull();
+    expect(getByText("ai_studio.detail.reject")).toBeDefined();
   });
 });
 

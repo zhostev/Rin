@@ -50,6 +50,18 @@ import { transcribeAudio } from "./whisper";
 const CHAT_MAX_TOKENS = 1500;
 /** derive 需要输出摘要+章节+双平台文案，中文 token 膨胀，单独给足额度 */
 const DERIVE_MAX_TOKENS = 4000;
+/**
+ * 推理模型（如默认开启 thinking 的 DeepSeek V4.1 Flash）把思考过程也
+ * 计入 max_tokens 预算。实测思考可达数千 token，没有预留的话 4000 预算
+ * 会被思考烧光，JSON 被截断 → "AI 返回的 JSON 无法解析或缺少 summary"。
+ * 多给的预算不计费（只按实际生成计费）。同 feed-ai-revise / ai-images。
+ */
+const DERIVE_THINKING_TOKEN_HEADROOM = 8000;
+
+/** Pure so the thinking-aware budget can be tested without IO. */
+export function resolveDeriveMaxTokens(): number {
+    return DERIVE_MAX_TOKENS + DERIVE_THINKING_TOKEN_HEADROOM;
+}
 
 function storyUrl(env: Env, slug: string): string {
     const base = (env.FRONTEND_URL || "").replace(/\/+$/, "");
@@ -212,7 +224,7 @@ async function processDerive(env: Env, db: DB, payload: AIStudioTaskPayload): Pr
             { role: "system", content: DERIVE_SYSTEM_PROMPT },
             { role: "user", content },
         ],
-        max_tokens: DERIVE_MAX_TOKENS,
+        max_tokens: resolveDeriveMaxTokens(),
         temperature: 0.3,
     });
     const usage = extractAIUsage(raw);

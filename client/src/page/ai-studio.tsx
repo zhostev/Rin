@@ -772,6 +772,27 @@ function ArtifactCard({
             </div>
           ) : null}
 
+          {errorInfo ? (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-3">
+              <p className="text-sm font-medium text-red-600 dark:text-red-300">
+                {t("ai_studio.detail.artifact_error_title")}
+              </p>
+              <p className="mt-1 whitespace-pre-wrap break-words text-sm text-red-600/90 dark:text-red-200/90">
+                {errorInfo.message}
+              </p>
+              {errorInfo.rawPreview ? (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-red-500/80 dark:text-red-300/70">
+                    {t("ai_studio.detail.artifact_error_raw")}
+                  </summary>
+                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-neutral-600 dark:text-neutral-300">
+                    {errorInfo.rawPreview}
+                  </pre>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
+
           {!errorInfo && view === "result" ? <JsonTree value={artifact.output_json} /> : null}
 
           {!errorInfo && view === "diff" ? (
