@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { Hono } from "hono";
 import type { Variables } from "../../../core/hono-types";
 import { aiArtifacts, aiJobs, aiSettings, aiUsage, stories, transcripts } from "../../../db/schema";
@@ -18,6 +18,7 @@ interface BuildOptions {
     existingTranscript?: any | null;
     insertedJob?: any;
     mediaAsset?: any;
+    extraEnv?: Record<string, string>;
 }
 
 function tableName(table: unknown): string {
@@ -114,16 +115,19 @@ function buildApp(options: BuildOptions = {}) {
         },
     };
 
-    const env: any = options.noQueue
-        ? {}
-        : {
-              TASK_QUEUE: {
-                  send: async (task: unknown) => {
-                      sent.push(task);
-                      await options.onSend?.(task);
+    const env: any = {
+        ...(options.noQueue
+            ? {}
+            : {
+                  TASK_QUEUE: {
+                      send: async (task: unknown) => {
+                          sent.push(task);
+                          await options.onSend?.(task);
+                      },
                   },
-              },
-          };
+              }),
+        ...(options.extraEnv ?? {}),
+    };
 
     app.use("*", async (c, next) => {
         c.set("db", db);
@@ -444,5 +448,48 @@ describe("GET /usage", () => {
         expect(body.days).toBe(7);
         expect(body.total).toEqual({ calls: 3 });
         expect(Array.isArray(body.byModel)).toBe(true);
+    });
+});
+
+describe("GET /video-provider", () => {
+    const relayEnv = {
+        MINIMAX_RELAY_URL: "https://relay.example:18081",
+        MINIMAX_RELAY_SECRET: "s3cret",
+    };
+    const realFetch = globalThis.fetch;
+
+    afterEach(() => {
+        globalThis.fetch = realFetch;
+    });
+
+    it("returns provider null when relay is unconfigured", async () => {
+        const { app } = buildApp();
+        const res = await app.request("/video-provider");
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as any;
+        expect(body.provider).toBeNull();
+    });
+
+    it("returns the relay-reported provider", async () => {
+        globalThis.fetch = (async () =>
+            new Response(JSON.stringify({ ok: true, provider: "comfyui" }), {
+                status: 200,
+            })) as any;
+        const { app } = buildApp({ extraEnv: relayEnv });
+        const res = await app.request("/video-provider");
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as any;
+        expect(body.provider).toBe("comfyui");
+    });
+
+    it("returns null when the relay is unreachable", async () => {
+        globalThis.fetch = (async () => {
+            throw new Error("down");
+        }) as any;
+        const { app } = buildApp({ extraEnv: relayEnv });
+        const res = await app.request("/video-provider");
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as any;
+        expect(body.provider).toBeNull();
     });
 });

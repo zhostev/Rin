@@ -43,7 +43,14 @@ mkdir -p /opt/rin-minimax-relay
 # 2. 写环境变量文件（权限收紧，含两个密钥）
 cat > /etc/rin-minimax-relay.env <<'EOF'
 RELAY_SECRET=<随机生成，32位以上>
+# 视频后端二选一：
+#   minimax（默认）：MiniMax 官方 V2 API，按量计费
 MINIMAX_API_KEY=<platform.minimax.io 的 API key>
+#   comfyui：本地 ComfyUI 越狱后端（3090 机器，实现待补）
+# VIDEO_PROVIDER=comfyui
+# COMFYUI_URL=http://127.0.0.1:8188
+# COMFYUI_WORKFLOW_T2V=/opt/rin-minimax-relay/workflows/h3-t2v.json
+# COMFYUI_WORKFLOW_I2V=/opt/rin-minimax-relay/workflows/h3-i2v.json
 EOF
 chmod 600 /etc/rin-minimax-relay.env
 
@@ -61,6 +68,21 @@ curl http://127.0.0.1:18081/health
 # 公网 HTTPS 检查
 curl https://ddns.hoo.ink:18081/health
 ```
+
+## ComfyUI 后端（本地越狱版 MiniMax-H3，3090 机器）
+
+`VIDEO_PROVIDER=comfyui` 时走本地 ComfyUI，不走 MiniMax 官方 API（不花钱）。
+
+1. 在 3090 机器上跑 `install-comfyui-h3.ps1`（Windows PowerShell）下载模型（约 42GB）
+2. 按脚本最后打印的手动步骤：加启动参数 → 跑通内置 H3 模板 → 导出
+   API 格式工作流 JSON（提示词节点写 `{{PROMPT}}`，图生的 LoadImage 写
+   `{{FIRST_FRAME_FILE}}`）
+3. relay 环境变量切到 comfyui（见上面 env 示例），重启 relay
+
+注意：
+- `duration` / `resolution` / `ratio` 由工作流模板固定，relay 只做合法性校验
+- ComfyUI 单卡一次只跑一个任务，多提交会排队
+- 3090 出 5 秒 832x480 约 4～5 分钟；NVFP4 编码器在 Ampere 上是仿真运行
 
 如果安装路径不是 `/opt/rin-minimax-relay`，同步改 unit 里的
 `WorkingDirectory`、`Environment=DATA_DIR=…`、`ExecStart` 三处。

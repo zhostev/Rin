@@ -55,7 +55,7 @@ import {
     isAIStudioJobKind,
     type AIStudioJobKind,
 } from "./models";
-import { validateVideoParams } from "./minimax";
+import { resolveMinimaxRelay, validateVideoParams } from "./minimax";
 
 type HonoApp = Hono<{ Bindings: Env; Variables: Variables }>;
 
@@ -369,6 +369,30 @@ export function AIStudioService(): HonoApp {
             }),
             { format: "json" },
         ),
+    );
+
+    // GET /video-provider：relay 视频后端类型（minimax 按量计费 / comfyui 本地免费）。
+    // /health 不需要鉴权；relay 不可达或未配置时 provider 为 null，前端按默认展示。
+    app.get(
+        "/video-provider",
+        aiStudioRoute(async (c) => {
+            const resolved = resolveMinimaxRelay(c.get("env"));
+            if (!resolved.ok) return c.json({ ok: true, provider: null });
+            try {
+                const resp = await fetch(`${resolved.config.url}/health`, {
+                    signal: AbortSignal.timeout(10000),
+                });
+                if (!resp.ok) return c.json({ ok: true, provider: null });
+                const data = (await resp.json()) as { provider?: unknown };
+                const provider =
+                    data.provider === "comfyui" || data.provider === "minimax"
+                        ? data.provider
+                        : null;
+                return c.json({ ok: true, provider });
+            } catch {
+                return c.json({ ok: true, provider: null });
+            }
+        }),
     );
 
     return app;

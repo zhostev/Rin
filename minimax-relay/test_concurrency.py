@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""minimax-relay 并发幂等测试：同一 client_job_id 的并发提交只调一次 MiniMax。
+"""minimax-relay 并发幂等测试：同一 client_job_id 的并发提交只调一次后端。
 
-起真实 ThreadingHTTPServer（127.0.0.1 随机端口），mock 掉 submit_minimax，
+起真实 ThreadingHTTPServer（127.0.0.1 随机端口），mock 掉 provider.submit，
 8 个线程同时 POST /video，断言 MiniMax 只被调用一次、所有响应 job_id 一致。
 """
 import json
@@ -31,14 +31,14 @@ class TestConcurrentIdempotentSubmit(unittest.TestCase):
             server._inflight_client_ids.clear()
 
         calls: list[str] = []
-        orig_submit = server.submit_minimax
+        orig_submit = server.provider.submit
 
         def fake_submit(params):
             calls.append(params["client_job_id"])
             time.sleep(0.3)  # 放大竞态窗口：无预占时必现双提交
             return "mm-task-1"
 
-        server.submit_minimax = fake_submit  # type: ignore[method-assign]
+        server.provider.submit = fake_submit  # type: ignore[method-assign]
         # 后台轮询线程不跑（不断言轮询行为）
         orig_poll = server.poll_job
         server.poll_job = lambda job_id: None  # type: ignore[method-assign]
@@ -77,11 +77,11 @@ class TestConcurrentIdempotentSubmit(unittest.TestCase):
 
             self.assertEqual(errors, [])
             self.assertEqual(len(results), 8)
-            self.assertEqual(len(calls), 1, f"MiniMax 被调用了 {len(calls)} 次")
+            self.assertEqual(len(calls), 1, f"后端被调用了 {len(calls)} 次")
             self.assertEqual(len({r["job_id"] for r in results}), 1)
             self.assertEqual(sum(1 for r in results if r.get("duplicate")), 7)
         finally:
-            server.submit_minimax = orig_submit  # type: ignore[method-assign]
+            server.provider.submit = orig_submit  # type: ignore[method-assign]
             server.poll_job = orig_poll  # type: ignore[method-assign]
 
 

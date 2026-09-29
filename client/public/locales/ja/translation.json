@@ -1156,6 +1156,7 @@
       "video_ratio": "アスペクト比",
       "video_seconds": "{{seconds}} 秒",
       "video_cost_estimate": "推定費用 約 ¥{{price}}（{{seconds}} 秒、従量課金。実際は MiniMax の請求に準拠）",
+      "video_cost_local": "ローカル RTX 3090 で生成、無料（数分かかります）",
       "video_needs_image": "最初のフレームは画像リソースのみ対応。現在は「{{kind}}」リソースが選択されている。前のステップで選び直してほしい。",
       "video_ratio_adaptive": "適応",
       "review_video_params": "動画パラメータ",

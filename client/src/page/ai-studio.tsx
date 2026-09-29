@@ -291,6 +291,8 @@ function JobWizard({
   const [stories, setStories] = useState<Array<{ value: string; label: string }>>([]);
   const [assets, setAssets] = useState<Array<{ value: string; label: string; kind: string }>>([]);
   const [submitting, setSubmitting] = useState(false);
+  /** relay 视频后端：minimax（按量计费）/ comfyui（本地免费）/ null（未知，按 minimax 展示）。 */
+  const [videoProvider, setVideoProvider] = useState<"minimax" | "comfyui" | null>(null);
   /** 视频转录时的提取阶段：download（取视频）/ extract（抽音轨）/ upload（传音频）。 */
   const [extractPhase, setExtractPhase] = useState<"download" | "extract" | "upload" | null>(null);
 
@@ -324,6 +326,13 @@ function JobWizard({
             })),
           );
         }
+      })
+      .catch(() => undefined);
+    // 视频后端类型决定费用提示：comfyui 本地生成免费，minimax 按量计费。
+    client.aiStudio
+      .getVideoProvider()
+      .then(({ data, error }) => {
+        if (!error && data) setVideoProvider(data.provider);
       })
       .catch(() => undefined);
   }, [open ]);
@@ -737,10 +746,12 @@ function JobWizard({
                   </div>
                 ) : null}
                 <p className="rounded-xl bg-amber-500/10 px-3.5 py-2.5 text-sm font-medium text-amber-700 dark:text-amber-300">
-                  {t("ai_studio.wizard.video_cost_estimate", {
-                    seconds: videoDuration,
-                    price: (videoDuration * VIDEO_PRICE_PER_SECOND[videoResolution]).toFixed(1),
-                  })}
+                  {videoProvider === "comfyui"
+                  ? t("ai_studio.wizard.video_cost_local")
+                  : t("ai_studio.wizard.video_cost_estimate", {
+                      seconds: videoDuration,
+                      price: (videoDuration * VIDEO_PRICE_PER_SECOND[videoResolution]).toFixed(1),
+                    })}
                 </p>
               </div>
             ) : null}
@@ -791,10 +802,12 @@ function JobWizard({
                         </p>
                       ) : null}
                       <p className="font-medium text-amber-700 dark:text-amber-300">
-                        {t("ai_studio.wizard.video_cost_estimate", {
-                          seconds: videoDuration,
-                          price: (videoDuration * VIDEO_PRICE_PER_SECOND[videoResolution]).toFixed(1),
-                        })}
+                        {videoProvider === "comfyui"
+                          ? t("ai_studio.wizard.video_cost_local")
+                          : t("ai_studio.wizard.video_cost_estimate", {
+                              seconds: videoDuration,
+                              price: (videoDuration * VIDEO_PRICE_PER_SECOND[videoResolution]).toFixed(1),
+                            })}
                       </p>
                     </>
                   ) : null}

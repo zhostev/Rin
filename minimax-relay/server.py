@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Rin → MiniMax H3 视频生成 中转服务。
+"""Rin 视频生成 中转服务。
 
-跑在用户家里的 ddns.hoo.ink 机器上（MiniMax API key 只放在这里，
+跑在用户家里的 ddns.hoo.ink 机器上（API key 只放在这里，
 Cloudflare Worker 不直接持有 key，只经这里中转）。
 
     POST /video            Authorization: Bearer <RELAY_SECRET>
@@ -9,6 +9,12 @@ Cloudflare Worker 不直接持有 key，只经这里中转）。
     GET  /video/{job_id}/file
     DELETE /video/{job_id}
     GET  /health
+
+视频后端由 VIDEO_PROVIDER 选择（默认 minimax）：
+    minimax  MiniMax V2 官方 API（按量计费，需 MINIMAX_API_KEY）
+    comfyui  本地 ComfyUI（越狱版 MiniMax-H3，需 3090 级 GPU 机器；实现待补）
+
+POST /video body (JSON):（同旧版，见 README）
 
 POST /video body (JSON):
     {
@@ -33,15 +39,18 @@ POST /video body (JSON):
 
 配置（环境变量）：
     RELAY_SECRET      必填，中转鉴权密钥（Worker 侧 MINIMAX_RELAY_SECRET 与之相同）
-    MINIMAX_API_KEY   必填，MiniMax API key（platform.minimax.io 获取）
+    VIDEO_PROVIDER    默认 minimax；comfyui = 本地 ComfyUI 越狱后端（实现待补）
+    MINIMAX_API_KEY   VIDEO_PROVIDER=minimax 时必填（platform.minimax.io 获取）
     MINIMAX_API_BASE  默认 https://api.minimax.io
+    COMFYUI_URL       VIDEO_PROVIDER=comfyui 时用，默认 http://127.0.0.1:8188
+    COMFYUI_WORKFLOW_T2V / COMFYUI_WORKFLOW_I2V  工作流 JSON 模板路径
     RELAY_BIND        默认 0.0.0.0
     RELAY_PORT        默认 18081
     DATA_DIR          默认 ./data（jobs.json + mp4 文件）
     FILE_TTL_DAYS     默认 30，成品文件保留天数，过期自动清理
 
 注意：
-    - 对外错误信息绝不包含 MINIMAX_API_KEY
+    - 对外错误信息绝不包含 API key
     - MiniMax 按量计费：约 ¥0.5/秒 @768P、¥0.8/秒 @2K（以官网为准）
 """
 from __future__ import annotations
@@ -61,6 +70,18 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from provider_base import VideoProvider
+from provider_minimax import MiniMaxProvider, build_minimax_body, map_minimax_status
+
+__all__ = [
+    "build_minimax_body",
+    "map_minimax_status",
+    "validate_video_request",
+    "is_valid_job_id",
+    "job_public_view",
+    "provider",
+]
+
 MINIMAX_MODEL = "MiniMax-H3"
 PROMPT_MAX_CHARS = 7000
 DURATION_MIN, DURATION_MAX = 4, 15
@@ -77,13 +98,36 @@ REQUEST_BODY_LIMIT = 1024 * 1024  # POST body 上限 1MB（prompt 才 7000 字�
 
 CONFIG = {
     "secret": os.environ.get("RELAY_SECRET", ""),
+    "video_provider": os.environ.get("VIDEO_PROVIDER", "minimax").strip().lower(),
     "minimax_key": os.environ.get("MINIMAX_API_KEY", ""),
     "minimax_base": os.environ.get("MINIMAX_API_BASE", "https://api.minimax.io").rstrip("/"),
+    "comfyui_url": os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188").rstrip("/"),
+    "comfyui_workflow_t2v": os.environ.get("COMFYUI_WORKFLOW_T2V", ""),
+    "comfyui_workflow_i2v": os.environ.get("COMFYUI_WORKFLOW_I2V", ""),
     "bind": os.environ.get("RELAY_BIND", "0.0.0.0"),
     "port": int(os.environ.get("RELAY_PORT", "18081")),
     "data_dir": Path(os.environ.get("DATA_DIR", "./data")),
     "file_ttl_days": int(os.environ.get("FILE_TTL_DAYS", "30")),
 }
+
+
+def _build_provider() -> VideoProvider:
+    """按 VIDEO_PROVIDER 构造视频后端；未知值直接抛错（fail fast）。"""
+    name = CONFIG["video_provider"]
+    if name == "comfyui":
+        from provider_comfyui import ComfyUIProvider
+
+        return ComfyUIProvider(
+            CONFIG["comfyui_url"],
+            CONFIG["comfyui_workflow_t2v"],
+            CONFIG["comfyui_workflow_i2v"],
+        )
+    if name == "minimax":
+        return MiniMaxProvider(CONFIG["minimax_base"], CONFIG["minimax_key"])
+    raise RuntimeError(f"未知的 VIDEO_PROVIDER: {name!r}（可选 minimax | comfyui）")
+
+
+provider = _build_provider()
 
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
@@ -172,49 +216,14 @@ def validate_video_request(body: dict) -> dict:
     }
 
 
-def build_minimax_body(params: dict) -> dict:
-    """由校验后的参数构造 MiniMax /v2/video_generation 请求体。"""
-    content: list[dict] = [{"type": "text", "text": params["prompt"]}]
-    if params.get("first_frame_url"):
-        content.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": params["first_frame_url"]},
-                "role": "first_frame",
-            }
-        )
-    if params.get("last_frame_url"):
-        content.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": params["last_frame_url"]},
-                "role": "last_frame",
-            }
-        )
-    return {
-        "model": params["model"],
-        "content": content,
-        "resolution": params["resolution"],
-        "duration": params["duration"],
-        "ratio": params["ratio"],
-    }
-
-
-def map_minimax_status(status: str) -> str:
-    """MiniMax 任务状态 → 本服务任务状态；未知状态抛 ValueError。"""
-    mapping = {
-        "queued": "queued",
-        "running": "running",
-        "succeeded": "succeeded",
-        "failed": "failed",
-        "cancelled": "failed",
-    }
-    if status not in mapping:
-        raise ValueError(f"未知的 MiniMax 状态: {status!r}")
-    return mapping[status]
+# --- MiniMax 具体实现已搬到 provider_minimax.py ---
+# build_minimax_body / map_minimax_status 在此 re-export（旧测试 import server 用）
 
 
 def job_public_view(job: dict) -> dict:
+
+
+# ------------------------------------------------------------- 任务存储 --
     """GET /video/{job_id} 的公开视图：绝不包含 MINIMAX_API_KEY 或内部 id。"""
     view: dict = {
         "ok": True,
@@ -230,50 +239,6 @@ def job_public_view(job: dict) -> dict:
     if job.get("bytes") is not None:
         view["bytes"] = job["bytes"]
     return view
-
-
-# ------------------------------------------------------------- MiniMax --
-def _minimax_request(method: str, path: str, payload: dict | None = None) -> dict:
-    """调 MiniMax V2 API；失败抛 RuntimeError（错误信息不含 API key）。"""
-    url = CONFIG["minimax_base"] + path
-    data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
-    req = urllib.request.Request(
-        url,
-        data=data,
-        method=method,
-        headers={
-            "Authorization": f"Bearer {CONFIG['minimax_key']}",
-            "Content-Type": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as r:
-            return json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        try:
-            detail = e.read().decode("utf-8", "replace")[:500]
-        except Exception:
-            detail = ""
-        raise RuntimeError(f"MiniMax HTTP {e.code}: {detail or e.reason}")
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"MiniMax 请求失败: {e}")
-
-
-def submit_minimax(params: dict) -> str:
-    """提交视频生成任务，返回 minimax_task_id；失败抛 RuntimeError。"""
-    resp = _minimax_request("POST", "/v2/video_generation", build_minimax_body(params))
-    task_id = resp.get("task_id") or (resp.get("task") or {}).get("id")
-    if not task_id:
-        raise RuntimeError(f"MiniMax 提交返回异常（缺少 task_id）: {str(resp)[:300]}")
-    return str(task_id)
-
-
-def query_minimax(task_id: str) -> tuple[str | None, str | None]:
-    """查询任务：返回 (status, 成功时的 mp4 下载 url)；失败抛 RuntimeError。"""
-    resp = _minimax_request("GET", f"/v2/query/video_generation/{task_id}")
-    task = resp.get("task") or {}
-    content = task.get("content") or {}
-    return task.get("status"), content.get("url")
 
 
 def download_video(url: str, dest: Path) -> int:
@@ -402,8 +367,8 @@ def cleanup_expired() -> None:
 
 # ------------------------------------------------------------- 轮询 --
 def poll_job(job_id: str) -> None:
-    """后台线程：每 10 秒轮询 MiniMax，最多 2 小时；任务被删除则退出。"""
-    log(f"job {job_id} 开始轮询")
+    """后台线程：每 10 秒轮询视频后端，最多 2 小时；任务被删除则退出。"""
+    log(f"job {job_id} 开始轮询（后端 {provider.name}）")
     while True:
         time.sleep(POLL_INTERVAL)
         with _jobs_lock:
@@ -417,23 +382,23 @@ def poll_job(job_id: str) -> None:
             update_job(job_id, status="failed", error="轮询超时（2 小时未完成）")
             log(f"job {job_id} 轮询超时，标记 failed")
             return
+        # 兼容旧版 jobs.json（minimax_task_id）；新任务记 provider_task_id
+        backend_task_id = job.get("provider_task_id") or job.get("minimax_task_id")
         try:
-            status, url = query_minimax(job["minimax_task_id"])
+            status, url = provider.query(backend_task_id)
         except RuntimeError as e:
             log(f"job {job_id} 查询失败，下次重试: {e}")
             continue
-        try:
-            mapped = map_minimax_status(status or "")
         except ValueError:
-            log(f"job {job_id} 收到未知状态 {status!r}，继续等待")
+            log(f"job {job_id} 收到未知状态，继续等待")
             continue
-        if mapped in ("queued", "running"):
-            if job["status"] != mapped:
-                update_job(job_id, status=mapped)
+        if status in ("queued", "running"):
+            if job["status"] != status:
+                update_job(job_id, status=status)
             continue
-        if mapped == "succeeded":
+        if status == "succeeded":
             if not url:
-                update_job(job_id, status="failed", error="MiniMax 标记成功但未返回下载地址")
+                update_job(job_id, status="failed", error=f"{provider.name} 标记成功但未返回下载地址")
                 return
             log(f"job {job_id} 生成成功，开始下载 mp4")
             try:
@@ -447,9 +412,9 @@ def poll_job(job_id: str) -> None:
                 return
             log(f"job {job_id} 下载完成 {total} 字节")
             return
-        # failed / cancelled
-        update_job(job_id, status="failed", error=f"MiniMax 任务{status}")
-        log(f"job {job_id} MiniMax 返回 {status}，标记 failed")
+        # failed
+        update_job(job_id, status="failed", error=f"{provider.name} 任务失败")
+        log(f"job {job_id} 后端返回失败，标记 failed")
         return
 
 
@@ -513,7 +478,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urllib.parse.urlparse(self.path).path
         if path == "/health":
-            self._send(200, {"ok": True, "service": "minimax-relay", "model": MINIMAX_MODEL})
+            self._send(200, {"ok": True, "service": "minimax-relay", "provider": provider.name, "model": MINIMAX_MODEL})
             return
         segs = path.strip("/").split("/")
         if len(segs) >= 2 and segs[0] == "video":
@@ -596,20 +561,21 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 time.sleep(0.2)
         try:
-            task_id = submit_minimax(params)
+            task_id = provider.submit(params)
         except RuntimeError as e:
             if client_job_id:
                 with _jobs_lock:
                     _inflight_client_ids.discard(client_job_id)
-            log(f"MiniMax 提交失败: {e}")
-            self._send(502, {"ok": False, "error": "minimax_submit_failed", "detail": str(e)})
+            log(f"{provider.name} 提交失败: {e}")
+            self._send(502, {"ok": False, "error": provider.submit_error_code, "detail": str(e)})
             return
         job_id = uuid.uuid4().hex
         now = time.time()
         with _jobs_lock:
             _jobs[job_id] = {
                 "job_id": job_id,
-                "minimax_task_id": task_id,
+                "provider": provider.name,
+                "provider_task_id": task_id,
                 "client_job_id": params["client_job_id"],
                 "prompt": params["prompt"],
                 "duration": params["duration"],
@@ -624,7 +590,7 @@ class Handler(BaseHTTPRequestHandler):
                 _inflight_client_ids.discard(client_job_id)
             save_jobs()
         threading.Thread(target=poll_job, args=(job_id,), daemon=True).start()
-        log(f"job {job_id} 已提交，minimax_task_id={task_id}")
+        log(f"job {job_id} 已提交，后端={provider.name} task_id={task_id}")
         self._send(200, {"ok": True, "job_id": job_id})
 
     def do_DELETE(self) -> None:  # noqa: N802
@@ -653,8 +619,10 @@ def main() -> None:
     if not CONFIG["secret"]:
         print("ERROR: 必须设置 RELAY_SECRET 环境变量", file=sys.stderr)
         sys.exit(1)
-    if not CONFIG["minimax_key"]:
-        print("ERROR: 必须设置 MINIMAX_API_KEY 环境变量", file=sys.stderr)
+    try:
+        provider.validate_config()
+    except RuntimeError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
     CONFIG["data_dir"].mkdir(parents=True, exist_ok=True)
     load_jobs()
@@ -663,7 +631,7 @@ def main() -> None:
     server = ThreadingHTTPServer((CONFIG["bind"], CONFIG["port"]), Handler)
     log(
         f"listening on {CONFIG['bind']}:{CONFIG['port']}, "
-        f"minimax_base={CONFIG['minimax_base']}, data_dir={CONFIG['data_dir']}"
+        f"provider={provider.name}, data_dir={CONFIG['data_dir']}"
     )
     try:
         server.serve_forever()

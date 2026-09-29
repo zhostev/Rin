@@ -39,6 +39,8 @@ let jobsResponse: AIJob[] = [
 ];
 // 为空时 getJob mock 回退到 jobsResponse[0] + 无产物。
 let jobDetailResponse: AIJobDetailResponse | null = null;
+// 视频后端类型 mock，默认 minimax（按量计费提示）。
+let videoProviderResponse: "minimax" | "comfyui" | null = "minimax";
 
 mock.module("../../app/runtime", () => ({
   client: {
@@ -48,6 +50,7 @@ mock.module("../../app/runtime", () => ({
       getJob: async () => ({ data: jobDetailResponse ?? { job: jobsResponse[0], artifacts: [] } }),
       acceptArtifact: async () => ({ data: { ok: true, applied: true } }),
       rejectArtifact: async () => ({ data: { ok: true } }),
+      getVideoProvider: async () => ({ data: { ok: true, provider: videoProviderResponse } }),
     },
     story: {
       list: async () => ({ data: storiesResponse }),
@@ -304,6 +307,30 @@ describe("AIStudioPage", () => {
     expect(reviewText).toContain("ai_studio.wizard.review_video_params");
     expect(reviewText).toContain("ai_studio.wizard.video_cost_estimate");
     expect(reviewText).toContain("16:9");
+  });
+
+  it("shows the free-local hint when the relay backend is comfyui", async () => {
+    videoProviderResponse = "comfyui";
+    try {
+      const user = userEvent.setup();
+      const { findByText, getByText, getByPlaceholderText } = render(<AIStudioPage />);
+
+      await findByText("ai_studio.jobs.status.completed");
+      await user.click(getByText("ai_studio.jobs.new"));
+
+      await user.click(getByText("ai_studio.wizard.material_text"));
+      await user.type(
+        getByPlaceholderText("ai_studio.wizard.paste_text_placeholder"),
+        "一朵云在城市上空翻涌",
+      );
+      await user.click(getByText("ai_studio.wizard.next"));
+
+      await user.click(getByText("ai_studio.wizard.capability_video"));
+      expect(getByText("ai_studio.wizard.video_cost_local")).toBeDefined();
+      expect(document.body.textContent ?? "").not.toContain("ai_studio.wizard.video_cost_estimate");
+    } finally {
+      videoProviderResponse = "minimax";
+    }
   });
 });
 

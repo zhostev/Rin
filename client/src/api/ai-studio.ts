@@ -122,6 +122,11 @@ export interface AISettings {
   daily_call_quota: number;
 }
 
+export interface AIVideoProviderResponse {
+  ok: boolean;
+  provider: "minimax" | "comfyui" | null;
+}
+
 export class AIStudioAPI {
   constructor(private http: AIStudioHttp) {}
 
@@ -183,6 +188,11 @@ export class AIStudioAPI {
   /** PUT /api/admin/ai-studio/settings */
   async updateSettings(body: Partial<AISettings>): Promise<ApiResponse<{ ok: boolean }>> {
     return this.http.put<{ ok: boolean }>("/api/admin/ai-studio/settings", body);
+  }
+
+  /** GET /api/admin/ai-studio/video-provider -> { ok, provider: 'minimax'|'comfyui'|null } */
+  async getVideoProvider(): Promise<ApiResponse<AIVideoProviderResponse>> {
+    return this.http.get<AIVideoProviderResponse>("/api/admin/ai-studio/video-provider");
   }
 }
 

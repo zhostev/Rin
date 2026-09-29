@@ -1165,6 +1165,7 @@
       "video_ratio": "画面比例",
       "video_seconds": "{{seconds}} 秒",
       "video_cost_estimate": "预估费用约 ¥{{price}}（{{seconds}} 秒，按量计费，实际以 MiniMax 账单为准）",
+      "video_cost_local": "本地 3090 生成，不计费（约需几分钟，请耐心等待）",
       "video_needs_image": "视频首帧仅支持图片资源，当前选择的是「{{kind}}」资源，请返回上一步更换。",
       "video_ratio_adaptive": "自适应",
       "review_video_params": "视频参数",

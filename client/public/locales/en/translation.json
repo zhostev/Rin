@@ -1165,6 +1165,7 @@
       "video_ratio": "Aspect ratio",
       "video_seconds": "{{seconds}}s",
       "video_cost_estimate": "Estimated cost ≈ ¥{{price}} ({{seconds}}s, pay-as-you-go; actual billing per MiniMax)",
+      "video_cost_local": "Generated locally on RTX 3090, free of charge (takes a few minutes)",
       "video_needs_image": "The first frame must be an image asset; you selected a \"{{kind}}\" asset. Go back and pick another.",
       "video_ratio_adaptive": "Adaptive",
       "review_video_params": "Video params",
