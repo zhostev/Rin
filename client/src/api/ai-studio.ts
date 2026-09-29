@@ -72,8 +72,9 @@ export interface AIJob {
   input?: AIJobInput;
   params?: Record<string, unknown>;
   error?: string | null;
-  created_at: string;
-  updated_at: string;
+  /** 秒级 Unix 时间戳（服务端 serialize）或 ISO 字符串（mock 数据）。 */
+  created_at: string | number;
+  updated_at: string | number;
 }
 
 export interface AIJobListResponse {
@@ -85,8 +86,9 @@ export interface AIJobListResponse {
 export interface AIArtifact {
   id: number | string;
   output_json: unknown;
-  accepted_at: string | null;
-  created_at: string;
+  /** 秒级 Unix 时间戳（服务端 serialize）或 ISO 字符串（mock 数据）；null 表示未接受。 */
+  accepted_at: string | number | null;
+  created_at: string | number;
 }
 
 export interface AIJobDetailResponse {

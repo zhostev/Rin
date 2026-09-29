@@ -164,3 +164,26 @@ describe("AIStudioPage", () => {
     expect(queryByText("ai_studio.wizard.capability_retrieval_test")).toBeNull();
   });
 });
+
+describe("formatDateTime", () => {
+  it("renders Unix-seconds timestamps as local dates (not 1970)", async () => {
+    const { formatDateTime } = await import("../ai-studio");
+    // 2026-09-28T08:26:40Z in seconds — the real API shape from serializeJob/serializeArtifact.
+    const out = formatDateTime(1790584000);
+    expect(out).not.toContain("1970");
+    expect(out).toContain("2026");
+  });
+
+  it("still renders ISO strings (mock fixtures)", async () => {
+    const { formatDateTime } = await import("../ai-studio");
+    expect(formatDateTime("2026-09-24T10:00:00.000Z")).toContain("2026");
+  });
+
+  it("renders millisecond timestamps and placeholders", async () => {
+    const { formatDateTime } = await import("../ai-studio");
+    expect(formatDateTime(1790584000000)).toContain("2026");
+    expect(formatDateTime(null)).toBe("—");
+    expect(formatDateTime(undefined)).toBe("—");
+    expect(formatDateTime("not-a-date")).toBe("not-a-date");
+  });
+});
