@@ -22,7 +22,7 @@ let mediaResponse = {
 let jobsResponse: AIJob[] = [
   {
     id: 1,
-    job_type: "derive",
+    job_type: "aistudio.derive" as AIJob["job_type"],
     status: "completed",
     input: { storyId: 3 },
     created_at: "2026-09-24T10:00:00.000Z",
@@ -30,7 +30,7 @@ let jobsResponse: AIJob[] = [
   },
   {
     id: 2,
-    job_type: "transcribe",
+    job_type: "aistudio.transcribe" as AIJob["job_type"],
     status: "processing",
     input: { assetId: 9 },
     created_at: "2026-09-24T11:00:00.000Z",
@@ -88,6 +88,11 @@ describe("AIStudioPage", () => {
     // Jobs arrive from the mocked listJobs call.
     await findByText("ai_studio.jobs.status.completed");
     expect(getByText("ai_studio.jobs.status.processing")).toBeDefined();
+
+    // 服务端下发的 job_type 是队列任务名（aistudio.*），标题必须去掉前缀
+    // 拼出正确的 capability i18n key（回归：曾直接显示 capability_aistudio.derive）。
+    expect(getByText("#1 · ai_studio.wizard.capability_derive")).toBeDefined();
+    expect(getByText("#2 · ai_studio.wizard.capability_transcribe")).toBeDefined();
   });
 
   it("shows the AI-disabled banner and blocks new tasks when the master switch is off", async () => {
@@ -185,5 +190,18 @@ describe("formatDateTime", () => {
     expect(formatDateTime(null)).toBe("—");
     expect(formatDateTime(undefined)).toBe("—");
     expect(formatDateTime("not-a-date")).toBe("not-a-date");
+  });
+});
+
+describe("capabilityKeyForJobType", () => {
+  it("strips the aistudio. queue prefix and normalizes hyphens", async () => {
+    const { capabilityKeyForJobType } = await import("../../api/ai-studio");
+    expect(capabilityKeyForJobType("aistudio.transcribe")).toBe("ai_studio.wizard.capability_transcribe");
+    expect(capabilityKeyForJobType("aistudio.derive")).toBe("ai_studio.wizard.capability_derive");
+    expect(capabilityKeyForJobType("aistudio.check")).toBe("ai_studio.wizard.capability_check");
+    expect(capabilityKeyForJobType("aistudio.retrieval-test")).toBe("ai_studio.wizard.capability_retrieval_test");
+    expect(capabilityKeyForJobType("aistudio.embed")).toBe("ai_studio.wizard.capability_embed");
+    // 兼容不带前缀的历史写法
+    expect(capabilityKeyForJobType("derive")).toBe("ai_studio.wizard.capability_derive");
   });
 });

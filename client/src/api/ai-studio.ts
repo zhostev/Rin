@@ -35,6 +35,16 @@ export type AIJobStatus = "pending" | "processing" | "completed" | "failed";
 
 export type AIJobKind = "transcribe" | "derive" | "check" | "retrieval-test" | "embed";
 
+/**
+ * 任务列表标题用的 capability i18n key。
+ * 服务端下发的 job_type 是队列任务名（如 "aistudio.retrieval-test"），
+ * 而翻译 key 用的是 capability 名（如 "capability_retrieval_test"），这里做归一化。
+ * 兼容历史上可能出现的不带前缀写法（如 "derive"）。
+ */
+export function capabilityKeyForJobType(jobType: string): string {
+  return `ai_studio.wizard.capability_${jobType.replace(/^aistudio\./, "").replace(/-/g, "_")}`;
+}
+
 export interface AIJobInput {
   storyId?: number;
   assetId?: number;

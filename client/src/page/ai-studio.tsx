@@ -21,7 +21,7 @@ import type {
   AISettings,
   AIUsageResponse,
 } from "../api/ai-studio";
-import { buildAIJobInput } from "../api/ai-studio";
+import { buildAIJobInput, capabilityKeyForJobType } from "../api/ai-studio";
 import { client } from "../app/runtime";
 import { Button } from "../components/button";
 import { useAlert } from "../components/dialog";
@@ -1030,7 +1030,7 @@ function JobsPanel({ aiEnabled }: { aiEnabled: boolean }) {
             <SettingsCard tone={cardToneForStatus(job.status)}>
               <div className="flex items-start justify-between gap-3">
                 <SettingsCardHeader
-                  title={`#${String(job.id)} · ${t(`ai_studio.wizard.capability_${job.job_type.replace("-", "_")}`)}`}
+                  title={`#${String(job.id)} · ${t(capabilityKeyForJobType(job.job_type))}`}
                   description={formatDateTime(job.created_at)}
                   badge={<StatusBadge status={job.status} />}
                 />
