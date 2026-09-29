@@ -33,7 +33,7 @@ export interface AIStudioHttp {
 
 export type AIJobStatus = "pending" | "processing" | "completed" | "failed";
 
-export type AIJobKind = "transcribe" | "derive" | "check" | "retrieval-test" | "embed";
+export type AIJobKind = "transcribe" | "derive" | "check" | "retrieval-test" | "embed" | "video";
 
 /**
  * 任务列表标题用的 capability i18n key。

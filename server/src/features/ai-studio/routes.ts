@@ -22,6 +22,7 @@ import { adminOnly, withJsonBody } from "../../core/route-boundaries";
 import { createTaskQueue } from "../../queue";
 import {
     createAIStudioTask,
+    AISTUDIO_VIDEO_TASK,
     type AIStudioTaskPayload,
     type AIStudioTaskType,
 } from "../../queue/tasks";
@@ -48,11 +49,13 @@ import {
     AI_STUDIO_JOB_KINDS,
     CHAT_MODEL,
     EMBED_MODEL,
+    MINIMAX_VIDEO_MODEL,
     WHISPER_MODEL,
     aiStudioJobType,
     isAIStudioJobKind,
     type AIStudioJobKind,
 } from "./models";
+import { validateVideoParams } from "./minimax";
 
 type HonoApp = Hono<{ Bindings: Env; Variables: Variables }>;
 
@@ -62,6 +65,8 @@ const KIND_MODELS: Record<AIStudioJobKind, string> = {
     check: CHAT_MODEL,
     "retrieval-test": EMBED_MODEL,
     embed: EMBED_MODEL,
+    // MiniMax-H3 不在 Workers AI 模型表里，getWorkerAIModelId 会原样返回
+    video: MINIMAX_VIDEO_MODEL,
 };
 
 const KIND_QUEUE_TYPES: Record<AIStudioJobKind, AIStudioTaskType> = {
@@ -70,6 +75,7 @@ const KIND_QUEUE_TYPES: Record<AIStudioJobKind, AIStudioTaskType> = {
     check: "aistudio.check",
     "retrieval-test": "aistudio.retrieval-test",
     embed: "aistudio.embed",
+    video: AISTUDIO_VIDEO_TASK,
 };
 
 function guardError(c: AppContext, failure: AIGuardFailure) {
@@ -113,6 +119,7 @@ async function validateJobInput(
     kind: AIStudioJobKind,
     input: CreateJobBody["input"],
     db: DB,
+    params?: Record<string, unknown>,
 ): Promise<{ ok: true; payload: AIStudioTaskPayload } | { ok: false; error: string }> {
     // jobId 由创建后填入，这里先占位
     const base = { jobId: -1 };
@@ -148,6 +155,39 @@ async function validateJobInput(
             return { ok: true, payload: { ...base, question: input.question.trim() } };
         case "embed":
             return { ok: true, payload: { ...base } };
+        case "video": {
+            // 建任务时就校验 prompt 与参数，并检查首帧图片存在且为图片资源，
+            // 避免任务进队列后才失败（失败任务用户看到的是"已完成"却无可用产物）。
+            const validated = validateVideoParams({
+                text: input?.text,
+                assetId: input?.assetId,
+                params,
+            });
+            if (!validated.ok) {
+                return { ok: false, error: validated.error };
+            }
+            const spec = validated.spec;
+            if (spec.firstFrameAssetId !== undefined) {
+                const asset = await loadAudioAsset(db, spec.firstFrameAssetId);
+                if (!asset) {
+                    return { ok: false, error: `找不到 media asset ${spec.firstFrameAssetId}` };
+                }
+                if (asset.kind !== "image") {
+                    return {
+                        ok: false,
+                        error: `asset ${asset.id} 是${asset.kind}资源，视频首帧仅支持图片`,
+                    };
+                }
+            }
+            return {
+                ok: true,
+                payload: {
+                    ...base,
+                    prompt: spec.prompt,
+                    assetId: spec.firstFrameAssetId,
+                },
+            };
+        }
     }
 }
 
@@ -199,7 +239,7 @@ export function AIStudioService(): HonoApp {
                 }
                 const kind = body.kind;
 
-                const validated = await validateJobInput(kind, body.input, db);
+                const validated = await validateJobInput(kind, body.input, db, body.params);
                 if (!validated.ok) {
                     return c.json({ error: { code: "invalid_input", message: validated.error } }, 400);
                 }
@@ -264,7 +304,8 @@ export function AIStudioService(): HonoApp {
             if (!Number.isFinite(id)) return c.text("Invalid id", 400);
             const artifact = await getArtifact(db, id);
             if (!artifact) return c.text("Not found", 404);
-            const result = await acceptArtifact(db, id);
+            // video 产物 accept 时需从 relay 下载成片 → R2，需要 env
+            const result = await acceptArtifact(db, id, { env: c.get("env") });
             if (!result.ok) {
                 return c.json({ error: { code: "accept_failed", message: result.error } }, 400);
             }

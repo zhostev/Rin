@@ -1155,7 +1155,20 @@
       "extract_audio_failed_decode_failed": "Audio decoding failed; the video codec may not be supported.",
       "extract_audio_failed_unsupported": "This browser doesn't support audio extraction. Please retry in Safari or Chrome.",
       "extract_audio_failed_upload": "Audio upload failed: {{message}}",
-      "transcribe_needs_audio_video": "Transcription only supports audio/video assets; the selected asset is \"{{kind}}\". Please go back and pick another one."
+      "transcribe_needs_audio_video": "Transcription only supports audio/video assets; the selected asset is \"{{kind}}\". Please go back and pick another one.",
+      "capability_video": "Video generation",
+      "capability_video_desc": "Generate short clips (4–15s) from a prompt with MiniMax H3; optionally use an image as the first frame.",
+      "video_prompt_placeholder": "Describe the video you want (for image-to-video, describe camera moves / motion)…",
+      "video_i2v_note": "Image-to-video: the selected image is the first frame; aspect ratio adapts to the image.",
+      "video_duration": "Duration",
+      "video_resolution": "Resolution",
+      "video_ratio": "Aspect ratio",
+      "video_seconds": "{{seconds}}s",
+      "video_cost_estimate": "Estimated cost ≈ ¥{{price}} ({{seconds}}s, pay-as-you-go; actual billing per MiniMax)",
+      "video_needs_image": "The first frame must be an image asset; you selected a \"{{kind}}\" asset. Go back and pick another.",
+      "video_ratio_adaptive": "Adaptive",
+      "review_video_params": "Video params",
+      "review_video_prompt": "Prompt"
     },
     "detail": {
       "title": "Task #{{id}}",
@@ -1179,7 +1192,9 @@
       "applied": "Applied",
       "applied_at": "Applied at {{date}}",
       "artifact_error_title": "Task failed",
-      "artifact_error_raw": "Raw error output"
+      "artifact_error_raw": "Raw error output",
+      "accept_video": "Accept & import to media library",
+      "video_accept_hint": "Accepting downloads the finished clip from the relay and imports it into the media library."
     },
     "usage": {
       "title": "Usage · last {{days}} days",

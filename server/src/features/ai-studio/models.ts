@@ -1,7 +1,10 @@
 /**
  * Stage 4 · AI Studio / 站内问答共享常量。
  *
- * AI 后端只用 Cloudflare Workers AI（env.AI 绑定），不引入外部付费 API。
+ * AI 后端默认只用 Cloudflare Workers AI（env.AI 绑定），不引入外部付费 API；
+ * 唯一的例外是 AI Studio 的 video 能力：MiniMax H3 视频生成走部署在
+ * ddns.hoo.ink 的 minimax-relay 中转（MINIMAX_RELAY_URL/SECRET），按量计费，
+ * API key 只保存在中转机上，不进 Worker。
  */
 
 // Workers AI 模型（短名，见 server/src/utils/ai.ts WORKER_AI_MODELS）
@@ -84,6 +87,14 @@ export const CHUNK_OVERLAP = 50;
  * { kind: "embed", chunks: number, vectors: number, model: string,
  *   dimensions: 768, index: "s7ea-qa-staging" }
  * accept: 向量已在 job 执行时 upsert，accept 仅确认（幂等）。
+ *
+ * --- aistudio.video → kind: "video" ---
+ * {
+ *   kind: "video", relayJobId: string, prompt: string,
+ *   duration: number, resolution: "768P"|"2K", ratio: string,
+ *   firstFrameAssetId?: number, bytes?: number, model: "MiniMax-H3"
+ * }
+ * accept: 从 minimax-relay 下载成片 → R2 + media_assets(kind='video') 入库。
  */
 
 export const AI_STUDIO_JOB_KINDS = [
@@ -92,6 +103,7 @@ export const AI_STUDIO_JOB_KINDS = [
     "check",
     "retrieval-test",
     "embed",
+    "video",
 ] as const;
 
 export type AIStudioJobKind = (typeof AI_STUDIO_JOB_KINDS)[number];
@@ -111,6 +123,30 @@ export function isAIStudioJobKind(value: unknown): value is AIStudioJobKind {
         (AI_STUDIO_JOB_KINDS as readonly string[]).includes(value)
     );
 }
+
+// ---------------------------------------------------------------------------
+// MiniMax H3 视频生成（aistudio.video，经 minimax-relay 中转）
+// ---------------------------------------------------------------------------
+
+/** MiniMax 视频模型（V2 接口，text prompt 必填，见 minimax-relay/README.md） */
+export const MINIMAX_VIDEO_MODEL = "MiniMax-H3";
+/** prompt 上限（字符，MiniMax V2 文档值） */
+export const MINIMAX_VIDEO_PROMPT_MAX = 7000;
+/** 时长（秒，整数，MiniMax-H3 可用范围） */
+export const MINIMAX_VIDEO_DURATION_MIN = 4;
+export const MINIMAX_VIDEO_DURATION_MAX = 15;
+export const MINIMAX_VIDEO_DURATION_DEFAULT = 6;
+/** 分辨率档位（MiniMax-H3） */
+export const MINIMAX_VIDEO_RESOLUTIONS = ["768P", "2K"] as const;
+export type MinimaxVideoResolution = (typeof MINIMAX_VIDEO_RESOLUTIONS)[number];
+export const MINIMAX_VIDEO_RESOLUTION_DEFAULT: MinimaxVideoResolution = "768P";
+/** 文生视频宽高比（t2v 必填且不能为 adaptive；图生视频由首帧决定） */
+export const MINIMAX_VIDEO_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"] as const;
+export const MINIMAX_VIDEO_RATIO_DEFAULT = "16:9";
+/** accept 时从 relay 下载成片的超时（视频文件大，给足时间） */
+export const MINIMAX_VIDEO_DOWNLOAD_TIMEOUT_MS = 300_000;
+/** relay 返回的成片体积上限（500MB，防异常大文件打爆 R2 写入） */
+export const MINIMAX_VIDEO_MAX_BYTES = 500 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Prompts

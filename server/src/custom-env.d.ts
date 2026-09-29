@@ -36,6 +36,11 @@ declare global {
     WECHAT_RELAY_URL?: string;
     /** 中转服务鉴权密钥（与 ECS 的 RELAY_SECRET 相同） */
     WECHAT_RELAY_SECRET?: string;
+    // --- MiniMax H3 视频生成中转（ddns.hoo.ink 自建服务，见 minimax-relay/）---
+    /** 中转服务地址，如 https://ddns.hoo.ink:18081（须经公网 HTTPS 可达，Worker 要能回调） */
+    MINIMAX_RELAY_URL?: string;
+    /** 中转服务鉴权密钥（与中转机的 RELAY_SECRET 相同） */
+    MINIMAX_RELAY_SECRET?: string;
   }
 }
 

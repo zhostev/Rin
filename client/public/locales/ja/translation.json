@@ -1146,7 +1146,20 @@
       "extract_audio_failed_decode_failed": "音声のデコードに失敗しました。動画のコーデックがサポートされていない可能性があります。",
       "extract_audio_failed_unsupported": "このブラウザは音声抽出に対応していません。Safari または Chrome で再試行してください。",
       "extract_audio_failed_upload": "音声のアップロードに失敗しました：{{message}}",
-      "transcribe_needs_audio_video": "文字起こしは音声/動画アセットのみ対応です。選択中は「{{kind}}」です。前のステップに戻って選び直してください。"
+      "transcribe_needs_audio_video": "文字起こしは音声/動画アセットのみ対応です。選択中は「{{kind}}」です。前のステップに戻って選び直してください。",
+      "capability_video": "動画生成",
+      "capability_video_desc": "MiniMax H3 でプロンプトから短尺動画（4–15 秒）を生成。画像を最初のフレームにもできる。",
+      "video_prompt_placeholder": "作りたい動画を説明（画像→動画の場合はカメラワーク/動きの指示）…",
+      "video_i2v_note": "画像→動画：選択した画像が最初のフレームになり、アスペクト比は画像に適応する。",
+      "video_duration": "長さ",
+      "video_resolution": "解像度",
+      "video_ratio": "アスペクト比",
+      "video_seconds": "{{seconds}} 秒",
+      "video_cost_estimate": "推定費用 約 ¥{{price}}（{{seconds}} 秒、従量課金。実際は MiniMax の請求に準拠）",
+      "video_needs_image": "最初のフレームは画像リソースのみ対応。現在は「{{kind}}」リソースが選択されている。前のステップで選び直してほしい。",
+      "video_ratio_adaptive": "適応",
+      "review_video_params": "動画パラメータ",
+      "review_video_prompt": "プロンプト"
     },
     "detail": {
       "title": "タスク #{{id}}",
@@ -1170,7 +1183,9 @@
       "applied": "適用済み",
       "applied_at": "{{date}} に適用",
       "artifact_error_title": "タスク失敗",
-      "artifact_error_raw": "生のエラー出力"
+      "artifact_error_raw": "生のエラー出力",
+      "accept_video": "受け入れてメディアライブラリに取り込む",
+      "video_accept_hint": "受け入れると中継サービスから完成動画をダウンロードし、メディアライブラリに取り込む。"
     },
     "usage": {
       "title": "使用量 · 過去 {{days}} 日間",

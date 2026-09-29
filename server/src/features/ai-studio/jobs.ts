@@ -17,8 +17,20 @@ import {
     stories,
     transcripts,
 } from "../../db/schema";
+import {
+    deleteMediaAssetById,
+    insertMediaAsset,
+    updateMediaAssetById,
+} from "../media/repository";
+import { buildDirectUploadKey } from "../media/r2-direct";
 import type { AIStudioJobKind } from "./models";
-import { aiStudioJobType } from "./models";
+import {
+    MINIMAX_VIDEO_DOWNLOAD_TIMEOUT_MS,
+    MINIMAX_VIDEO_MAX_BYTES,
+    MINIMAX_VIDEO_MODEL,
+    aiStudioJobType,
+} from "./models";
+import { relayFileUrl, resolveMinimaxRelay } from "./minimax";
 
 export interface JobRow {
     id: number;
@@ -186,6 +198,34 @@ export async function getJob(db: DB, jobId: number): Promise<JobRow | null> {
     return row ? toJobRow(row) : null;
 }
 
+/** 读取 job.inputRefsJson（video 任务的 relayJobId 等提交态存这里，避免加表）。 */
+export async function readJobInputRefs(db: DB, jobId: number): Promise<Record<string, unknown>> {
+    const row = await db.query.aiJobs.findFirst({
+        columns: { inputRefsJson: true },
+        where: eq(aiJobs.id, jobId),
+    });
+    if (!row) return {};
+    try {
+        const parsed = JSON.parse(row.inputRefsJson ?? "{}");
+        return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+/** 合并写入 job.inputRefsJson（幂等提交/状态回填用）。 */
+export async function updateJobInputRefs(
+    db: DB,
+    jobId: number,
+    patch: Record<string, unknown>,
+): Promise<void> {
+    const current = await readJobInputRefs(db, jobId);
+    await db
+        .update(aiJobs)
+        .set({ inputRefsJson: JSON.stringify({ ...current, ...patch }) })
+        .where(eq(aiJobs.id, jobId));
+}
+
 function parseOutputJson(outputJson: string): Record<string, any> {
     try {
         const parsed = JSON.parse(outputJson);
@@ -196,12 +236,15 @@ function parseOutputJson(outputJson: string): Record<string, any> {
 }
 
 /**
- * accept artifact：按产物 kind 写入正文/转录，设置 accepted_at。
+ * accept artifact：按产物 kind 写入正文/转录/媒体库，设置 accepted_at。
  * 幂等：已 accept 过返回 applied:false。
+ *
+ * video 产物需要 env（从 relay 下载成片 → R2），调用方传入 opts.env。
  */
 export async function acceptArtifact(
     db: DB,
     artifactId: number,
+    opts?: { env?: Env },
 ): Promise<{ ok: true; applied: boolean } | { ok: false; error: string }> {
     const artifact = await getArtifact(db, artifactId);
     if (!artifact) return { ok: false, error: "Artifact not found" };
@@ -243,6 +286,106 @@ export async function acceptArtifact(
         // sections / platformCopy 为参考素材，无目标表可写，保留在 artifact 中
     } else if (kind === "error") {
         return { ok: false, error: "Cannot accept an error artifact" };
+    } else if (kind === "video") {
+        // 视频 accept → 从 minimax-relay 下载成片 → R2 + media_assets 入库
+        const relayJobId = typeof output.relayJobId === "string" ? output.relayJobId : "";
+        if (!relayJobId) {
+            return { ok: false, error: "Video artifact missing relayJobId" };
+        }
+        const env = opts?.env;
+        if (!env) {
+            return { ok: false, error: "Video accept 需要运行环境（env）" };
+        }
+        const relay = resolveMinimaxRelay(env);
+        if (!relay.ok) {
+            return { ok: false, error: relay.error };
+        }
+        if (!env.R2_BUCKET) {
+            return { ok: false, error: "R2_BUCKET binding 未配置" };
+        }
+        let resp: Response;
+        try {
+            resp = await fetch(relayFileUrl(relay.config.url, relayJobId), {
+                headers: { Authorization: `Bearer ${relay.config.secret}` },
+                signal: AbortSignal.timeout(MINIMAX_VIDEO_DOWNLOAD_TIMEOUT_MS),
+            });
+        } catch (error) {
+            return {
+                ok: false,
+                error: `从中转服务下载成片失败：${error instanceof Error ? error.message : String(error)}`,
+            };
+        }
+        if (resp.status === 404) {
+            return { ok: false, error: "中转侧成片不存在或已过期，请重新生成" };
+        }
+        if (!resp.ok) {
+            return { ok: false, error: `下载成片失败：HTTP ${resp.status}` };
+        }
+        // 大文件流式直写 R2，不经过 Worker 内存缓冲（Worker 内存上限 128MB，
+        // 而成片上限 500MB）。relay 的 /file 会带 Content-Length，先做前置校验。
+        const contentLengthHeader = resp.headers.get("content-length");
+        const contentLength = contentLengthHeader ? Number(contentLengthHeader) : NaN;
+        if (Number.isFinite(contentLength)) {
+            if (contentLength <= 0) {
+                return { ok: false, error: "成片内容为空" };
+            }
+            if (contentLength > MINIMAX_VIDEO_MAX_BYTES) {
+                return { ok: false, error: "成片超过体积上限，拒绝入库" };
+            }
+        }
+        if (!resp.body) {
+            return { ok: false, error: "成片内容为空" };
+        }
+        const mime =
+            resp.headers.get("content-type")?.split(";")[0]?.trim() || "video/mp4";
+        const prompt = String(output.prompt ?? "").trim();
+        const nowVideo = new Date();
+        const inserted = await insertMediaAsset(db, {
+            kind: "video",
+            source: "r2",
+            mime,
+            title: prompt.slice(0, 200) || `MiniMax H3 ${relayJobId}`,
+            duration: typeof output.duration === "number" ? output.duration : null,
+            uploadSessionJson: JSON.stringify({
+                minimaxRelayJobId: relayJobId,
+                model: MINIMAX_VIDEO_MODEL,
+            }),
+            createdAt: nowVideo,
+            updatedAt: nowVideo,
+        });
+        if (!inserted) {
+            return { ok: false, error: "Failed to insert media asset" };
+        }
+        const assetId = inserted.insertedId;
+        const key = buildDirectUploadKey(assetId, `minimax-h3-${relayJobId}.mp4`);
+        try {
+            // ReadableStream 直写 R2：Worker 只做管道，不缓冲整文件
+            await env.R2_BUCKET.put(key, resp.body, {
+                httpMetadata: { contentType: mime },
+            });
+        } catch (error) {
+            // R2 写入失败：删孤儿行与残留对象，不留残留
+            await env.R2_BUCKET.delete(key).catch(() => undefined);
+            await deleteMediaAssetById(db, assetId);
+            console.error("[ai-studio] video accept: R2 写入失败:", error);
+            return { ok: false, error: "成片写入 R2 失败" };
+        }
+        if (!Number.isFinite(contentLength)) {
+            // 无 Content-Length 时兜底：按 R2 实际落盘体积复核上限
+            const head = await env.R2_BUCKET.head(key).catch(() => null);
+            if (!head || head.size > MINIMAX_VIDEO_MAX_BYTES) {
+                await env.R2_BUCKET.delete(key).catch(() => undefined);
+                await deleteMediaAssetById(db, assetId);
+                return { ok: false, error: "成片超过体积上限，拒绝入库" };
+            }
+        }
+        await updateMediaAssetById(db, assetId, { r2Key: key, updatedAt: new Date() });
+        // 回填 assetId，前端可直接用媒体库播放器预览
+        output.assetId = assetId;
+        await db
+            .update(aiArtifacts)
+            .set({ outputJson: JSON.stringify(output) })
+            .where(eq(aiArtifacts.id, artifactId));
     } else if (kind !== "check" && kind !== "retrieval-test" && kind !== "embed") {
         return { ok: false, error: `Artifact kind '${kind ?? "unknown"}' cannot be accepted` };
     }

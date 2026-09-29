@@ -10,6 +10,7 @@ import {
   AISTUDIO_EMBED_TASK,
   AISTUDIO_RETRIEVAL_TEST_TASK,
   AISTUDIO_TRANSCRIBE_TASK,
+  AISTUDIO_VIDEO_TASK,
 } from "../queue";
 import { processAIStudioTask } from "../features/ai-studio/processors";
 import { processFeedAIComposeTask } from "../services/feed-ai-compose";
@@ -74,6 +75,7 @@ export async function handleQueue(
       case AISTUDIO_CHECK_TASK:
       case AISTUDIO_RETRIEVAL_TEST_TASK:
       case AISTUDIO_EMBED_TASK:
+      case AISTUDIO_VIDEO_TASK:
         await processAIStudioTask(env, db, body);
         message.ack();
         break;
