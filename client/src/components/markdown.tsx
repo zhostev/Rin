@@ -25,32 +25,6 @@ import { useImageLoadState } from "../utils/use-image-load-state";
 import { MediaEmbed } from "./media-embed";
 
 
-const countNewlinesBeforeNode = (text: string, offset: number) => {
-  let newlinesBefore = 0;
-  for (let i = offset - 1; i >= 0; i--) {
-    if (text[i] === "\n") {
-      newlinesBefore++;
-    } else {
-      break;
-    }
-  }
-  return newlinesBefore;
-};
-
-const isMarkdownImageLinkAtEnd = (text: string) => {
-  const trimmed = text.trim();
-
-  const match = trimmed.match(/(.*)(!\\[.*?\\]\\(.*?\\))$/s);
-
-  if (match) {
-    const [, beforeImage, _] = match;
-
-    return beforeImage.trim().length === 0 || beforeImage.endsWith("\n");
-  }
-
-  return false;
-};
-
 function MarkdownImage({
   src,
   alt,
@@ -141,46 +115,21 @@ export function Markdown({ content }: { content: string }) {
       children={content}
       rehypePlugins={[rehypeKatex, rehypeRaw]}
       components={{
-        img({ node, src, ...props }) {
-          const offset = node!.position!.start.offset!;
-          const previousContent = content.slice(0, offset);
-          const newlinesBefore = countNewlinesBeforeNode(
-            previousContent,
-            offset
+        img({ src, ...props }) {
+          // 图文不再混排：正文图片一律独占一块。即使源码里图片写在段落行内
+          // （前后无换行），也按块级渲染，避免行内图片把段落撑乱、文字被顶到图片两侧。
+          return (
+            <span className="block w-full text-center my-4">
+              <MarkdownImage
+                src={src}
+                alt={props.alt}
+                show={show}
+                rounded={true}
+                scale="0.75"
+                className={props.className}
+              />
+            </span>
           );
-          const Image = ({
-            rounded,
-            scale,
-          }: {
-            rounded: boolean;
-            scale: string;
-          }) => (
-            <MarkdownImage
-              src={src}
-              alt={props.alt}
-              show={show}
-              rounded={rounded}
-              scale={scale}
-              className={props.className}
-            />
-          );
-          if (
-            newlinesBefore >= 1 ||
-            previousContent.trim().length === 0 ||
-            isMarkdownImageLinkAtEnd(previousContent)
-          ) {
-            return (
-              <span className="block w-full text-center my-4">
-                <Image scale="0.75" rounded={true} />
-              </span>
-            );
-          } else {
-            return (
-              <span className="inline-block align-middle mx-1 ">
-                <Image scale="0.5" rounded={false} />
-              </span>
-            );
-          }
         },
         code(props) {
           const [copied, setCopied] = React.useState(false);
