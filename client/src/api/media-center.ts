@@ -73,6 +73,8 @@ export interface MediaCenterItem {
   alt?: string;
   /** video chapters (backend may omit) */
   chapters?: MediaCenterChapter[];
+  /** true when an AI transcript exists for this asset (backend may omit) */
+  hasTranscript?: boolean;
 }
 
 export interface MediaCenterListResponse {
@@ -154,6 +156,14 @@ export interface AnalyticsEventBody {
   storyId?: number | string;
 }
 
+/** Full AI transcript of one media asset (GET /api/media/:id/transcript). */
+export interface AssetTranscript {
+  assetId: number;
+  language: string;
+  text: string;
+  segments: TranscriptSegment[];
+}
+
 export class MediaCenterAPI {
   constructor(private http: StoryHttp) {}
 
@@ -179,6 +189,11 @@ export class MediaCenterAPI {
   /** Fetch a series (专题) by slug: ordered stories, completion, recent updates. */
   async getSeries(slug: string): Promise<ApiResponse<SeriesDetailResponse>> {
     return this.http.get<SeriesDetailResponse>(`/api/series/${encodeURIComponent(slug)}`);
+  }
+
+  /** Fetch the AI transcript of one media asset; 404 when none exists. */
+  async getTranscript(assetId: number | string): Promise<ApiResponse<AssetTranscript>> {
+    return this.http.get<AssetTranscript>(`/api/media/${encodeURIComponent(String(assetId))}/transcript`);
   }
 
   /**

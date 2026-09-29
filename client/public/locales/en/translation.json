@@ -1037,7 +1037,11 @@
       "play_episode": "Play: {{title}}",
       "untitled": "Untitled audio",
       "resume_at": "Resumed at {{time}}",
-      "open_story": "Open story"
+      "open_story": "Open story",
+      "transcript": "Transcript",
+      "transcript_loading": "Loading transcript…",
+      "transcript_failed": "Failed to load transcript",
+      "transcript_empty": "No transcript content"
     },
     "image": {
       "untitled_story": "Untitled story",

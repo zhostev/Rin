@@ -8,7 +8,13 @@
  *   返回 {size, data, hasNext}（沿用站内现有分页 shape）。
  *
  * item: {id, kind, title, duration, width, height, streamUid, streamStatus,
- *        thumbnailUrl, publicUrl, storyId, storySlug, storyTitle, year, updatedAt}
+ *        thumbnailUrl, publicUrl, storyId, storySlug, storyTitle, year, updatedAt,
+ *        hasTranscript}
+ *   hasTranscript：该资产是否有 AI 转录文本（转录任务产物 accept 后写入）。
+ *
+ * GET /api/media/:id/transcript（公开，无需登录）
+ *   返回 {assetId, language, text, segments:[{start,end,text}]}；无转录或
+ *   资产不可见时 404。资产可见性规则与列表一致（归属 published/updated story）。
  *
  * 规则：
  * - 只返回有所属 story 且 story status=published/updated 的资产
@@ -26,6 +32,8 @@ import { parseOptionalInteger, parsePositiveInteger, parseUpdatedFlag } from "./
 import {
     buildAssetStoryMap,
     findPublishedAssets,
+    findTranscriptAssetIds,
+    findTranscriptByAssetId,
     VISIBLE_STORY_STATUSES,
     type AssetStoryInfo,
 } from "./repository";
@@ -80,12 +88,15 @@ export interface MediaCenterItem {
     storyTitle: string | null;
     year: number | null;
     updatedAt: string;
+    /** 是否有 AI 转录文本（转录任务产物 accept 后写入 transcripts） */
+    hasTranscript: boolean;
 }
 
 function serializeItem(
     row: MediaAssetRow,
     info: AssetStoryInfo,
-    linked?: { poster?: MediaAssetRow; subtitles?: MediaAssetRow },
+    linked: { poster?: MediaAssetRow; subtitles?: MediaAssetRow } | undefined,
+    hasTranscript: boolean,
 ): MediaCenterItem {
     const wire = serializeMediaAsset(row, linked);
     const imageLike = row.kind === "image" || row.kind === "gallery";
@@ -109,6 +120,7 @@ function serializeItem(
         storyTitle: info.storyTitle,
         year: info.publishedAt ? info.publishedAt.getFullYear() : null,
         updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt),
+        hasTranscript,
     };
 }
 
@@ -167,11 +179,20 @@ export function MediaCenterService(): HonoApp {
 
         // 封面/字幕关联行一次查出，避免 N+1
         const linked = await loadLinkedAssetRows(db, rows);
+        // 转录标记一次查出，避免 N+1
+        const transcriptIds = await findTranscriptAssetIds(
+            db,
+            rows.map((row) => row.id),
+        );
 
         let items = rows
             .map((row) => ({ row, info: storyMap.get(row.id)! }))
             .filter(({ info }) => info !== undefined)
-            .map(({ row, info }) => ({ item: serializeItem(row, info, linked.get(row.id)), row, info }));
+            .map(({ row, info }) => ({
+                item: serializeItem(row, info, linked.get(row.id), transcriptIds.has(row.id)),
+                row,
+                info,
+            }));
 
         if (year !== undefined) {
             items = items.filter(({ item }) => item.year === year);
@@ -219,6 +240,55 @@ export function MediaCenterService(): HonoApp {
             },
             404,
         );
+    });
+
+    // GET /media/:id/transcript（公开，无需登录）
+    // 返回该资产的 AI 转录全文与分段时间戳，供媒体页"文稿"展开使用。
+    // 可见性规则与列表一致：资产必须归属 published/updated 的 story，否则 404。
+    app.get("/:id/transcript", async (c) => {
+        const db = c.get("db");
+        const id = Number(c.req.param("id"));
+        if (!Number.isInteger(id) || id <= 0) {
+            return errorJson(c, "media_invalid_id", "id must be a positive integer", 400);
+        }
+        const storyMap = await buildAssetStoryMap(db, VISIBLE_STORY_STATUSES);
+        if (!storyMap.has(id)) {
+            return c.json(
+                { success: false, error: { code: "NOT_FOUND", message: `Media asset ${id} not found` } },
+                404,
+            );
+        }
+        const transcript = await findTranscriptByAssetId(db, id);
+        if (!transcript) {
+            return c.json(
+                { success: false, error: { code: "TRANSCRIPT_NOT_FOUND", message: `Asset ${id} has no transcript` } },
+                404,
+            );
+        }
+        let segments: Array<{ start: number; end: number; text: string }> = [];
+        try {
+            const parsed: unknown = JSON.parse(transcript.segmentsJson);
+            if (Array.isArray(parsed)) {
+                segments = parsed
+                    .filter(
+                        (s): s is { start: number; end: number; text: string } =>
+                            typeof s === "object" &&
+                            s !== null &&
+                            typeof (s as { start?: unknown }).start === "number" &&
+                            typeof (s as { end?: unknown }).end === "number" &&
+                            typeof (s as { text?: unknown }).text === "string",
+                    )
+                    .map((s) => ({ start: s.start, end: s.end, text: s.text }));
+            }
+        } catch {
+            segments = [];
+        }
+        return c.json({
+            assetId: id,
+            language: transcript.language,
+            text: transcript.text,
+            segments,
+        });
     });
 
     return app;
