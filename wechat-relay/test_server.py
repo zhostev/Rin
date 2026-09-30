@@ -182,5 +182,55 @@ class TestHandlerAuth(unittest.TestCase):
         self.assertFalse(h._authorized())
 
 
+class TestAccessTokenStableEndpoint(unittest.TestCase):
+    """token 必须走 stable_token（普通模式），否则会与每日 cron 的 /cgi-bin/token 互踢。"""
+
+    def setUp(self):
+        server._token_cache.clear()
+        server._last_force_refresh = 0.0
+        self.calls = []
+
+        def fake_http_json(url, data=None, headers=None):
+            self.calls.append({"url": url, "data": data, "headers": headers})
+            return {"access_token": f"TOK{len(self.calls)}", "expires_in": 7200}
+
+        for target, kwargs in (
+            ("_read_wechat_config", {"return_value": {"app_id": "wx_test", "app_secret": "sec"}}),
+            ("_http_json", {"side_effect": fake_http_json}),
+        ):
+            p = patch.object(server, target, **kwargs)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_normal_mode_posts_to_stable_token(self):
+        server.get_access_token()
+        self.assertEqual(len(self.calls), 1)
+        call = self.calls[0]
+        self.assertTrue(call["url"].endswith("/stable_token"), call["url"])
+        self.assertNotIn("/token?", call["url"])
+        self.assertEqual(call["headers"]["Content-Type"], "application/json")
+        body = json.loads(call["data"].decode())
+        self.assertEqual(body["appid"], "wx_test")
+        self.assertIs(body["force_refresh"], False)
+
+    def test_cache_hit_skips_http(self):
+        server.get_access_token()
+        server.get_access_token()
+        self.assertEqual(len(self.calls), 1)
+
+    def test_force_refresh_sets_cooldown(self):
+        server.get_access_token(force_refresh=True)
+        self.assertIs(json.loads(self.calls[0]["data"].decode())["force_refresh"], True)
+        self.assertGreater(server._last_force_refresh, 0.0)
+        # 30s 冷却内再次强制刷新 -> 退化成普通模式，避免撞微信「间隔 ≥30s」限制
+        server.get_access_token(force_refresh=True)
+        self.assertIs(json.loads(self.calls[1]["data"].decode())["force_refresh"], False)
+
+    def test_token_error_raises(self):
+        with patch.object(server, "_http_json", return_value={"errcode": 40013}):
+            with self.assertRaises(RuntimeError):
+                server.get_access_token()
+
+
 if __name__ == "__main__":
     unittest.main()
