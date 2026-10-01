@@ -28,7 +28,13 @@ import { useAlert } from "../components/dialog";
 import { useApiResource } from "../hooks/use-api-resource";
 import { useSiteConfig } from "../hooks/useSiteConfig";
 import { diffJsonLeaves, diffTextLines, extractDraftText } from "../utils/ai-studio-diff";
-import { extractAudioFromVideo, ExtractAudioError } from "../utils/extract-audio";
+import {
+  decodeToMono16k,
+  normalizeAudioToWavChunks,
+  splitMono16kToWavChunks,
+  ExtractAudioError,
+  AUDIO_SINGLE_MAX_BYTES,
+} from "../utils/extract-audio";
 import { mediaPlaybackRelativeUrl, uploadMediaFile } from "../utils/media-upload";
 import type { StoryDetailResponse } from "../api/story";
 
@@ -242,14 +248,16 @@ function JobWizard({
   const [stories, setStories] = useState<Array<{ value: string; label: string }>>([]);
   const [assets, setAssets] = useState<Array<{ value: string; label: string; kind: string }>>([]);
   const [submitting, setSubmitting] = useState(false);
-  /** 视频转录时的提取阶段：download（取视频）/ extract（抽音轨）/ upload（传音频）。 */
-  const [extractPhase, setExtractPhase] = useState<"download" | "extract" | "upload" | null>(null);
+  /** 转录前置处理阶段：download（取源文件）/ normalize（转 16kHz 单声道/切片）/ upload（传分片）。 */
+  const [transcribePhase, setTranscribePhase] = useState<"download" | "normalize" | "upload" | null>(
+    null,
+  );
 
   // Load pickers lazily when the wizard opens.
   useEffect(() => {
     if (!open) return;
     setStep(1);
-    setExtractPhase(null);
+    setTranscribePhase(null);
     client.story
       .list({ limit: 50 })
       .then(({ data, error }) => {
@@ -342,11 +350,17 @@ function JobWizard({
   );
 
   /**
-   * 后端转录只接受纯音频资产；用户选了视频时，提交前先在浏览器里抽音轨，
-   * 上传为新的音频资产，再用新资产 id 建任务。
+   * 转录前置处理：后端 Whisper 只接受纯音频，且整文件直传大音频会被 Workers AI
+   * 拒收（3006）。提交前在浏览器内统一处理：
+   * - 小音频（≤1MB）：直接用资产 id，不做任何处理；
+   * - 大音频：归一化为 16kHz 单声道并切片，直传 R2 tmp 区，服务端逐片转写再拼接；
+   * - 视频：抽音轨；≤30s 按老链路上传为音频资产，>30s 走分片链路。
    */
-  const needsAudioExtraction =
-    material === "asset" && capability === "transcribe" && selectedAsset?.kind === "video";
+  const needsTranscribePreprocess =
+    material === "asset" &&
+    capability === "transcribe" &&
+    (selectedAsset?.kind === "audio" || selectedAsset?.kind === "video");
+  const isTranscribeVideo = needsTranscribePreprocess && selectedAsset?.kind === "video";
 
   function buildPayload(): { kind: AIJobKind; input: AIJobInput; params?: Record<string, unknown> } {
     // buildAIJobInput converts picker string ids to numbers; the backend
@@ -373,10 +387,17 @@ function JobWizard({
     setSubmitting(true);
     try {
       let payload = buildPayload();
-      if (needsAudioExtraction) {
-        const audioAssetId = await extractVideoAudioForTranscribe();
-        if (audioAssetId == null) return; // 错误已通过 showAlert 展示
-        payload = { ...payload, input: { ...payload.input, assetId: audioAssetId } };
+      if (needsTranscribePreprocess) {
+        const prepared = await prepareTranscribeAudioInput();
+        if (prepared == null) return; // 错误已通过 showAlert 展示
+        if ("assetId" in prepared) {
+          payload = { ...payload, input: { ...payload.input, assetId: prepared.assetId } };
+        } else {
+          payload = {
+            ...payload,
+            params: { ...payload.params, chunkKeys: prepared.chunkKeys },
+          };
+        }
       }
       const { error } = await client.aiStudio.createJob(payload);
       if (error) {
@@ -392,45 +413,86 @@ function JobWizard({
   }
 
   /**
-   * 视频转录前置：下载视频 → 浏览器内抽音轨（16kHz 单声道 WAV）→
-   * 作为新的音频资产上传。返回新资产 id，失败返回 null（已弹提示）。
+   * 转录前置处理（见 needsTranscribePreprocess 注释）。
+   * 返回 { assetId }（直接用资产）或 { chunkKeys }（分片链路），失败返回 null（已弹提示）。
    */
-  async function extractVideoAudioForTranscribe(): Promise<number | null> {
+  async function prepareTranscribeAudioInput(): Promise<
+    { assetId: number } | { chunkKeys: string[] } | null
+  > {
     const fail = (key: string, params?: Record<string, unknown>) => {
       showAlert(t(key, params));
       return null;
     };
     try {
-      setExtractPhase("download");
+      setTranscribePhase("download");
       const response = await fetch(mediaPlaybackRelativeUrl(assetId));
       if (!response.ok) {
-        return fail("ai_studio.wizard.extract_audio_failed_download", { status: response.status });
+        return fail("ai_studio.wizard.transcribe_audio_failed_download", {
+          status: response.status,
+        });
       }
-      const videoBlob = await response.blob();
+      const sourceBlob = await response.blob();
+      const isVideo = selectedAsset?.kind === "video";
 
-      setExtractPhase("extract");
-      let wav: Blob;
+      // 小音频：直接用资产 id，无需下载处理（上面已下载，仅用于判断体积）。
+      if (!isVideo && sourceBlob.size <= AUDIO_SINGLE_MAX_BYTES) {
+        return { assetId: Number(assetId) };
+      }
+
+      setTranscribePhase("normalize");
+      let chunks: Blob[];
       try {
-        wav = await extractAudioFromVideo(videoBlob);
+        if (isVideo) {
+          const { samples } = await decodeToMono16k(sourceBlob);
+          chunks = splitMono16kToWavChunks(samples);
+        } else {
+          chunks = await normalizeAudioToWavChunks(sourceBlob);
+        }
       } catch (error) {
         const code = error instanceof ExtractAudioError ? error.code : "decode_failed";
-        return fail(`ai_studio.wizard.extract_audio_failed_${code}`);
+        return fail(`ai_studio.wizard.transcribe_audio_failed_normalize_${code}`);
       }
 
-      setExtractPhase("upload");
-      const sourceLabel = selectedAsset?.label ?? assetId;
-      const file = new File([wav], `${sourceLabel}.wav`, { type: "audio/wav" });
-      const { asset } = await uploadMediaFile(file, "audio", {
-        t,
-        title: t("ai_studio.wizard.extract_audio_asset_title", { title: sourceLabel }),
-      });
-      return asset.id;
+      // 视频抽出的短音轨（≤30s）：按老链路上传为新的音频资产。
+      if (isVideo && chunks.length === 1) {
+        setTranscribePhase("upload");
+        const sourceLabel = selectedAsset?.label ?? assetId;
+        const file = new File([chunks[0]], `${sourceLabel}.wav`, { type: "audio/wav" });
+        const { asset } = await uploadMediaFile(file, "audio", {
+          t,
+          title: t("ai_studio.wizard.extract_audio_asset_title", { title: sourceLabel }),
+        });
+        return { assetId: asset.id };
+      }
+
+      // 分片链路：签发直传 URL → 逐片 PUT → 把 R2 key 交给服务端逐片转写。
+      setTranscribePhase("upload");
+      const presigned = await client.aiStudio.presignTranscribeChunks(chunks.length);
+      if (presigned.error || !presigned.data || presigned.data.items.length !== chunks.length) {
+        return fail("ai_studio.wizard.transcribe_audio_failed_presign", {
+          message: presigned.error?.value ?? "presign 返回分片数不符",
+        });
+      }
+      const chunkKeys: string[] = [];
+      for (let i = 0; i < chunks.length; i++) {
+        const put = await fetch(presigned.data.items[i].uploadUrl, {
+          method: "PUT",
+          body: chunks[i],
+        });
+        if (!put.ok) {
+          return fail("ai_studio.wizard.transcribe_audio_failed_upload", {
+            message: `分片 ${i + 1}/${chunks.length} 上传失败（${put.status}）`,
+          });
+        }
+        chunkKeys.push(presigned.data.items[i].key);
+      }
+      return { chunkKeys };
     } catch (error) {
-      return fail("ai_studio.wizard.extract_audio_failed_upload", {
+      return fail("ai_studio.wizard.transcribe_audio_failed_upload", {
         message: error instanceof Error ? error.message : String(error),
       });
     } finally {
-      setExtractPhase(null);
+      setTranscribePhase(null);
     }
   }
 
@@ -597,8 +659,11 @@ function JobWizard({
                       {question.trim()}
                     </p>
                   ) : null}
-                  {needsAudioExtraction ? (
+                  {isTranscribeVideo ? (
                     <p className="text-neutral-500">{t("ai_studio.wizard.extract_audio_note")}</p>
+                  ) : null}
+                  {needsTranscribePreprocess && !isTranscribeVideo ? (
+                    <p className="text-neutral-500">{t("ai_studio.wizard.transcribe_chunk_note")}</p>
                   ) : null}
                   {transcribeAssetInvalid ? (
                     <p className="font-medium text-rose-700 dark:text-rose-300">
@@ -626,8 +691,8 @@ function JobWizard({
             ) : (
               <Button
                 title={
-                  extractPhase
-                    ? t(`ai_studio.wizard.extract_audio_phase_${extractPhase}`)
+                  transcribePhase
+                    ? t(`ai_studio.wizard.transcribe_audio_phase_${transcribePhase}`)
                     : submitting
                       ? t("ai_studio.wizard.submitting")
                       : t("ai_studio.wizard.submit")

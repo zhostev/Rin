@@ -12,7 +12,13 @@
  * 另有 TRANSCRIBE_MAX_BYTES 硬上限；截断时 artifact 标记 truncated=true。
  */
 import { getWorkerAIModelId, runWorkerAIModel } from "../../utils/ai";
-import { TRANSCRIBE_DEFAULT_MAX_MINUTES, TRANSCRIBE_MAX_BYTES, WHISPER_MODEL } from "./models";
+import {
+    TRANSCRIBE_DEFAULT_MAX_MINUTES,
+    TRANSCRIBE_MAX_BYTES,
+    TRANSCRIBE_CHUNK_SECONDS,
+    TRANSCRIBE_CHUNK_TMP_PREFIX,
+    WHISPER_MODEL,
+} from "./models";
 
 export interface WhisperSegment {
     start: number;
@@ -33,6 +39,10 @@ export interface TranscribeResult {
     words: WhisperWord[];
     truncated: boolean;
     model: string;
+    /** 分片转写时为 true（客户端已在浏览器内切好片，服务端逐片转写再拼接） */
+    chunked?: boolean;
+    /** 分片转写时的片数 */
+    chunks?: number;
 }
 
 export interface TruncatePlan {
@@ -150,5 +160,99 @@ export async function transcribeAudio(
         words,
         truncated,
         model: getWorkerAIModelId(WHISPER_MODEL),
+    };
+}
+
+/**
+ * 从 16-bit PCM WAV 头解析音频时长（秒）。客户端分片固定生成此格式，
+ * 用于拼接时给后一片的时间戳加偏移。解析失败返回 null（调用方用
+ * TRANSCRIBE_CHUNK_SECONDS 兜底）。
+ */
+export function parseWavDurationSec(data: Uint8Array): number | null {
+    try {
+        if (data.length < 44) return null;
+        const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+        const ascii = (off: number, len: number) => {
+            let s = "";
+            for (let i = 0; i < len; i++) s += String.fromCharCode(view.getUint8(off + i));
+            return s;
+        };
+        if (ascii(0, 4) !== "RIFF" || ascii(8, 4) !== "WAVE") return null;
+        const sampleRate = view.getUint32(24, true);
+        const channels = view.getUint16(22, true);
+        const bitsPerSample = view.getUint16(34, true);
+        if (!sampleRate || !channels || !bitsPerSample) return null;
+        // data 子块不一定紧跟 fmt 之后，逐块扫描
+        let off = 12;
+        while (off + 8 <= data.length) {
+            const id = ascii(off, 4);
+            const size = view.getUint32(off + 4, true);
+            if (id === "data") {
+                const bytesPerSec = (sampleRate * channels * bitsPerSample) / 8;
+                return bytesPerSec > 0 ? size / bytesPerSec : null;
+            }
+            off += 8 + size;
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+const CHUNK_KEY_RE = /^tmp\/aistudio-transcribe\/\d{14}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/chunk-\d{3}\.wav$/;
+
+/**
+ * 校验分片 R2 key：只允许本服务 presign 生成的固定格式，防止 task 参数被
+ * 伪造成任意 R2 key 读取（key 遍历）。
+ */
+export function isTranscribeChunkKey(key: unknown): key is string {
+    return typeof key === "string" && CHUNK_KEY_RE.test(key);
+}
+
+/** 生成一批分片的 R2 key（与 isTranscribeChunkKey 的正则保持一致）。 */
+export function buildTranscribeChunkKeys(batchId: string, count: number): string[] {
+    return Array.from(
+        { length: count },
+        (_, i) => `${TRANSCRIBE_CHUNK_TMP_PREFIX}${batchId}/chunk-${String(i).padStart(3, "0")}.wav`,
+    );
+}
+
+/**
+ * 逐片转写并拼接。time offset 按各片实际时长累加（WAV 头解析，失败则按
+ * TRANSCRIBE_CHUNK_SECONDS 兜底），保证分段文稿的时间戳连续。
+ * onChunk 每完成一片回调一次（processor 用来记用量）。
+ */
+export async function transcribeChunks(
+    env: Env,
+    chunks: Uint8Array[],
+    onChunk?: (index: number, result: TranscribeResult) => void | Promise<void>,
+): Promise<TranscribeResult> {
+    const texts: string[] = [];
+    const words: WhisperWord[] = [];
+    const segments: WhisperSegment[] = [];
+    let language = "";
+    let offset = 0;
+    for (let i = 0; i < chunks.length; i++) {
+        const result = await transcribeAudio(env, chunks[i], { durationSec: null });
+        if (onChunk) await onChunk(i, result);
+        if (!language && result.language) language = result.language;
+        if (result.text) texts.push(result.text);
+        for (const w of result.words) {
+            words.push({ word: w.word, start: w.start + offset, end: w.end + offset });
+        }
+        for (const s of result.segments) {
+            segments.push({ start: s.start + offset, end: s.end + offset, text: s.text });
+        }
+        offset += parseWavDurationSec(chunks[i]) ?? TRANSCRIBE_CHUNK_SECONDS;
+    }
+    return {
+        text: texts.join("\n"),
+        language,
+        segments,
+        words,
+        truncated: false,
+        model: getWorkerAIModelId(WHISPER_MODEL),
+        chunked: true,
+        chunks: chunks.length,
     };
 }

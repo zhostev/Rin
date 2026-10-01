@@ -1,8 +1,12 @@
 /**
- * 从视频 Blob 中提取音轨：浏览器内解码 → 重采样为 16kHz 单声道 → WAV。
+ * 从音/视频 Blob 中提取音轨：浏览器内解码 → 重采样为 16kHz 单声道 → WAV。
  *
  * 用途：AI Studio 转录。后端转录（Whisper）只接受纯音频资产，用户选视频时，
  * 在提交任务前先在本地把音轨抽出来，上传为新的音频资产，再用新资产 id 建任务。
+ *
+ * 大音频链路（Whisper binding 以 number[] 传音频，整文件直传必 3006）：
+ * normalizeAudioToWavChunks 把音频归一化成 16kHz 单声道后按
+ * TRANSCRIBE_CHUNK_SECONDS 切片，逐片直传 R2 tmp 区，服务端逐片转写再拼接。
  *
  * 注意：
  * - decodeAudioData 需要把整个文件读进内存，输入体积有上限（移动端尤其敏感）。
@@ -14,6 +18,17 @@ export const EXTRACT_TARGET_SAMPLE_RATE = 16000;
 export const EXTRACT_MAX_MINUTES = 60;
 /** 输入视频体积上限（decodeAudioData 全文件进内存，移动端再大容易崩标签页）。 */
 export const EXTRACT_MAX_INPUT_BYTES = 500 * 1024 * 1024;
+/**
+ * 转写分片时长（秒），与服务端 TRANSCRIBE_CHUNK_SECONDS 对齐。
+ * 16kHz 单声道 WAV 每片约 960KB → number[] JSON 约 3.3MB，远低于 Workers AI
+ * 3006 上限；若生产仍出现 3006，把两端一起调小即可。
+ */
+export const TRANSCRIBE_CHUNK_SECONDS = 30;
+/**
+ * 音频源文件体积超过此值则走"归一化 + 分片"链路，与服务端
+ * TRANSCRIBE_SINGLE_MAX_BYTES 对齐。
+ */
+export const AUDIO_SINGLE_MAX_BYTES = 1 * 1024 * 1024;
 
 export type ExtractAudioErrorCode =
   | "empty"
@@ -40,6 +55,18 @@ export interface ExtractAudioProgress {
 export interface ExtractAudioOptions {
   maxMinutes?: number;
   onProgress?: (progress: ExtractAudioProgress) => void;
+}
+
+export interface NormalizeAudioOptions extends ExtractAudioOptions {
+  /** 分片时长（秒），默认 TRANSCRIBE_CHUNK_SECONDS */
+  chunkSeconds?: number;
+}
+
+/** 解码 + 重采样结果：16kHz 单声道采样。 */
+export interface Mono16kAudio {
+  samples: Float32Array;
+  /** 实际保留时长（秒，已按 maxMinutes 裁剪） */
+  seconds: number;
 }
 
 /**
@@ -93,22 +120,22 @@ function getAudioContextClass(): typeof AudioContext | null {
 }
 
 /**
- * 从视频 Blob 提取音轨，返回 16kHz 单声道 WAV Blob。
+ * 解码任意音/视频 Blob，重采样为 16kHz 单声道。
  * 抛 ExtractAudioError（code 可用于映射文案）。
  */
-export async function extractAudioFromVideo(
-  videoBlob: Blob,
+export async function decodeToMono16k(
+  audioBlob: Blob,
   options: ExtractAudioOptions = {},
-): Promise<Blob> {
+): Promise<Mono16kAudio> {
   const { maxMinutes = EXTRACT_MAX_MINUTES, onProgress } = options;
 
-  if (videoBlob.size === 0) {
-    throw new ExtractAudioError("empty", "empty video blob");
+  if (audioBlob.size === 0) {
+    throw new ExtractAudioError("empty", "empty input blob");
   }
-  if (videoBlob.size > EXTRACT_MAX_INPUT_BYTES) {
+  if (audioBlob.size > EXTRACT_MAX_INPUT_BYTES) {
     throw new ExtractAudioError(
       "too_large",
-      `video blob ${videoBlob.size} bytes exceeds ${EXTRACT_MAX_INPUT_BYTES} bytes`,
+      `input blob ${audioBlob.size} bytes exceeds ${EXTRACT_MAX_INPUT_BYTES} bytes`,
     );
   }
   const AC = getAudioContextClass();
@@ -120,7 +147,7 @@ export async function extractAudioFromVideo(
   const ctx = new AC();
   let decoded: AudioBuffer;
   try {
-    decoded = await ctx.decodeAudioData(await videoBlob.arrayBuffer());
+    decoded = await ctx.decodeAudioData(await audioBlob.arrayBuffer());
   } catch (error) {
     throw new ExtractAudioError(
       "decode_failed",
@@ -144,7 +171,40 @@ export async function extractAudioFromVideo(
   source.start(0);
   const rendered = await offline.startRendering();
 
-  onProgress?.({ phase: "encode", ratio: null });
-  const mono = rendered.getChannelData(0).slice(0, targetFrames);
-  return encodeWavBlob(mono, EXTRACT_TARGET_SAMPLE_RATE);
+  const samples = rendered.getChannelData(0).slice(0, targetFrames);
+  return { samples, seconds: samples.length / EXTRACT_TARGET_SAMPLE_RATE };
+}
+
+/**
+ * 16kHz 单声道采样按 chunkSeconds 切成 WAV 分片。不足一片不切分。
+ * 纯函数（除 Blob 构造外）。
+ */
+export function splitMono16kToWavChunks(
+  samples: Float32Array,
+  chunkSeconds: number = TRANSCRIBE_CHUNK_SECONDS,
+): Blob[] {
+  const framesPerChunk = Math.max(1, Math.floor(chunkSeconds * EXTRACT_TARGET_SAMPLE_RATE));
+  if (samples.length <= framesPerChunk) {
+    return [encodeWavBlob(samples, EXTRACT_TARGET_SAMPLE_RATE)];
+  }
+  const chunks: Blob[] = [];
+  for (let offset = 0; offset < samples.length; offset += framesPerChunk) {
+    chunks.push(
+      encodeWavBlob(samples.subarray(offset, offset + framesPerChunk), EXTRACT_TARGET_SAMPLE_RATE),
+    );
+  }
+  return chunks;
+}
+
+/**
+ * 音频 Blob → 16kHz 单声道 WAV 分片（decodeToMono16k + splitMono16kToWavChunks）。
+ * 抛 ExtractAudioError（code 可用于映射文案）。
+ */
+export async function normalizeAudioToWavChunks(
+  audioBlob: Blob,
+  options: NormalizeAudioOptions = {},
+): Promise<Blob[]> {
+  const { chunkSeconds = TRANSCRIBE_CHUNK_SECONDS, ...rest } = options;
+  const { samples } = await decodeToMono16k(audioBlob, rest);
+  return splitMono16kToWavChunks(samples, chunkSeconds);
 }

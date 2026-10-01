@@ -2,6 +2,7 @@
  * Stage 4 · AI Studio 管理路由（挂载到 /api/admin/ai-studio，需管理员鉴权）。
  *
  * POST /jobs        创建 job 并投递到队列      -> 201 {id, job_type, status}
+ * POST /transcribe-chunks/presign  分片转写：签发分片直传 PUT URL -> 200 {batchId, items:[{key, uploadUrl}]}
  * GET  /jobs        job 列表（?status=&page=）  -> {jobs, page, hasNext}
  * GET  /jobs/:id    job + artifacts           -> {job, artifacts}
  * POST /artifacts/:id/accept  接受（写入正文/转录） -> 200 {ok, applied}
@@ -48,11 +49,18 @@ import {
     AI_STUDIO_JOB_KINDS,
     CHAT_MODEL,
     EMBED_MODEL,
+    TRANSCRIBE_CHUNK_MAX_COUNT,
+    TRANSCRIBE_CHUNK_TMP_PREFIX,
     WHISPER_MODEL,
     aiStudioJobType,
     isAIStudioJobKind,
     type AIStudioJobKind,
 } from "./models";
+import { buildTranscribeChunkKeys } from "./whisper";
+import {
+    presignR2PutUrl,
+    R2DirectNotConfiguredError,
+} from "../media/r2-direct";
 
 type HonoApp = Hono<{ Bindings: Env; Variables: Variables }>;
 
@@ -108,6 +116,52 @@ type CreateJobBody = {
     input?: { storyId?: number; assetId?: number; text?: string; question?: string };
     params?: Record<string, unknown>;
 };
+
+/** POST /transcribe-chunks/presign 的 body */
+const presignChunksSchema = t.Object({
+    count: t.Integer(),
+});
+
+/** batchId 时间戳部分：UTC 下的 YYYYMMDDHHmmss（14 位纯数字） */
+function utcBatchTimestamp(date = new Date()): string {
+    const p = (n: number, len = 2) => String(n).padStart(len, "0");
+    return (
+        `${date.getUTCFullYear()}${p(date.getUTCMonth() + 1)}${p(date.getUTCDate())}` +
+        `${p(date.getUTCHours())}${p(date.getUTCMinutes())}${p(date.getUTCSeconds())}`
+    );
+}
+
+/**
+ * 清理 tmp/aistudio-transcribe/ 下 24h 前的孤儿分片批次
+ *（浏览器在 presign 后关闭、或建任务失败时残留）。
+ */
+async function sweepStaleTranscribeChunks(env: Env): Promise<void> {
+    const bucket = env.R2_BUCKET;
+    if (!bucket) return;
+    const cutoff = Date.now() - 24 * 3600 * 1000;
+    let cursor: string | undefined;
+    do {
+        const listed = await bucket.list({ prefix: TRANSCRIBE_CHUNK_TMP_PREFIX, cursor });
+        const stale: string[] = [];
+        for (const obj of listed.objects) {
+            // key 形如 tmp/aistudio-transcribe/20261001120000-<uuid>/chunk-000.wav
+            const batch = obj.key.slice(TRANSCRIBE_CHUNK_TMP_PREFIX.length).split("/")[0] ?? "";
+            const stamp = batch.split("-")[0] ?? "";
+            if (!/^\d{14}$/.test(stamp)) continue;
+            const ts = Date.UTC(
+                Number(stamp.slice(0, 4)),
+                Number(stamp.slice(4, 6)) - 1,
+                Number(stamp.slice(6, 8)),
+                Number(stamp.slice(8, 10)),
+                Number(stamp.slice(10, 12)),
+                Number(stamp.slice(12, 14)),
+            );
+            if (ts < cutoff) stale.push(obj.key);
+        }
+        if (stale.length > 0) await bucket.delete(stale);
+        cursor = listed.truncated ? listed.cursor : undefined;
+    } while (cursor);
+}
 
 async function validateJobInput(
     kind: AIStudioJobKind,
@@ -223,6 +277,62 @@ export function AIStudioService(): HonoApp {
                 }
 
                 return c.json({ id: job.id, job_type: aiStudioJobType(kind), status: "pending" }, 201);
+            }),
+        ),
+    );
+
+    // POST /transcribe-chunks/presign — 长音频分片转写：浏览器先把音频归一化成
+    // 16kHz 单声道 WAV 并按 TRANSCRIBE_CHUNK_SECONDS 切片，这里签发每片的直传
+    // PUT URL（tmp/aistudio-transcribe/{batchId}/chunk-NNN.wav）。processor 转写
+    // 完即删；此处顺手清理 24h 前的残留批次（浏览器中途关闭等孤儿分片）。
+    app.post(
+        "/transcribe-chunks/presign",
+        aiStudioRoute(
+            withJsonBody<{ count: number }>(presignChunksSchema, async (c, body) => {
+                const env = c.get("env");
+                const count = body.count;
+                if (!Number.isInteger(count) || count < 1 || count > TRANSCRIBE_CHUNK_MAX_COUNT) {
+                    return c.json(
+                        {
+                            error: {
+                                code: "invalid_count",
+                                message: `count 必须是 1-${TRANSCRIBE_CHUNK_MAX_COUNT} 的整数`,
+                            },
+                        },
+                        400,
+                    );
+                }
+                if (!env.R2_BUCKET) {
+                    return c.json(
+                        { error: { code: "r2_not_configured", message: "R2_BUCKET binding 未配置" } },
+                        503,
+                    );
+                }
+                const batchId = `${utcBatchTimestamp()}-${crypto.randomUUID()}`;
+                const keys = buildTranscribeChunkKeys(batchId, count);
+                try {
+                    const items = await Promise.all(
+                        keys.map(async (key) => ({
+                            key,
+                            uploadUrl: await presignR2PutUrl(env, key, 7200),
+                        })),
+                    );
+                    // best-effort 兜底清理：24h 前的孤儿分片（失败不影响本次签发）
+                    try {
+                        await sweepStaleTranscribeChunks(env);
+                    } catch {
+                        // 忽略清理失败
+                    }
+                    return c.json({ batchId, items });
+                } catch (error) {
+                    if (error instanceof R2DirectNotConfiguredError) {
+                        return c.json(
+                            { error: { code: "r2_direct_not_configured", message: error.message } },
+                            503,
+                        );
+                    }
+                    throw error;
+                }
             }),
         ),
     );

@@ -62,3 +62,56 @@ describe("extract-audio helpers", () => {
     expect(error.code).toBe("no_audio_track");
   });
 });
+
+describe("transcribe chunking", () => {
+  it("keeps chunk constants aligned with the server", async () => {
+    const mod = await import("../extract-audio");
+    expect(mod.TRANSCRIBE_CHUNK_SECONDS).toBe(30);
+    expect(mod.AUDIO_SINGLE_MAX_BYTES).toBe(1 * 1024 * 1024);
+  });
+
+  it("does not split samples shorter than one chunk", async () => {
+    const { splitMono16kToWavChunks, TRANSCRIBE_CHUNK_SECONDS, EXTRACT_TARGET_SAMPLE_RATE } =
+      await import("../extract-audio");
+    const frames = TRANSCRIBE_CHUNK_SECONDS * EXTRACT_TARGET_SAMPLE_RATE;
+    const samples = new Float32Array(frames).fill(0.1);
+    const chunks = splitMono16kToWavChunks(samples);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].size).toBe(44 + frames * 2);
+  });
+
+  it("splits longer samples into 30s WAV chunks", async () => {
+    const { splitMono16kToWavChunks, TRANSCRIBE_CHUNK_SECONDS, EXTRACT_TARGET_SAMPLE_RATE } =
+      await import("../extract-audio");
+    const framesPerChunk = TRANSCRIBE_CHUNK_SECONDS * EXTRACT_TARGET_SAMPLE_RATE;
+    const total = framesPerChunk * 2 + 1000;
+    const samples = new Float32Array(total);
+    for (let i = 0; i < total; i += 1) samples[i] = (i % 100) / 100 - 0.5;
+    const chunks = splitMono16kToWavChunks(samples);
+    expect(chunks).toHaveLength(3);
+    expect(chunks[0].size).toBe(44 + framesPerChunk * 2);
+    expect(chunks[1].size).toBe(44 + framesPerChunk * 2);
+    expect(chunks[2].size).toBe(44 + 1000 * 2);
+    // 每片都是合法 WAV 头（服务端按 WAV 头解析时长做时间戳偏移）
+    for (const chunk of chunks) {
+      const view = new DataView(await chunk.arrayBuffer());
+      expect(ascii(view, 0, 4)).toBe("RIFF");
+      expect(ascii(view, 36, 4)).toBe("data");
+    }
+    // 切片无重叠无丢失：拼接 PCM 与原采样一致
+    const restored = new Float32Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      const view = new DataView(await chunk.arrayBuffer());
+      const dataBytes = view.getUint32(40, true);
+      for (let i = 0; i < dataBytes / 2; i += 1) {
+        restored[offset + i] = view.getInt16(44 + i * 2, true) / 32767;
+      }
+      offset += dataBytes / 2;
+    }
+    expect(offset).toBe(total);
+    for (let i = 0; i < total; i += 1000) {
+      expect(Math.abs(restored[i] - samples[i])).toBeLessThan(0.001);
+    }
+  });
+});

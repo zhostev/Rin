@@ -18,6 +18,8 @@ interface BuildOptions {
     existingTranscript?: any | null;
     insertedJob?: any;
     mediaAsset?: any;
+    /** 额外注入 env（如 R2_BUCKET、S3_* 凭证） */
+    envExtra?: Record<string, any>;
 }
 
 function tableName(table: unknown): string {
@@ -115,7 +117,7 @@ function buildApp(options: BuildOptions = {}) {
     };
 
     const env: any = options.noQueue
-        ? {}
+        ? { ...(options.envExtra ?? {}) }
         : {
               TASK_QUEUE: {
                   send: async (task: unknown) => {
@@ -123,6 +125,7 @@ function buildApp(options: BuildOptions = {}) {
                       await options.onSend?.(task);
                   },
               },
+              ...(options.envExtra ?? {}),
           };
 
     app.use("*", async (c, next) => {
@@ -444,5 +447,68 @@ describe("GET /usage", () => {
         expect(body.days).toBe(7);
         expect(body.total).toEqual({ calls: 3 });
         expect(Array.isArray(body.byModel)).toBe(true);
+    });
+});
+
+describe("POST /transcribe-chunks/presign", () => {
+    const fakeR2 = {
+        list: async () => ({ objects: [], truncated: false }),
+        delete: async () => undefined,
+    };
+    const fakeS3 = {
+        S3_ENDPOINT: "https://fake.r2.cloudflarestorage.com",
+        S3_BUCKET: "fake-bucket",
+        S3_ACCESS_KEY_ID: "fake-key",
+        S3_SECRET_ACCESS_KEY: "fake-secret",
+    };
+    const envExtra = { R2_BUCKET: fakeR2, ...fakeS3 };
+
+    it("rejects non-admin with 403", async () => {
+        const { app } = buildApp({ admin: false, envExtra });
+        const res = await post(app, "/transcribe-chunks/presign", { count: 2 });
+        expect(res.status).toBe(403);
+    });
+
+    it("rejects invalid count with 400", async () => {
+        const { app } = buildApp({ envExtra });
+        for (const count of [0, -1, 121, 1.5, "2"]) {
+            const res = await post(app, "/transcribe-chunks/presign", { count });
+            expect(res.status).toBe(400);
+        }
+    });
+
+    it("signs one PUT url per chunk with tmp keys", async () => {
+        const { app } = buildApp({ envExtra });
+        const res = await post(app, "/transcribe-chunks/presign", { count: 3 });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as any;
+        expect(typeof body.batchId).toBe("string");
+        expect(body.items).toHaveLength(3);
+        const keys = body.items.map((i: any) => i.key);
+        // key 格式与服务端校验正则一致，且互不相同
+        expect(new Set(keys).size).toBe(3);
+        for (const key of keys) {
+            expect(key).toMatch(/^tmp\/aistudio-transcribe\/.+\/chunk-\d{3}\.wav$/);
+        }
+        for (const item of body.items) {
+            expect(typeof item.uploadUrl).toBe("string");
+            expect(item.uploadUrl).toContain("X-Amz-Signature");
+        }
+    });
+
+    it("returns 503 when R2 direct upload is not configured", async () => {
+        const { app } = buildApp({ envExtra: { R2_BUCKET: fakeR2 } });
+        const res = await post(app, "/transcribe-chunks/presign", { count: 2 });
+        expect(res.status).toBe(503);
+        const body = (await res.json()) as any;
+        expect(body.error.code).toBe("r2_direct_not_configured");
+    });
+
+    it("returns 503 when R2_BUCKET binding is missing", async () => {
+        const { app } = buildApp({ envExtra: fakeS3 });
+        const res = await post(app, "/transcribe-chunks/presign", { count: 2 });
+        expect(res.status).toBe(503);
+        const body = (await res.json()) as any;
+        expect(body.error.code).toBe("r2_not_configured");
     });
 });
