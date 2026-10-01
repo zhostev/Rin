@@ -41,11 +41,14 @@ import {
     EMBED_MODEL,
     EMBEDDING_DIMENSIONS,
     QA_VECTORIZE_INDEX,
+    TRANSCRIBE_CHUNK_MAX_COUNT,
     TRANSCRIBE_DEFAULT_MAX_MINUTES,
+    TRANSCRIBE_MAX_BYTES,
+    TRANSCRIBE_SINGLE_MAX_BYTES,
     WHISPER_MODEL,
     type AIStudioJobKind,
 } from "./models";
-import { transcribeAudio } from "./whisper";
+import { transcribeAudio, transcribeChunks, isTranscribeChunkKey } from "./whisper";
 
 const CHAT_MAX_TOKENS = 1500;
 /** derive 需要输出摘要+章节+双平台文案，中文 token 膨胀，单独给足额度 */
@@ -137,6 +140,14 @@ async function processTranscribe(env: Env, db: DB, payload: AIStudioTaskPayload)
         return;
     }
 
+    // 分片链路：客户端已在浏览器内把长音频切成 16kHz 单声道 WAV 片并直传 R2 tmp 区，
+    // 这里逐片转写再拼接时间戳。key 格式强校验，防止读到任意 R2 对象。
+    const chunkKeys = (payload.params as { chunkKeys?: unknown } | undefined)?.chunkKeys;
+    if (Array.isArray(chunkKeys) && chunkKeys.length > 0) {
+        await processTranscribeChunks(env, db, payload, chunkKeys);
+        return;
+    }
+
     const asset = await loadAudioAsset(db, assetId as number);
     if (!asset) {
         await failJob(db, jobId, `找不到 media asset ${assetId}`);
@@ -163,6 +174,17 @@ async function processTranscribe(env: Env, db: DB, payload: AIStudioTaskPayload)
     const bytes = new Uint8Array(await obj.arrayBuffer());
     if (bytes.length === 0) {
         await failJob(db, jobId, `R2 对象 ${asset.r2Key} 为空`);
+        return;
+    }
+    // Whisper binding 以 number[] 传音频（JSON 体积约膨胀 3.5 倍），整文件直传大音频
+    // 必被 Workers AI 拒收（3006: Request is too large）。大文件请用新版页面重建任务，
+    // 浏览器会自动归一化并分片转写。
+    if (bytes.length > TRANSCRIBE_SINGLE_MAX_BYTES) {
+        await failJob(
+            db,
+            jobId,
+            `音频文件过大（${(bytes.length / 1048576).toFixed(1)}MB），单次转写上限约 1MB。请用新版页面重新创建转录任务，将自动分段转写。`,
+        );
         return;
     }
 
@@ -193,6 +215,73 @@ async function processTranscribe(env: Env, db: DB, payload: AIStudioTaskPayload)
         truncated: result.truncated,
         model: result.model,
     });
+}
+
+/**
+ * 分片转写：从 R2 tmp 区逐片取回 WAV → 逐片 Whisper → 拼接时间戳。
+ * 无论成功失败，处理完都删除 tmp 分片（任务失败后重试会重新上传新分片）。
+ */
+async function processTranscribeChunks(
+    env: Env,
+    db: DB,
+    payload: AIStudioTaskPayload,
+    rawKeys: unknown[],
+): Promise<void> {
+    const { jobId, assetId } = payload;
+    const keys = rawKeys.filter(isTranscribeChunkKey);
+    if (keys.length !== rawKeys.length || keys.length > TRANSCRIBE_CHUNK_MAX_COUNT) {
+        await failJob(db, jobId, "分片参数非法（key 格式不符或片数超限）");
+        return;
+    }
+    if (!env.R2_BUCKET) {
+        await failJob(db, jobId, "R2_BUCKET binding 未配置");
+        return;
+    }
+    try {
+        const chunks: Uint8Array[] = [];
+        for (const key of keys) {
+            const obj = await env.R2_BUCKET.get(key);
+            if (!obj) {
+                await failJob(db, jobId, `分片 ${key} 已过期或不存在，请重新创建转录任务`);
+                return;
+            }
+            const bytes = new Uint8Array(await obj.arrayBuffer());
+            if (bytes.length === 0 || bytes.length > TRANSCRIBE_MAX_BYTES) {
+                await failJob(db, jobId, `分片 ${key} 数据异常（${bytes.length} 字节）`);
+                return;
+            }
+            chunks.push(bytes);
+        }
+
+        const result = await transcribeChunks(env, chunks, async () => {
+            await recordUsage(db, { jobId, model: getWorkerAIModelId(WHISPER_MODEL) });
+        });
+
+        if (!result.text) {
+            await failJob(db, jobId, "Whisper 返回了空转写文本（可能是静音或无法识别的音频）");
+            return;
+        }
+
+        await saveArtifact(db, jobId, {
+            kind: "transcript",
+            assetId,
+            language: result.language,
+            text: result.text,
+            segments: result.segments,
+            words: result.words,
+            truncated: false,
+            chunked: true,
+            chunks: result.chunks,
+            model: result.model,
+        });
+    } finally {
+        // best-effort 清理 tmp 分片
+        try {
+            await env.R2_BUCKET.delete(keys);
+        } catch {
+            // 忽略清理失败（24h 兜底清理见 presign 接口）
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

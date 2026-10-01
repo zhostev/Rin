@@ -122,6 +122,16 @@ export interface AISettings {
   daily_call_quota: number;
 }
 
+export interface TranscribeChunkPresignItem {
+  key: string;
+  uploadUrl: string;
+}
+
+export interface TranscribeChunkPresignResponse {
+  batchId: string;
+  items: TranscribeChunkPresignItem[];
+}
+
 export class AIStudioAPI {
   constructor(private http: AIStudioHttp) {}
 
@@ -183,6 +193,16 @@ export class AIStudioAPI {
   /** PUT /api/admin/ai-studio/settings */
   async updateSettings(body: Partial<AISettings>): Promise<ApiResponse<{ ok: boolean }>> {
     return this.http.put<{ ok: boolean }>("/api/admin/ai-studio/settings", body);
+  }
+
+  /** POST /api/admin/ai-studio/transcribe-chunks/presign -> 200 { batchId, items } */
+  async presignTranscribeChunks(
+    count: number,
+  ): Promise<ApiResponse<TranscribeChunkPresignResponse>> {
+    return this.http.post<TranscribeChunkPresignResponse>(
+      "/api/admin/ai-studio/transcribe-chunks/presign",
+      { count },
+    );
   }
 }
 

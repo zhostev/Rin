@@ -27,6 +27,23 @@ export const TRANSCRIBE_DEFAULT_MAX_MINUTES = 10;
 /** 转写输入硬上限（25MB），超过则截断并标记 truncated */
 export const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024;
 
+/**
+ * 转写分片：每片音频时长（秒）。16kHz 单声道 WAV 每片约 960KB，
+ * 远低于 Workers AI 3006（Request is too large）上限（30s 也是 Whisper 的原生窗口）。
+ * 若生产仍出现 3006，把此值调小即可（客户端常量同步）。
+ */
+export const TRANSCRIBE_CHUNK_SECONDS = 30;
+/**
+ * 浏览器直传阈值：音频源文件超过此体积则走"浏览器归一化 + 分片"链路。
+ * Whisper binding 以 number[] 传音频，JSON 体积约膨胀 3.5 倍，整文件直传大音频必 3006。
+ * 客户端常量 AUDIO_SINGLE_MAX_BYTES 与此对齐。
+ */
+export const TRANSCRIBE_SINGLE_MAX_BYTES = 1 * 1024 * 1024;
+/** 单个分片转写任务最多分片数（30s/片 → 上限 60 分钟音频） */
+export const TRANSCRIBE_CHUNK_MAX_COUNT = 120;
+/** 转写分片在 R2 的临时前缀（processor 转写完成后删除，presign 时顺手清理 24h 前的残留） */
+export const TRANSCRIBE_CHUNK_TMP_PREFIX = "tmp/aistudio-transcribe/";
+
 /** embedding 批量大小（单次 AI.run 的文本条数） */
 export const EMBED_BATCH_SIZE = 20;
 /** Vectorize upsert 批量大小（向量条数） */
