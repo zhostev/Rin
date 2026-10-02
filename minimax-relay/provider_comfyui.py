@@ -11,11 +11,11 @@ ComfyUI 导出的 API 格式工作流 JSON（工作流菜单 → Save (API Forma
     {{PROMPT}}            提示词（自动 JSON 转义）
     {{FIRST_FRAME_FILE}}  首帧图文件名（i2v；relay 自动下载首帧图并
                          POST /upload/image 上传到 ComfyUI）
+    "{{LENGTH}}"          成片帧数（带引号写，relay 替换为数字）：
+                         由 duration 按 24fps 换算并对齐到 17n+5
 
 注意：
-  - duration / resolution / ratio 由工作流模板固定，relay 收到参数
-    仍做合法性校验，但不改写工作流（不同工作流的帧数/分辨率节点
-    结构各异，硬改容易出错）。
+  - resolution / ratio 由工作流模板固定（832x480，模板内置）。
   - ComfyUI 单卡一次只跑一个任务，多提交会在 ComfyUI 队列里排队。
   - DELETE /video 只删 relay 侧记录，不中断 ComfyUI 正在跑的任务。
 """
@@ -118,13 +118,25 @@ class ComfyUIProvider(VideoProvider):
             return f.read()
 
     @staticmethod
-    def _fill(template: str, prompt: str, image_file: str = "") -> dict:
+    def _frames_for_duration(duration: int) -> int:
+        """时长(秒)→帧数：24fps，对齐到 H3 的 17n+5 帧数网格。"""
+        try:
+            d = int(duration)
+        except (TypeError, ValueError):
+            d = 5
+        d = max(4, min(15, d))
+        return 17 * round((d * 24 - 5) / 17) + 5
+
+    @staticmethod
+    def _fill(template: str, prompt: str, image_file: str = "",
+              frames: int = 124) -> dict:
         """填充占位符（JSON 转义后替换），返回工作流 dict。"""
         def esc(s: str) -> str:
             return json.dumps(s, ensure_ascii=False)[1:-1]
 
         filled = template.replace("{{PROMPT}}", esc(prompt))
         filled = filled.replace("{{FIRST_FRAME_FILE}}", esc(image_file))
+        filled = filled.replace('"{{LENGTH}}"', str(int(frames)))
         try:
             return json.loads(filled)
         except Exception as e:  # noqa: BLE001
@@ -171,7 +183,8 @@ class ComfyUIProvider(VideoProvider):
         image_file = ""
         if params.get("first_frame_url"):
             image_file = self._upload_image(params["first_frame_url"])
-        workflow = self._fill(template, params["prompt"], image_file)
+        frames = self._frames_for_duration(params.get("duration", 5))
+        workflow = self._fill(template, params["prompt"], image_file, frames)
         resp = self._request("POST", "/prompt", {"prompt": workflow}, timeout=120)
         prompt_id = resp.get("prompt_id")
         if not prompt_id:

@@ -74,13 +74,18 @@ curl https://ddns.hoo.ink:18081/health
 `VIDEO_PROVIDER=comfyui` 时走本地 ComfyUI，不走 MiniMax 官方 API（不花钱）。
 
 1. 在 3090 机器上跑 `install-comfyui-h3.ps1`（Windows PowerShell）下载模型（约 42GB）
-2. 按脚本最后打印的手动步骤：加启动参数 → 跑通内置 H3 模板 → 导出
-   API 格式工作流 JSON（提示词节点写 `{{PROMPT}}`，图生的 LoadImage 写
-   `{{FIRST_FRAME_FILE}}`）
-3. relay 环境变量切到 comfyui（见上面 env 示例），重启 relay
+2. 按脚本最后打印的手动步骤：加 ComfyUI 启动参数
+   `--disable-pinned-memory --fp16-intermediates`（无头运行，不加
+   `--auto-launch`，不用开机自启）
+3. 工作流模板已内置：`workflows/h3-t2v.json` / `workflows/h3-i2v.json`
+   （源自社区 3090 实测配方，已换上越狱版 Heretic 文本编码器；
+   提示词 `{{PROMPT}}`、首帧 `{{FIRST_FRAME_FILE}}`、帧数 `{{LENGTH}}`
+   由 relay 自动填充，**无需手动从 ComfyUI 导出**）
+4. relay 环境变量切到 comfyui（见上面 env 示例），重启 relay
 
 注意：
-- `duration` / `resolution` / `ratio` 由工作流模板固定，relay 只做合法性校验
+- `duration`（4–15 秒）由 relay 按 24fps 换算成帧数写入模板（对齐 17n+5）；
+  `resolution` / `ratio` 由模板固定为 832x480
 - ComfyUI 单卡一次只跑一个任务，多提交会排队
 - 3090 出 5 秒 832x480 约 4～5 分钟；NVFP4 编码器在 Ampere 上是仿真运行
 

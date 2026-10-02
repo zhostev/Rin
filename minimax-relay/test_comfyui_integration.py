@@ -109,6 +109,10 @@ class TestIntegration(unittest.TestCase):
                     "class_type": "LoadImage",
                     "inputs": {"image": "{{FIRST_FRAME_FILE}}"},
                 },
+                "3": {
+                    "class_type": "MiniMaxH3ImageToVideo",
+                    "inputs": {"length": "{{LENGTH}}"},
+                },
             }
         )
         (cls.tmp / "t2v.json").write_text(tpl, encoding="utf-8")
@@ -125,11 +129,14 @@ class TestIntegration(unittest.TestCase):
         cls.server.shutdown()
 
     def test_full_flow(self):
-        # 1. 文生视频提交：prompt 占位符被替换
-        pid = self.p.submit({"prompt": "一只猫在下雨", "first_frame_url": ""})
+        # 1. 文生视频提交：prompt 占位符被替换，duration 映射为帧数
+        pid = self.p.submit(
+            {"prompt": "一只猫在下雨", "first_frame_url": "", "duration": 5}
+        )
         self.assertEqual(pid, "test-123")
         wf = STATE["prompts"][-1]
         self.assertEqual(wf["1"]["inputs"]["text"], "一只猫在下雨")
+        self.assertEqual(wf["3"]["inputs"]["length"], 124)
 
         # 2. 图生视频提交：首帧下载→上传→文件名回填
         pid2 = self.p.submit(

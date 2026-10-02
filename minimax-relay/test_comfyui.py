@@ -18,6 +18,7 @@ TEMPLATE = json.dumps(
     {
         "1": {"class_type": "CLIPTextEncode", "inputs": {"text": "{{PROMPT}}"}},
         "2": {"class_type": "LoadImage", "inputs": {"image": "{{FIRST_FRAME_FILE}}"}},
+        "3": {"class_type": "MiniMaxH3ImageToVideo", "inputs": {"length": "{{LENGTH}}"}},
     }
 )
 
@@ -42,6 +43,20 @@ class TestFill(unittest.TestCase):
     def test_bad_template_raises(self):
         with self.assertRaises(RuntimeError):
             ComfyUIProvider._fill("{not json", "p", "")
+
+    def test_length_becomes_number(self):
+        wf = ComfyUIProvider._fill(TEMPLATE, "p", "", 124)
+        self.assertEqual(wf["3"]["inputs"]["length"], 124)
+        self.assertIsInstance(wf["3"]["inputs"]["length"], int)
+
+    def test_frames_for_duration(self):
+        f = ComfyUIProvider._frames_for_duration
+        self.assertEqual(f(5), 124)    # 5s → 124 帧（社区 3090 实测配置）
+        self.assertEqual(f(15), 362)   # 15s → 362 帧
+        self.assertEqual(f(4), 90)
+        self.assertEqual(f(6), 141)
+        self.assertEqual(f(99), 362)   # 上限钳制
+        self.assertEqual(f("bad"), 124)  # 非法输入回退 5s
 
 
 class TestSubmit(unittest.TestCase):

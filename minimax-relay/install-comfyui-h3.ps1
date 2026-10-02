@@ -19,8 +19,9 @@
       （Desktop：设置 → 额外启动参数；portable：改 run_nvidia_gpu.bat）
     2. 浏览器打开 ComfyUI，用内置 MiniMax-H3 模板分别跑通文生/图生视频，
        CLIPLoader 类型选 minimax，并选越狱编码器
-    3. 工作流菜单 → Save (API Format) 导出两个 JSON，放到 workflows\ 目录，
-       relay 的 COMFYUI_WORKFLOW_T2V / COMFYUI_WORKFLOW_I2V 指向它们
+    3. 工作流模板已内置在仓库 minimax-relay/workflows/（h3-t2v.json、
+       h3-i2v.json），直接用：relay 的 COMFYUI_WORKFLOW_T2V /
+       COMFYUI_WORKFLOW_I2V 指向它们（无需手动从 ComfyUI 导出）
 #>
 param(
     [string]$ModelsRoot = (Join-Path $env:LOCALAPPDATA "Comfy-Desktop\ComfyUI-Shared\models")
@@ -86,12 +87,10 @@ New-Item -ItemType Directory -Force -Path $wfDir | Out-Null
    - CLIPLoader 类型选 minimax，并选中 qwen3vl_32b_heretic_minimax_h3_nvfp4
    - 先用 5 秒 832x480 验证（3090 约 4～5 分钟出片）
 
-3. 两个工作流分别点菜单 → Save (API Format)，保存为：
-     $wfDir\h3-t2v.json
-     $wfDir\h3-i2v.json
-   注意：工作流里的提示词节点文本写 {{PROMPT}}，
-   图生视频的 LoadImage 节点 image 写 {{FIRST_FRAME_FILE}}，
-   relay 提交时会替换这两个占位符。
+3. 工作流模板已内置在仓库 minimax-relay/workflows/（h3-t2v.json、
+   h3-i2v.json），把这两个文件拷到 $wfDir 即可，无需手动导出。
+   （提示词 {{PROMPT}}、首帧 {{FIRST_FRAME_FILE}}、帧数 {{LENGTH}}
+   由 relay 自动填充。）
 
 4. relay 环境变量（/etc/rin-minimax-relay.env）：
      VIDEO_PROVIDER=comfyui
