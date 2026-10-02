@@ -33,7 +33,7 @@ export interface AIStudioHttp {
 
 export type AIJobStatus = "pending" | "processing" | "completed" | "failed";
 
-export type AIJobKind = "transcribe" | "derive" | "check" | "retrieval-test" | "embed";
+export type AIJobKind = "transcribe" | "derive" | "check" | "retrieval-test" | "embed" | "video";
 
 /**
  * 任务列表标题用的 capability i18n key。
@@ -132,6 +132,11 @@ export interface TranscribeChunkPresignResponse {
   items: TranscribeChunkPresignItem[];
 }
 
+export interface AIVideoProviderResponse {
+  ok: boolean;
+  provider: "minimax" | "comfyui" | null;
+}
+
 export class AIStudioAPI {
   constructor(private http: AIStudioHttp) {}
 
@@ -203,6 +208,11 @@ export class AIStudioAPI {
       "/api/admin/ai-studio/transcribe-chunks/presign",
       { count },
     );
+  }
+
+  /** GET /api/admin/ai-studio/video-provider -> { ok, provider: 'minimax'|'comfyui'|null } */
+  async getVideoProvider(): Promise<ApiResponse<AIVideoProviderResponse>> {
+    return this.http.get<AIVideoProviderResponse>("/api/admin/ai-studio/video-provider");
   }
 }
 

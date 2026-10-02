@@ -14,6 +14,7 @@ import {
     AISTUDIO_EMBED_TASK,
     AISTUDIO_RETRIEVAL_TEST_TASK,
     AISTUDIO_TRANSCRIBE_TASK,
+    AISTUDIO_VIDEO_TASK,
     type AIStudioTaskPayload,
 } from "../../queue/tasks";
 import {
@@ -29,10 +30,18 @@ import { checkAIGuard, recordUsage } from "./guard";
 import {
     loadAudioAsset,
     loadStoryContent,
+    readJobInputRefs,
     saveArtifact,
     setJobStatus,
     getJob,
+    updateJobInputRefs,
 } from "./jobs";
+import {
+    buildRelaySubmitBody,
+    resolveMinimaxRelay,
+    submitRelayVideoJob,
+    validateVideoParams,
+} from "./minimax";
 import {
     ASK_SYSTEM_PROMPT,
     CHECK_STALE_FACT_SYSTEM_PROMPT,
@@ -40,6 +49,7 @@ import {
     DERIVE_SYSTEM_PROMPT,
     EMBED_MODEL,
     EMBEDDING_DIMENSIONS,
+    MINIMAX_VIDEO_MODEL,
     QA_VECTORIZE_INDEX,
     TRANSCRIBE_CHUNK_MAX_COUNT,
     TRANSCRIBE_DEFAULT_MAX_MINUTES,
@@ -71,7 +81,8 @@ function storyUrl(env: Env, slug: string): string {
     return base ? `${base}/story/${slug}` : `/story/${slug}`;
 }
 
-async function failJob(db: DB, jobId: number, message: string, rawPreview?: string): Promise<void> {
+/** 任务失败：存 {kind:'error'} artifact 说明原因，job 置 failed（供 sweep 复用）。 */
+export async function failJob(db: DB, jobId: number, message: string, rawPreview?: string): Promise<void> {
     const output: Record<string, any> = { kind: "error", message };
     if (typeof rawPreview === "string" && rawPreview.length > 0) {
         output.rawPreview = rawPreview.slice(0, 3000);
@@ -680,6 +691,81 @@ async function processEmbed(env: Env, db: DB, payload: AIStudioTaskPayload): Pro
 }
 
 // ---------------------------------------------------------------------------
+// video：MiniMax H3 视频生成（经 minimax-relay 中转，异步）
+//
+// processor 只做提交：把任务发给 relay，relayJobId 写回 job.inputRefsJson，
+// job 保持 processing 状态；cron sweep（minimax-sweep.ts）轮询 relay，
+// 成功后存 video artifact 并置 completed，失败置 failed。
+// ---------------------------------------------------------------------------
+
+async function processVideo(env: Env, db: DB, payload: AIStudioTaskPayload): Promise<void> {
+    const { jobId } = payload;
+
+    const validated = validateVideoParams({
+        text: payload.prompt,
+        assetId: payload.assetId,
+        params: payload.params,
+    });
+    if (!validated.ok) {
+        await failJob(db, jobId, validated.error);
+        return;
+    }
+    const spec = validated.spec;
+
+    const relay = resolveMinimaxRelay(env);
+    if (!relay.ok) {
+        await failJob(db, jobId, relay.error);
+        return;
+    }
+
+    // 幂等：inputRefs 里已有 relayJobId 说明提交过（queue 重投/processor 重试），
+    // 不重复提交，把收尾交给 sweep。
+    const refs = await readJobInputRefs(db, jobId);
+    if (typeof refs["relayJobId"] === "string" && refs["relayJobId"]) {
+        return;
+    }
+
+    // 图生视频：首帧图片需给 MiniMax 一个公网可抓的 URL
+    let firstFrameUrl: string | undefined;
+    if (spec.firstFrameAssetId !== undefined) {
+        const asset = await loadAudioAsset(db, spec.firstFrameAssetId);
+        if (!asset) {
+            await failJob(db, jobId, `找不到 media asset ${spec.firstFrameAssetId}`);
+            return;
+        }
+        if (asset.kind !== "image") {
+            await failJob(db, jobId, `asset ${asset.id} 是${asset.kind}资源，视频首帧仅支持图片`);
+            return;
+        }
+        if (!asset.r2Key) {
+            await failJob(db, jobId, `asset ${asset.id} 没有 r2_key`);
+            return;
+        }
+        const { getStoragePublicUrl } = await import("../../utils/storage");
+        const publicUrl = getStoragePublicUrl(env, asset.r2Key);
+        if (!publicUrl) {
+            await failJob(db, jobId, "存储未配置公网访问，图生视频需要图片公网 URL");
+            return;
+        }
+        firstFrameUrl = publicUrl;
+    }
+
+    const submitted = await submitRelayVideoJob(
+        relay.config,
+        // 幂等键：queue 重投/processor 重试时 relay 直接返回已有任务，不重复扣费
+        buildRelaySubmitBody(spec, firstFrameUrl, `aistudio-${jobId}`),
+    );
+    if (!submitted.ok || !submitted.relayJobId) {
+        await failJob(db, jobId, submitted.error ?? "提交到中转服务失败");
+        return;
+    }
+
+    await updateJobInputRefs(db, jobId, { relayJobId: submitted.relayJobId });
+    await recordUsage(db, { jobId, model: MINIMAX_VIDEO_MODEL });
+    // 注意：此处不置 completed，job 保持 processing，等待 sweep 收尾。
+}
+
+// ---------------------------------------------------------------------------
 // 入口：queue consumer 调用
 // ---------------------------------------------------------------------------
 
@@ -716,6 +802,9 @@ export async function processAIStudioTask(
             case AISTUDIO_EMBED_TASK:
                 await processEmbed(env, db, task.payload);
                 break;
+            case AISTUDIO_VIDEO_TASK:
+                await processVideo(env, db, task.payload);
+                break;
             default:
                 await failJob(db, job.id, `未知任务类型 ${task.type}`);
                 return;
@@ -723,8 +812,12 @@ export async function processAIStudioTask(
         // process* 内部可能已通过 failJob 把状态置为 failed（并存了 error
         // artifact 说明原因）；只在仍为 processing 时才标记完成，否则失败
         // 会被完成覆盖，用户看到的永远是"已完成"。
+        //
+        // 例外：aistudio.video 是异步任务，processor 只提交、job 保持
+        // processing，由 cron sweep 轮询 relay 后再置 completed/failed，
+        // 这里不能自动完成。
         const current = await getJob(db, job.id);
-        if (current && current.status === "processing") {
+        if (current && current.status === "processing" && task.type !== AISTUDIO_VIDEO_TASK) {
             await setJobStatus(db, job.id, "completed");
         }
     } catch (error) {

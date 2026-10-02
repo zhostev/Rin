@@ -9,6 +9,19 @@ export async function handleScheduled(
   const schema = await import("../db/schema");
   const db = drizzle(env.DB, { schema });
 
+  // 视频任务收尾走独立的高频 cron（wrangler.toml "*/5 * * * *"），与 20 分钟
+  // 一轮的聚合类任务分开，避免互相拖慢。
+  if (_controller?.cron === "*/5 * * * *") {
+    const { minimaxVideoSweep } = await import("../features/ai-studio/minimax-sweep");
+    const result = await minimaxVideoSweep(env, db);
+    if (result.checked > 0) {
+      console.log(
+        `[minimax-sweep] checked=${result.checked} completed=${result.completed} failed=${result.failed}`,
+      );
+    }
+    return;
+  }
+
   const serverConfig = new CacheImpl(db, env, "server.config", "database");
   const clientConfig = new CacheImpl(db, env, "client.config");
   const cache = new CacheImpl(db, env, "cache", undefined, clientConfig);
