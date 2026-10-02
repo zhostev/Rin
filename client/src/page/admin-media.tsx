@@ -326,11 +326,13 @@ export function AdminMediaLibraryPage() {
             ? "from_url_too_large"
             : status === 415
               ? "from_url_not_image"
-              : status === 503
-                ? "from_url_not_configured"
-                : status === 400
-                  ? "from_url_invalid"
-                  : "from_url_failed";
+              : status === 422
+                ? "from_url_instagram_failed"
+                : status === 503
+                  ? "from_url_not_configured"
+                  : status === 400
+                    ? "from_url_invalid"
+                    : "from_url_failed";
         showAlert(
           typeof error?.value === "string" && error.value
             ? error.value
@@ -338,7 +340,17 @@ export function AdminMediaLibraryPage() {
         );
         return;
       }
-      setAssets((prev) => [data, ...prev]);
+      setAssets((prev) => {
+        // ?img_index=all 批量导入时服务端返回 { assets, warnings }
+        const batch = (data as { assets?: unknown }).assets;
+        const list = Array.isArray(batch) ? batch : [data];
+        return [...(list as typeof prev), ...prev];
+      });
+      const warnings = (data as { warnings?: unknown }).warnings;
+      if (Array.isArray(warnings) && warnings.length > 0) {
+        // 部分成功也必须说清楚：哪些跳过了、哪一张失败了
+        showAlert(warnings.join("\n"));
+      }
       setFromUrlOpen(false);
       setFromUrl("");
       setFromUrlTitle("");
@@ -458,8 +470,11 @@ export function AdminMediaLibraryPage() {
               disabled={downloading}
               onChange={(e) => setFromUrl(e.target.value)}
               placeholder={t("admin.media_library.from_url_url_placeholder")}
-              className="mb-3 w-full rounded-xl border border-black/10 bg-w p-3 text-sm t-primary outline-none focus:border-theme disabled:opacity-60 dark:border-white/10"
+              className="mb-1 w-full rounded-xl border border-black/10 bg-w p-3 text-sm t-primary outline-none focus:border-theme disabled:opacity-60 dark:border-white/10"
             />
+            <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+              {t("admin.media_library.from_url_hint")}
+            </p>
             <label className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">
               {t("admin.media_library.from_url_name")}
             </label>
