@@ -8,6 +8,8 @@
 //   auto-detected from the picked file.
 // - Deletion is guarded by the backend reference check; a 409 surfaces the
 //   "in use" message with the referencing entity.
+// - Batch-imported images sharing a group_key are rendered as a photo set:
+//   stacked cover card with a ×N badge, expandable to manage members.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -16,6 +18,7 @@ import { useAlert, useConfirm } from "../components/dialog";
 import { Waiting } from "../components/loading";
 import type { AssetKind, MediaAsset } from "../api/story";
 import { detectMediaType, uploadMediaFile } from "../utils/media-upload";
+import { groupAssets, groupTitle } from "../utils/media-groups";
 import { formatDuration } from "../components/story-blocks/block-utils";
 
 type KindFilter = "all" | AssetKind;
@@ -238,6 +241,65 @@ function AssetCard({
   );
 }
 
+/** 图片集卡片：封面 + ×N 角标，点击展开看全部成员（成员仍是独立 AssetCard，可单独删除）。 */
+function AssetGroupCard({
+  items,
+  onChanged,
+  onDeleted,
+}: {
+  items: MediaAsset[];
+  onChanged: (next: MediaAsset) => void;
+  onDeleted: (id: number) => void;
+}) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const cover = items[0];
+  if (!cover) return null;
+
+  return (
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-black/10 bg-w dark:border-white/10">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="relative block aspect-video w-full bg-black/90 text-left"
+      >
+        {cover.url ? (
+          <img src={cover.url} alt={cover.alt || ""} loading="lazy" className="h-full w-full object-cover" />
+        ) : (
+          <span className="flex h-full w-full items-center justify-center text-neutral-500">
+            <i className="ri-image-2-line text-4xl" />
+          </span>
+        )}
+        <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-theme px-2 py-0.5 text-[11px] font-medium text-white">
+          <i className="ri-stack-line" />×{items.length}
+        </span>
+      </button>
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-3">
+        <p className="truncate text-sm font-medium t-primary">{groupTitle(cover)}</p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+            {t("admin.media_library.group_count", { count: items.length })}
+          </p>
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="shrink-0 rounded-full border border-black/10 px-2.5 py-0.5 text-xs t-secondary hover:border-theme/40 hover:text-theme dark:border-white/10"
+          >
+            {expanded ? t("admin.media_library.group_collapse") : t("admin.media_library.group_expand")}
+          </button>
+        </div>
+      </div>
+      {expanded && (
+        <div className="grid grid-cols-2 gap-3 border-t border-black/5 p-3 dark:border-white/5">
+          {items.map((item) => (
+            <AssetCard key={item.id} asset={item} onChanged={onChanged} onDeleted={onDeleted} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AdminMediaLibraryPage() {
   const { t } = useTranslation();
   const [kind, setKind] = useState<KindFilter>("all");
@@ -422,16 +484,27 @@ export function AdminMediaLibraryPage() {
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {assets.map((asset) => (
-              <AssetCard
-                key={asset.id}
-                asset={asset}
-                onChanged={(next) =>
-                  setAssets((prev) => prev.map((a) => (a.id === next.id ? next : a)))
-                }
-                onDeleted={(id) => setAssets((prev) => prev.filter((a) => a.id !== id))}
-              />
-            ))}
+            {groupAssets(assets).map((group) =>
+              group.items.length > 1 ? (
+                <AssetGroupCard
+                  key={group.key}
+                  items={group.items}
+                  onChanged={(next) =>
+                    setAssets((prev) => prev.map((a) => (a.id === next.id ? next : a)))
+                  }
+                  onDeleted={(id) => setAssets((prev) => prev.filter((a) => a.id !== id))}
+                />
+              ) : (
+                <AssetCard
+                  key={group.items[0]!.id}
+                  asset={group.items[0]!}
+                  onChanged={(next) =>
+                    setAssets((prev) => prev.map((a) => (a.id === next.id ? next : a)))
+                  }
+                  onDeleted={(id) => setAssets((prev) => prev.filter((a) => a.id !== id))}
+                />
+              ),
+            )}
           </div>
           {hasNext && (
             <div className="flex justify-center">

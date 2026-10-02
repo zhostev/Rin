@@ -105,3 +105,41 @@ describe('migration 0023.sql (R2 video chain: poster/subtitles refs)', () => {
         sqlite.close();
     });
 });
+
+describe('migration 0026.sql (media_assets group_key: 图片集分组)', () => {
+    it('adds group_key column (NOT NULL DEFAULT \'\') + index, bumps version to 26', () => {
+        const sqlite = freshDb();
+        sqlite.exec(readFileSync(join(SQL_DIR, '0014.sql'), 'utf8'));
+        sqlite.exec(readFileSync(join(SQL_DIR, '0023.sql'), 'utf8'));
+        sqlite.exec(readFileSync(join(SQL_DIR, '0026.sql'), 'utf8'));
+
+        const columns = sqlite.query(`PRAGMA table_info(media_assets)`).all() as Array<{ name: string; dflt_value: string | null; notnull: number }>;
+        const byName = new Map(columns.map((c) => [c.name, c]));
+        expect(byName.has('group_key')).toBe(true);
+        expect(byName.get('group_key')!.dflt_value).toBe("''");
+        expect(byName.get('group_key')!.notnull).toBe(1);
+
+        const indexes = sqlite.query(
+            `SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='media_assets'`
+        ).all() as Array<{ name: string }>;
+        expect(indexes.map((i) => i.name)).toContain('media_assets_group_key_idx');
+
+        const version = sqlite.query(`SELECT value FROM info WHERE key='migration_version'`).get() as { value: string };
+        expect(version.value).toBe('26');
+
+        sqlite.close();
+    });
+
+    it('keeps pre-existing rows usable: old rows default to empty group_key', () => {
+        const sqlite = freshDb();
+        sqlite.exec(`INSERT INTO media_assets (kind, source, mime) VALUES ('image', 'r2', 'image/jpeg')`);
+        sqlite.exec(readFileSync(join(SQL_DIR, '0014.sql'), 'utf8'));
+        sqlite.exec(readFileSync(join(SQL_DIR, '0023.sql'), 'utf8'));
+        sqlite.exec(readFileSync(join(SQL_DIR, '0026.sql'), 'utf8'));
+
+        const row = sqlite.query(`SELECT group_key FROM media_assets`).get() as Record<string, unknown>;
+        expect(row.group_key).toBe('');
+
+        sqlite.close();
+    });
+});

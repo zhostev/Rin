@@ -227,6 +227,7 @@ export const mediaAssets = sqliteTable("media_assets", {
     imagesId: text("images_id").default(""), // 阶段 2：Cloudflare Images 图片 ID
     imagesVariantsJson: text("images_variants_json").default("{}").notNull(), // {thumb,medium,large,public...} 完整 URL
     uploadSessionJson: text("upload_session_json").default("{}").notNull(), // 直传会话追踪
+    groupKey: text("group_key").default("").notNull(), // 图片集分组：同一次批量导入的图共享此 key（如 instagram:<shortcode>）
     posterAssetId: integer("poster_asset_id"), // R2 视频链路：封面图资产行 id（kind=image）
     subtitlesAssetId: integer("subtitles_asset_id"), // R2 视频链路：字幕资产行 id（kind=attachment，text/vtt）
     createdAt: created_at,
@@ -236,6 +237,7 @@ export const mediaAssets = sqliteTable("media_assets", {
     streamUidIdx: index("media_assets_stream_uid_idx").on(table.streamUid),
     posterIdx: index("media_assets_poster_idx").on(table.posterAssetId),
     subtitlesIdx: index("media_assets_subtitles_idx").on(table.subtitlesAssetId),
+    groupKeyIdx: index("media_assets_group_key_idx").on(table.groupKey),
 }));
 
 export const stories = sqliteTable("stories", {

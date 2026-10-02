@@ -58,7 +58,10 @@
       "from_url_not_image": "该 URL 返回的不是图片",
       "from_url_not_configured": "服务端存储未配置",
       "from_url_hint": "支持图片直链；粘贴 Instagram 帖子链接会经 Apify 解析，轮播图逐张全部导入（如只想要其中一张，在链接后加 ?img_index=N；链接自带 ?igsh 等参数时用 & 连接）",
-      "from_url_instagram_failed": "Instagram 解析失败：请确认已配置 APIFY_TOKEN 且帖子公开可访问，或改用图片直链"
+      "from_url_instagram_failed": "Instagram 解析失败：请确认已配置 APIFY_TOKEN 且帖子公开可访问，或改用图片直链",
+      "group_count": "共 {{count}} 张",
+      "group_expand": "展开",
+      "group_collapse": "收起"
     }
   },
   "compat_tasks": {

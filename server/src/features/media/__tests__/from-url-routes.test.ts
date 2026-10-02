@@ -202,6 +202,8 @@ describe('AdminMediaService POST /from-url', () => {
         expect(puts[0]).toMatch(/_n\.jpg$/);
         expect(data.warnings).toHaveLength(1);
         expect(data.warnings[0]).toContain('1 个视频');
+        // 同组图片共享 group_key，前端按此聚成图片集
+        expect(data.assets[0].group_key).toBe('instagram:DdqNdIPmjpa');
     });
 
     it('?img_index=all imports every carousel image as its own asset (201)', async () => {
@@ -244,6 +246,8 @@ describe('AdminMediaService POST /from-url', () => {
         expect(data.assets[2].title).toBe('Carousel (3/3)');
         // 跳过的视频要如实回报，不能悄悄少几张
         expect(data.warnings).toHaveLength(1);
+        // 同组图片共享 group_key，前端按此聚成图片集
+        expect(data.assets.every((a: any) => a.group_key === 'instagram:Dd6OBf1lAy5')).toBe(true);
         expect(data.warnings[0]).toContain('1 个视频');
     });
 

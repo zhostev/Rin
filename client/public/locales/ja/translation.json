@@ -58,7 +58,10 @@
       "from_url_not_image": "その URL は画像を返しませんでした",
       "from_url_not_configured": "サーバーのストレージが設定されていません",
       "from_url_hint": "画像の直リンクに対応。Instagram の投稿リンクは Apify 経由で解析し、カルーセル全体を取り込みます（1枚だけ欲しい場合は ?img_index=N を追加。?igsh などのパラメータ付きリンクには & で連結）",
-      "from_url_instagram_failed": "Instagram の解析に失敗しました。APIFY_TOKEN の設定と投稿が公開されているかを確認するか、画像の直リンクを貼ってください。"
+      "from_url_instagram_failed": "Instagram の解析に失敗しました。APIFY_TOKEN の設定と投稿が公開されているかを確認するか、画像の直リンクを貼ってください。",
+      "group_count": "{{count}} 枚",
+      "group_expand": "展開する",
+      "group_collapse": "閉じる"
     }
   },
   "compat_tasks": {

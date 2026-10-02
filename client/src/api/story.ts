@@ -64,6 +64,8 @@ export interface MediaAsset {
   poster_url?: string;
   subtitles_asset_id?: number;
   subtitles_url?: string;
+  /** 图片集分组 key（同一次批量导入的图共享）；空/缺失表示未分组 */
+  group_key?: string;
 }
 
 export interface ContentBlock<T = Record<string, unknown>> {

@@ -45,6 +45,7 @@ function seedDb(): { sqlite: Database; db: any } {
             images_id TEXT DEFAULT '',
             images_variants_json TEXT DEFAULT '{}' NOT NULL,
             upload_session_json TEXT DEFAULT '{}' NOT NULL,
+            group_key TEXT DEFAULT '' NOT NULL,
             created_at INTEGER DEFAULT (unixepoch()) NOT NULL,
             updated_at INTEGER DEFAULT (unixepoch()) NOT NULL
         );
