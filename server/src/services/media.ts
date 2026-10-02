@@ -213,7 +213,7 @@ const FROM_URL_DOWNLOAD_CONCURRENCY = 3;
 /**
  * 把用户提交的 URL 解析为待下载的图片直链列表，附带要回报给用户的警告。
  * Instagram 帖子页经 Apify 解析（需要 APIFY_TOKEN 环境变量）：
- * ?img_index=all 返回轮播全部图片，?img_index=N 返回第 N 张，缺省返回首图。
+ * ?img_index=N 返回第 N 张，缺省返回轮播全部图片（逐张入库）。
  * 普通 URL 直接返回自身。
  */
 async function resolveFromUrlImageTargets(
@@ -757,7 +757,7 @@ export function AdminMediaService(): HonoApp {
         const alt = typeof body['alt'] === 'string' ? body['alt'].slice(0, 500) : '';
 
         // 解析待下载的图片直链列表：Instagram 帖子页经 Apify 解析，
-        // ?img_index=all 时取轮播全部图片（逐张入库），否则单张。
+        // 缺省取轮播全部图片（逐张入库）；?img_index=N 只取第 N 张。
         let resolved: Awaited<ReturnType<typeof resolveFromUrlImageTargets>>;
         try {
             resolved = await resolveFromUrlImageTargets(parsed.url, env);

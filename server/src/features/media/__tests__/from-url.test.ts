@@ -184,7 +184,7 @@ describe("instagramShortcode / instagramImageIndex", () => {
         expect(instagramShortcode(new URL("https://www.instagram.com/explore/"))).toBeNull();
     });
 
-    it("img_index 是 1-based；缺省与非法值都回落到 null（取首图）", () => {
+    it("img_index 是 1-based；缺省与非法值都回落到 null（表示导入全部图片）", () => {
         expect(instagramImageIndex(new URL("https://www.instagram.com/p/abc12345/?img_index=5"))).toBe(5);
         expect(instagramImageIndex(new URL("https://www.instagram.com/p/abc12345/"))).toBeNull();
         expect(instagramImageIndex(new URL("https://www.instagram.com/p/abc12345/?img_index=0"))).toBeNull();
@@ -479,12 +479,17 @@ describe("instagramImageSelection", () => {
     it("img_index=N → 单张序号模式", () => {
         expect(instagramImageSelection(new URL(`${base}?img_index=4`))).toEqual({ mode: "index", index: 4 });
     });
-    it("缺省 → 首图模式", () => {
-        expect(instagramImageSelection(new URL(base))).toEqual({ mode: "first" });
+    it("缺省 → 批量模式（整组轮播全部导入）", () => {
+        expect(instagramImageSelection(new URL(base))).toEqual({ mode: "all" });
     });
-    it("非法值 → 首图模式", () => {
-        expect(instagramImageSelection(new URL(`${base}?img_index=x`))).toEqual({ mode: "first" });
-        expect(instagramImageSelection(new URL(`${base}?img_index=0`))).toEqual({ mode: "first" });
+    it("非法值 → 批量模式", () => {
+        expect(instagramImageSelection(new URL(`${base}?img_index=x`))).toEqual({ mode: "all" });
+        expect(instagramImageSelection(new URL(`${base}?img_index=0`))).toEqual({ mode: "all" });
+    });
+    it("分享链接自带 ?stkn 等参数时仍走批量模式（不用改链接）", () => {
+        expect(
+            instagramImageSelection(new URL(`${base}?stkn=MTE0bjlpd3k4dXR4Zw==`)),
+        ).toEqual({ mode: "all" });
     });
 });
 
