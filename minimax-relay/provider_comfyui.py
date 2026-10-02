@@ -220,7 +220,12 @@ class ComfyUIProvider(VideoProvider):
 
     @staticmethod
     def _find_video(outputs: dict) -> tuple[str, str, str] | None:
-        """从 history outputs 里找视频文件（Video Combine 节点输出在 gifs 下）。"""
+        """从 history outputs 里找视频文件。
+
+        SaveVideo / Video Combine 节点输出位置因 ComfyUI 版本而异：
+        gifs、videos，或 images（新版 SaveVideo 把视频放在 images 下，
+        用 animated=true 标记区别于静态图）。
+        """
         for node_out in outputs.values():
             if not isinstance(node_out, dict):
                 continue
@@ -229,6 +234,14 @@ class ComfyUIProvider(VideoProvider):
                 if not items:
                     continue
                 item = items[0]
+                return (
+                    str(item.get("filename", "")),
+                    str(item.get("subfolder", "")),
+                    str(item.get("type", "output")),
+                )
+            images = node_out.get("images")
+            if images and node_out.get("animated"):
+                item = images[0]
                 return (
                     str(item.get("filename", "")),
                     str(item.get("subfolder", "")),

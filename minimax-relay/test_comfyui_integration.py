@@ -57,14 +57,16 @@ class Handler(BaseHTTPRequestHandler):
                         "test-123": {
                             "status": {"completed": True, "status_str": "success"},
                             "outputs": {
-                                "9": {
-                                    "gifs": [
+                                "92": {
+                                    # 真实 ComfyUI 0.38 的 SaveVideo 输出格式
+                                    "images": [
                                         {
                                             "filename": "h3_out.mp4",
-                                            "subfolder": "",
+                                            "subfolder": "video",
                                             "type": "output",
                                         }
-                                    ]
+                                    ],
+                                    "animated": True,
                                 }
                             },
                         }

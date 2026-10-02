@@ -149,6 +149,40 @@ class TestQuery(unittest.TestCase):
         self.assertIn("/view?", url or "")
         self.assertIn("vid_001.mp4", url or "")
 
+    def test_success_with_video_in_images_animated(self):
+        # 新版 ComfyUI 的 SaveVideo 把视频放在 images 下，用 animated 标记
+        self._hist(
+            {
+                "status": {"completed": True, "status_str": "success"},
+                "outputs": {
+                    "92": {
+                        "images": [
+                            {
+                                "filename": "h3_t2v_00001_.mp4",
+                                "subfolder": "video",
+                                "type": "output",
+                            }
+                        ],
+                        "animated": True,
+                    }
+                },
+            }
+        )
+        status, url = self.p.query("pid-1")
+        self.assertEqual(status, "succeeded")
+        self.assertIn("h3_t2v_00001_.mp4", url or "")
+        self.assertIn("subfolder=video", url or "")
+
+    def test_images_without_animated_not_video(self):
+        # 纯静态图输出不应被当作成片
+        self._hist(
+            {
+                "status": {"completed": True, "status_str": "success"},
+                "outputs": {"5": {"images": [{"filename": "pic.png", "subfolder": "", "type": "output"}]}},
+            }
+        )
+        self.assertEqual(self.p.query("pid-1"), ("failed", None))
+
 
 class TestValidateConfig(unittest.TestCase):
     def test_missing_workflow_raises(self):
