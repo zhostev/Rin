@@ -84,8 +84,21 @@ describe("applyInstagramBatchPreference", () => {
       "https://www.instagram.com/p/abc123/?img_index=1",
     );
   });
-  it("链接里已有 img_index 时尊重显式值", () => {
+  it("开关开：链接自带 img_index=N 也被清掉，强制整组（stkn 保留）", () => {
+    const withIndex = "https://www.instagram.com/p/DdgdB_uFEyY/?img_index=7&stkn=MTMwcmpwcHk2cDhpaA==";
+    expect(applyInstagramBatchPreference(withIndex, true)).toBe(post);
+  });
+  it("开关开：img_index 在末尾时也被清掉", () => {
     const withIndex = `${post}&img_index=7`;
-    expect(applyInstagramBatchPreference(withIndex, false)).toBe(withIndex);
+    expect(applyInstagramBatchPreference(withIndex, true)).toBe(post);
+  });
+  it("开关开：只有 img_index 一个参数时 ? 也被清掉", () => {
+    expect(applyInstagramBatchPreference("https://www.instagram.com/p/abc123/?img_index=4", true)).toBe(
+      "https://www.instagram.com/p/abc123/",
+    );
+  });
+  it("开关关：链接自带 img_index=N 时先清掉再追加 img_index=1", () => {
+    const withIndex = "https://www.instagram.com/p/DdgdB_uFEyY/?img_index=7&stkn=MTMwcmpwcHk2cDhpaA==";
+    expect(applyInstagramBatchPreference(withIndex, false)).toBe(`${post}&img_index=1`);
   });
 });
