@@ -1163,7 +1163,31 @@
       "transcribe_audio_failed_normalize_unsupported": "目前瀏覽器不支援音訊處理，請改用 Safari 或 Chrome 重試。",
       "transcribe_audio_failed_presign": "分片上傳準備失敗：{{message}}",
       "transcribe_audio_failed_upload": "分片上傳失敗：{{message}}",
-      "transcribe_chunk_note": "音訊較大時，送出後將在瀏覽器內轉為 16kHz 單聲道並分段轉寫（分片僅用於轉寫，不佔用媒體庫）。"
+      "transcribe_chunk_note": "音訊較大時，送出後將在瀏覽器內轉為 16kHz 單聲道並分段轉寫（分片僅用於轉寫，不佔用媒體庫）。",
+      "extract_audio_phase_download": "正在下載影片…",
+      "extract_audio_phase_extract": "正在擷取音訊…",
+      "extract_audio_phase_upload": "正在上傳音訊…",
+      "extract_audio_failed_download": "影片下載失敗（HTTP {{status}}），請重試。",
+      "extract_audio_failed_empty": "影片檔案為空，無法擷取音訊。",
+      "extract_audio_failed_too_large": "影片檔案過大，瀏覽器內無法擷取音訊，請先在電腦上轉出音訊再上傳。",
+      "extract_audio_failed_no_audio_track": "該影片沒有音軌，無法轉錄。",
+      "extract_audio_failed_decode_failed": "音訊解碼失敗，影片編碼可能不受支援。",
+      "extract_audio_failed_unsupported": "目前瀏覽器不支援音訊擷取，請改用 Safari 或 Chrome 重試。",
+      "extract_audio_failed_upload": "音訊上傳失敗：{{message}}",
+      "capability_video": "影片生成",
+      "capability_video_desc": "用 MiniMax H3 按提示詞生成短片（4–15 秒），可選圖片作首幀。",
+      "video_prompt_placeholder": "描述你想要的影片畫面（圖生影片時寫運鏡/動作提示詞）…",
+      "video_i2v_note": "圖生影片：所選圖片為首幀，畫面比例自適應圖片。",
+      "video_duration": "時長",
+      "video_resolution": "清晰度",
+      "video_ratio": "畫面比例",
+      "video_seconds": "{{seconds}} 秒",
+      "video_cost_estimate": "預估費用約 ¥{{price}}（{{seconds}} 秒，按量計費，實際以 MiniMax 賬單為準）",
+      "video_cost_local": "本機 3090 生成，不計費（約需幾分鐘，請耐心等待）",
+      "video_needs_image": "影片首幀僅支持圖片資源，當前選擇的是「{{kind}}」資源，請返回上一步更換。",
+      "video_ratio_adaptive": "自適應",
+      "review_video_params": "影片參數",
+      "review_video_prompt": "提示詞"
     },
     "detail": {
       "title": "任務 #{{id}}",
@@ -1187,7 +1211,9 @@
       "applied": "已套用",
       "applied_at": "已於 {{date}} 套用",
       "artifact_error_title": "任務失敗",
-      "artifact_error_raw": "原始錯誤訊息"
+      "artifact_error_raw": "原始錯誤訊息",
+      "accept_video": "接受並導入媒體庫",
+      "video_accept_hint": "接受後成片將從中轉服務下載並導入媒體庫，可在媒體中心播放。"
     },
     "usage": {
       "title": "用量 · 近 {{days}} 天",

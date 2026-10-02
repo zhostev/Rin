@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { Hono } from "hono";
 import type { Variables } from "../../../core/hono-types";
 import { aiArtifacts, aiJobs, aiSettings, aiUsage, stories, transcripts } from "../../../db/schema";
@@ -510,5 +510,48 @@ describe("POST /transcribe-chunks/presign", () => {
         expect(res.status).toBe(503);
         const body = (await res.json()) as any;
         expect(body.error.code).toBe("r2_not_configured");
+    });
+});
+
+describe("GET /video-provider", () => {
+    const relayEnv = {
+        MINIMAX_RELAY_URL: "https://relay.example:18081",
+        MINIMAX_RELAY_SECRET: "s3cret",
+    };
+    const realFetch = globalThis.fetch;
+
+    afterEach(() => {
+        globalThis.fetch = realFetch;
+    });
+
+    it("returns provider null when relay is unconfigured", async () => {
+        const { app } = buildApp();
+        const res = await app.request("/video-provider");
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as any;
+        expect(body.provider).toBeNull();
+    });
+
+    it("returns the relay-reported provider", async () => {
+        globalThis.fetch = (async () =>
+            new Response(JSON.stringify({ ok: true, provider: "comfyui" }), {
+                status: 200,
+            })) as any;
+        const { app } = buildApp({ envExtra: relayEnv });
+        const res = await app.request("/video-provider");
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as any;
+        expect(body.provider).toBe("comfyui");
+    });
+
+    it("returns null when the relay is unreachable", async () => {
+        globalThis.fetch = (async () => {
+            throw new Error("down");
+        }) as any;
+        const { app } = buildApp({ envExtra: relayEnv });
+        const res = await app.request("/video-provider");
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as any;
+        expect(body.provider).toBeNull();
     });
 });

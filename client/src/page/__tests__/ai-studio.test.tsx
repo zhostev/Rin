@@ -39,6 +39,8 @@ let jobsResponse: AIJob[] = [
 ];
 // 为空时 getJob mock 回退到 jobsResponse[0] + 无产物。
 let jobDetailResponse: AIJobDetailResponse | null = null;
+// 视频后端类型 mock，默认 minimax（按量计费提示）。
+let videoProviderResponse: "minimax" | "comfyui" | null = "minimax";
 
 mock.module("../../app/runtime", () => ({
   client: {
@@ -48,6 +50,7 @@ mock.module("../../app/runtime", () => ({
       getJob: async () => ({ data: jobDetailResponse ?? { job: jobsResponse[0], artifacts: [] } }),
       acceptArtifact: async () => ({ data: { ok: true, applied: true } }),
       rejectArtifact: async () => ({ data: { ok: true } }),
+      getVideoProvider: async () => ({ data: { ok: true, provider: videoProviderResponse } }),
     },
     story: {
       list: async () => ({ data: storiesResponse }),
@@ -120,10 +123,12 @@ describe("AIStudioPage", () => {
     await user.type(getByPlaceholderText("ai_studio.wizard.paste_text_placeholder"), "待处理文本");
     await user.click(getByText("ai_studio.wizard.next"));
 
-    // Step 2: only retrieval-test and embed accept free text; the rest
+    // Step 2: only retrieval-test, embed and video accept free text; the rest
     // require storyId/assetId and must not be offered.
     expect(getByText("ai_studio.wizard.capability_retrieval_test")).toBeDefined();
     expect(getByText("ai_studio.wizard.capability_embed")).toBeDefined();
+    // video 接受纯文本 prompt（文生视频）
+    expect(getByText("ai_studio.wizard.capability_video")).toBeDefined();
     expect(queryByText("ai_studio.wizard.capability_transcribe")).toBeNull();
     expect(queryByText("ai_studio.wizard.capability_derive")).toBeNull();
     expect(queryByText("ai_studio.wizard.capability_check")).toBeNull();
@@ -142,12 +147,14 @@ describe("AIStudioPage", () => {
     await user.click(await findByText("测试文章"));
     await user.click(getByText("ai_studio.wizard.next"));
 
-    // Step 2: transcribe needs an assetId, retrieval-test needs a question.
+    // Step 2: transcribe needs an assetId, retrieval-test needs a question,
+    // video needs a text prompt or an image asset — none of which a story offers.
     expect(getByText("ai_studio.wizard.capability_derive")).toBeDefined();
     expect(getByText("ai_studio.wizard.capability_check")).toBeDefined();
     expect(getByText("ai_studio.wizard.capability_embed")).toBeDefined();
     expect(queryByText("ai_studio.wizard.capability_transcribe")).toBeNull();
     expect(queryByText("ai_studio.wizard.capability_retrieval_test")).toBeNull();
+    expect(queryByText("ai_studio.wizard.capability_video")).toBeNull();
   });
 
   it("only offers capabilities compatible with a media asset", async () => {
@@ -164,9 +171,11 @@ describe("AIStudioPage", () => {
     await user.click(await findByText("t.mp3"));
     await user.click(getByText("ai_studio.wizard.next"));
 
-    // Step 2: only transcribe and embed accept an assetId.
+    // Step 2: transcribe and embed accept an assetId; video accepts an image
+    // asset as its first frame; the rest must not be offered.
     expect(getByText("ai_studio.wizard.capability_transcribe")).toBeDefined();
     expect(getByText("ai_studio.wizard.capability_embed")).toBeDefined();
+    expect(getByText("ai_studio.wizard.capability_video")).toBeDefined();
     expect(queryByText("ai_studio.wizard.capability_derive")).toBeNull();
     expect(queryByText("ai_studio.wizard.capability_check")).toBeNull();
     expect(queryByText("ai_studio.wizard.capability_retrieval_test")).toBeNull();
@@ -226,6 +235,103 @@ describe("AIStudioPage", () => {
     expect(await findByText("v.mp4")).toBeDefined();
     expect(queryByText("pic.png")).toBeNull();
   });
+
+  it("only offers images as the first frame when generating video", async () => {
+    mediaResponse = {
+      size: 3,
+      data: [
+        { id: 7, kind: "audio", title: "t.mp3" },
+        { id: 8, kind: "image", title: "pic.png" },
+        { id: 9, kind: "video", title: "v.mp4" },
+      ],
+      hasNext: false,
+    };
+    const user = userEvent.setup();
+    const { findByText, getByText, getByPlaceholderText, queryByText } = render(<AIStudioPage />);
+
+    await findByText("ai_studio.jobs.status.completed");
+    await user.click(getByText("ai_studio.jobs.new"));
+
+    // Step 1: pick a video asset while the capability is still transcribe.
+    await user.click(getByText("ai_studio.wizard.material_asset"));
+    await user.click(getByText("ai_studio.wizard.pick_asset"));
+    await user.click(await findByText("v.mp4"));
+    await user.click(getByText("ai_studio.wizard.next"));
+
+    // Step 2: switch to video — a video asset is not a valid first frame.
+    await user.click(getByText("ai_studio.wizard.capability_video"));
+    expect(getByText("ai_studio.wizard.video_needs_image")).toBeDefined();
+
+    // Back on step 1 the picker now only lists images. The stale selection
+    // (a video asset) is no longer among the options, so the picker button
+    // falls back to the raw id — open it via that label, then clear the
+    // prefilled search (the stale id) to reveal the image options.
+    await user.click(getByText("ai_studio.wizard.back"));
+    await user.click(getByText("9"));
+    // 下拉打开时搜索框会带入旧值（被筛掉的资源 id），手动清空以显示图片选项
+    // 下拉打开时搜索框会带入旧值（被筛掉的资源 id），先清空再看选项
+    const searchInput = getByPlaceholderText("ai_studio.wizard.pick_asset");
+    await user.click(searchInput);
+    await user.keyboard("{Home}{Shift>}{End}{/Shift}{Backspace}");
+    expect(await findByText("pic.png")).toBeDefined();
+    expect(queryByText("t.mp3")).toBeNull();
+    expect(queryByText("v.mp4")).toBeNull();
+  });
+
+  it("configures video params and shows the cost estimate", async () => {
+    const user = userEvent.setup();
+    const { findByText, getByText, getByPlaceholderText } = render(<AIStudioPage />);
+
+    await findByText("ai_studio.jobs.status.completed");
+    await user.click(getByText("ai_studio.jobs.new"));
+
+    // Step 1: the pasted text doubles as the text-to-video prompt.
+    await user.click(getByText("ai_studio.wizard.material_text"));
+    await user.type(
+      getByPlaceholderText("ai_studio.wizard.paste_text_placeholder"),
+      "一朵云在城市上空翻涌",
+    );
+    await user.click(getByText("ai_studio.wizard.next"));
+
+    // Step 2: video params (duration/resolution/ratio) plus a cost estimate.
+    await user.click(getByText("ai_studio.wizard.capability_video"));
+    expect(getByText("ai_studio.wizard.video_duration")).toBeDefined();
+    expect(getByText("ai_studio.wizard.video_resolution")).toBeDefined();
+    expect(getByText("ai_studio.wizard.video_ratio")).toBeDefined();
+    expect(getByText("ai_studio.wizard.video_cost_estimate")).toBeDefined();
+
+    // Step 3: review shows the chosen params and the estimate again.
+    // (keys share their <p> with values, so assert on textContent.)
+    await user.click(getByText("ai_studio.wizard.next"));
+    const reviewText = document.body.textContent ?? "";
+    expect(reviewText).toContain("ai_studio.wizard.review_video_params");
+    expect(reviewText).toContain("ai_studio.wizard.video_cost_estimate");
+    expect(reviewText).toContain("16:9");
+  });
+
+  it("shows the free-local hint when the relay backend is comfyui", async () => {
+    videoProviderResponse = "comfyui";
+    try {
+      const user = userEvent.setup();
+      const { findByText, getByText, getByPlaceholderText } = render(<AIStudioPage />);
+
+      await findByText("ai_studio.jobs.status.completed");
+      await user.click(getByText("ai_studio.jobs.new"));
+
+      await user.click(getByText("ai_studio.wizard.material_text"));
+      await user.type(
+        getByPlaceholderText("ai_studio.wizard.paste_text_placeholder"),
+        "一朵云在城市上空翻涌",
+      );
+      await user.click(getByText("ai_studio.wizard.next"));
+
+      await user.click(getByText("ai_studio.wizard.capability_video"));
+      expect(getByText("ai_studio.wizard.video_cost_local")).toBeDefined();
+      expect(document.body.textContent ?? "").not.toContain("ai_studio.wizard.video_cost_estimate");
+    } finally {
+      videoProviderResponse = "minimax";
+    }
+  });
 });
 
 describe("formatDateTime", () => {
@@ -259,6 +365,7 @@ describe("capabilityKeyForJobType", () => {
     expect(capabilityKeyForJobType("aistudio.check")).toBe("ai_studio.wizard.capability_check");
     expect(capabilityKeyForJobType("aistudio.retrieval-test")).toBe("ai_studio.wizard.capability_retrieval_test");
     expect(capabilityKeyForJobType("aistudio.embed")).toBe("ai_studio.wizard.capability_embed");
+    expect(capabilityKeyForJobType("aistudio.video")).toBe("ai_studio.wizard.capability_video");
     // 兼容不带前缀的历史写法
     expect(capabilityKeyForJobType("derive")).toBe("ai_studio.wizard.capability_derive");
   });

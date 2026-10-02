@@ -11,19 +11,25 @@ export const AISTUDIO_DERIVE_TASK = "aistudio.derive" as const;
 export const AISTUDIO_CHECK_TASK = "aistudio.check" as const;
 export const AISTUDIO_RETRIEVAL_TEST_TASK = "aistudio.retrieval-test" as const;
 export const AISTUDIO_EMBED_TASK = "aistudio.embed" as const;
+// MiniMax H3 视频生成：processor 只做提交（relay 异步），cron sweep 轮询收尾
+//（处理函数见 server/src/features/ai-studio/processors.ts + minimax-sweep.ts）
+export const AISTUDIO_VIDEO_TASK = "aistudio.video" as const;
 
 export type AIStudioTaskType =
   | typeof AISTUDIO_TRANSCRIBE_TASK
   | typeof AISTUDIO_DERIVE_TASK
   | typeof AISTUDIO_CHECK_TASK
   | typeof AISTUDIO_RETRIEVAL_TEST_TASK
-  | typeof AISTUDIO_EMBED_TASK;
+  | typeof AISTUDIO_EMBED_TASK
+  | typeof AISTUDIO_VIDEO_TASK;
 
 export interface AIStudioTaskPayload {
   jobId: number;
   storyId?: number;
   assetId?: number;
   question?: string;
+  /** video 任务的文本 prompt（MiniMax H3） */
+  prompt?: string;
   params?: Record<string, unknown>;
 }
 
@@ -198,7 +204,8 @@ export function isQueueTask(value: unknown): value is QueueTask {
     task.type === AISTUDIO_DERIVE_TASK ||
     task.type === AISTUDIO_CHECK_TASK ||
     task.type === AISTUDIO_RETRIEVAL_TEST_TASK ||
-    task.type === AISTUDIO_EMBED_TASK
+    task.type === AISTUDIO_EMBED_TASK ||
+    task.type === AISTUDIO_VIDEO_TASK
   ) {
     return isAIStudioPayload(task.payload);
   }

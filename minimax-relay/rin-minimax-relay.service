@@ -1,0 +1,17 @@
+[Unit]
+Description=Rin MiniMax H3 video relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/rin-minimax-relay
+# 密钥放这里（root 可读即可）：RELAY_SECRET / MINIMAX_API_KEY
+EnvironmentFile=/etc/rin-minimax-relay.env
+Environment=DATA_DIR=/opt/rin-minimax-relay/data
+ExecStart=/usr/bin/python3 /opt/rin-minimax-relay/server.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

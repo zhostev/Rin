@@ -137,6 +137,39 @@ function errorArtifactInfo(output: unknown): { message: string; rawPreview?: str
   };
 }
 
+interface VideoArtifactInfo {
+  prompt: string;
+  duration?: number;
+  resolution?: string;
+  ratio?: string;
+  bytes?: number;
+  /** 接受后回填：媒体库资产 id，可直接播放 */
+  assetId?: number | string;
+}
+
+/** 视频生成产物：{kind:'video', relayJobId, prompt, duration, resolution, ratio, bytes?, assetId?} */
+function videoArtifactInfo(output: unknown): VideoArtifactInfo | null {
+  if (!output || typeof output !== "object" || Array.isArray(output)) return null;
+  const record = output as Record<string, unknown>;
+  if (record.kind !== "video") return null;
+  const assetId = record.assetId;
+  return {
+    prompt: typeof record.prompt === "string" ? record.prompt : "",
+    duration: typeof record.duration === "number" ? record.duration : undefined,
+    resolution: typeof record.resolution === "string" ? record.resolution : undefined,
+    ratio: typeof record.ratio === "string" ? record.ratio : undefined,
+    bytes: typeof record.bytes === "number" ? record.bytes : undefined,
+    assetId:
+      typeof assetId === "number" || typeof assetId === "string" ? assetId : undefined,
+  };
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 function MockBadge() {
   const { t } = useTranslation();
   return (
@@ -210,19 +243,30 @@ type MaterialKind = AIJobMaterial;
 type DeriveType = "summary" | "chapters" | "platform_copy";
 type CheckItem = "broken_links" | "missing_alt" | "stale_facts" | "metadata";
 
-const CAPABILITIES: AIJobKind[] = ["transcribe", "derive", "check", "retrieval-test", "embed"];
+const CAPABILITIES: AIJobKind[] = ["transcribe", "derive", "check", "retrieval-test", "embed", "video"];
 const DERIVE_TYPES: DeriveType[] = ["summary", "chapters", "platform_copy"];
 const CHECK_ITEMS: CheckItem[] = ["broken_links", "missing_alt", "stale_facts", "metadata"];
+
+/** MiniMax H3 视频参数选项（与服务端 MINIMAX_VIDEO_* 常量保持一致）。 */
+const VIDEO_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const VIDEO_RESOLUTIONS = ["768P", "2K"] as const;
+const VIDEO_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"] as const;
+/** 约单价（元/秒），仅用于向导里的费用预估展示，以 MiniMax 官网为准。 */
+const VIDEO_PRICE_PER_SECOND: Record<(typeof VIDEO_RESOLUTIONS)[number], number> = {
+  "768P": 0.5,
+  "2K": 0.8,
+};
 
 /**
  * 素材来源与任务类型的兼容矩阵。后端对每种任务要求固定的输入
  *（transcribe 要 assetId，derive/check 要 storyId，retrieval-test 要
- * question），无效组合提交会被服务端打回，这里直接不在第二步列出。
+ * question，video 要 text prompt、可选 assetId 作首帧图），无效组合
+ * 提交会被服务端打回，这里直接不在第二步列出。
  */
 const MATERIAL_CAPABILITIES: Record<MaterialKind, AIJobKind[]> = {
   story: ["derive", "check", "embed"],
-  asset: ["transcribe", "embed"],
-  text: ["retrieval-test", "embed"],
+  asset: ["transcribe", "embed", "video"],
+  text: ["retrieval-test", "embed", "video"],
 };
 
 function JobWizard({
@@ -245,6 +289,11 @@ function JobWizard({
   const [deriveType, setDeriveType] = useState<DeriveType>("summary");
   const [checks, setChecks] = useState<CheckItem[]>(["broken_links"]);
   const [question, setQuestion] = useState("");
+  /** 视频生成参数（MiniMax H3）：asset+video 时 prompt 来自 videoPrompt，text+video 时 prompt 即粘贴文本。 */
+  const [videoPrompt, setVideoPrompt] = useState("");
+  const [videoDuration, setVideoDuration] = useState(6);
+  const [videoResolution, setVideoResolution] = useState<(typeof VIDEO_RESOLUTIONS)[number]>("768P");
+  const [videoRatio, setVideoRatio] = useState<(typeof VIDEO_RATIOS)[number]>("16:9");
   const [stories, setStories] = useState<Array<{ value: string; label: string }>>([]);
   const [assets, setAssets] = useState<Array<{ value: string; label: string; kind: string }>>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -252,6 +301,10 @@ function JobWizard({
   const [transcribePhase, setTranscribePhase] = useState<"download" | "normalize" | "upload" | null>(
     null,
   );
+  /** relay 视频后端：minimax（按量计费）/ comfyui（本地免费）/ null（未知，按 minimax 展示）。 */
+  const [videoProvider, setVideoProvider] = useState<"minimax" | "comfyui" | null>(null);
+  /** 视频转录时的提取阶段：download（取视频）/ extract（抽音轨）/ upload（传音频）。 */
+  const [extractPhase, setExtractPhase] = useState<"download" | "extract" | "upload" | null>(null);
 
   // Load pickers lazily when the wizard opens.
   useEffect(() => {
@@ -285,6 +338,13 @@ function JobWizard({
         }
       })
       .catch(() => undefined);
+    // 视频后端类型决定费用提示：comfyui 本地生成免费，minimax 按量计费。
+    client.aiStudio
+      .getVideoProvider()
+      .then(({ data, error }) => {
+        if (!error && data) setVideoProvider(data.provider);
+      })
+      .catch(() => undefined);
   }, [open ]);
 
   const materialValid = useMemo(() => {
@@ -299,8 +359,11 @@ function JobWizard({
     if (capability === "derive") return true;
     if (capability === "check") return checks.length > 0;
     if (capability === "retrieval-test") return question.trim().length > 0;
+    // video：text 素材的 prompt 就是粘贴文本（第 1 步已校验非空）；
+    // asset 素材（图生视频）需要额外输入 prompt。
+    if (capability === "video") return material !== "asset" || videoPrompt.trim().length > 0;
     return true;
-  }, [capability, checks, question]);
+  }, [capability, checks, question, material, videoPrompt]);
 
   const selectedAsset = useMemo(
     () => assets.find((option) => option.value === assetId) ?? null,
@@ -312,13 +375,16 @@ function JobWizard({
    * 免得选完到第 2 步才被红字拦下。第 2 步的 transcribeAssetInvalid
    * 红字警告保留作兜底（比如先选图再切任务类型的路径）。
    */
-  const assetOptions = useMemo(
-    () =>
-      capability === "transcribe"
-        ? assets.filter((option) => option.kind === "audio" || option.kind === "video")
-        : assets,
-    [assets, capability],
-  );
+  const assetOptions = useMemo(() => {
+    if (capability === "transcribe") {
+      return assets.filter((option) => option.kind === "audio" || option.kind === "video");
+    }
+    // 视频首帧只收图片：选择器里直接过滤，免得选完才被红字拦下
+    if (capability === "video") {
+      return assets.filter((option) => option.kind === "image");
+    }
+    return assets;
+  }, [assets, capability]);
 
   /**
    * 转写仅支持音频/视频素材：选了图片等其他类型时在向导里直接拦截并提示，
@@ -331,8 +397,19 @@ function JobWizard({
     selectedAsset.kind !== "audio" &&
     selectedAsset.kind !== "video";
 
+  /** 视频首帧仅支持图片素材：选了其他类型时在向导里直接拦截（服务端同样会 400 打回）。 */
+  const videoAssetInvalid =
+    material === "asset" &&
+    capability === "video" &&
+    selectedAsset != null &&
+    selectedAsset.kind !== "image";
+
   const canNext =
-    step === 1 ? materialValid : step === 2 ? capabilityValid && !transcribeAssetInvalid : true;
+    step === 1
+      ? materialValid
+      : step === 2
+        ? capabilityValid && !transcribeAssetInvalid && !videoAssetInvalid
+        : true;
 
   // 素材来源变化（或向导打开）时，若当前任务类型与素材不兼容，
   // 自动切到该素材的第一个可用任务，避免提交无效组合被服务端打回。
@@ -361,6 +438,8 @@ function JobWizard({
     capability === "transcribe" &&
     (selectedAsset?.kind === "audio" || selectedAsset?.kind === "video");
   const isTranscribeVideo = needsTranscribePreprocess && selectedAsset?.kind === "video";
+  const needsAudioExtraction =
+    material === "asset" && capability === "transcribe" && selectedAsset?.kind === "video";
 
   function buildPayload(): { kind: AIJobKind; input: AIJobInput; params?: Record<string, unknown> } {
     // buildAIJobInput converts picker string ids to numbers; the backend
@@ -370,6 +449,14 @@ function JobWizard({
     const params: Record<string, unknown> = {};
     if (capability === "derive") params.derive = deriveType;
     if (capability === "check") params.checks = checks;
+    if (capability === "video") {
+      // asset 素材：prompt 来自第 2 步的视频提示词输入；首帧图即所选图片（ratio 强制 adaptive）
+      if (material === "asset") input.text = videoPrompt.trim();
+      params.duration = videoDuration;
+      params.resolution = videoResolution;
+      // 图生视频时 ratio 由服务端固定为 adaptive，这里不传
+      if (material !== "asset") params.ratio = videoRatio;
+    }
     return {
       kind: capability,
       input,
@@ -382,6 +469,10 @@ function JobWizard({
       showAlert(
         t("ai_studio.wizard.transcribe_needs_audio_video", { kind: selectedAsset?.kind ?? "" }),
       );
+      return;
+    }
+    if (videoAssetInvalid) {
+      showAlert(t("ai_studio.wizard.video_needs_image", { kind: selectedAsset?.kind ?? "" }));
       return;
     }
     setSubmitting(true);
@@ -631,6 +722,105 @@ function JobWizard({
                 className="w-full rounded-xl border border-black/10 bg-w p-3 text-sm t-primary outline-none focus:border-theme dark:border-white/10"
               />
             ) : null}
+
+            {videoAssetInvalid ? (
+              <p className="rounded-xl bg-rose-500/10 px-3.5 py-2.5 text-sm font-medium text-rose-700 dark:text-rose-300">
+                {t("ai_studio.wizard.video_needs_image", { kind: selectedAsset?.kind ?? "" })}
+              </p>
+            ) : null}
+
+            {capability === "video" ? (
+              <div className="flex flex-col gap-3 pl-1">
+                {material === "asset" ? (
+                  <>
+                    <textarea
+                      value={videoPrompt}
+                      onChange={(event) => setVideoPrompt(event.target.value)}
+                      rows={4}
+                      maxLength={7000}
+                      placeholder={t("ai_studio.wizard.video_prompt_placeholder")}
+                      className="w-full rounded-xl border border-black/10 bg-w p-3 text-sm t-primary outline-none focus:border-theme dark:border-white/10"
+                    />
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                      {t("ai_studio.wizard.video_i2v_note")}
+                    </p>
+                  </>
+                ) : null}
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                    {t("ai_studio.wizard.video_duration")}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {VIDEO_DURATIONS.map((seconds) => (
+                      <button
+                        key={seconds}
+                        type="button"
+                        onClick={() => setVideoDuration(seconds)}
+                        className={`rounded-full px-3 py-1 text-sm font-medium ${
+                          videoDuration === seconds
+                            ? "bg-w text-theme shadow"
+                            : "t-secondary hover:t-primary"
+                        }`}
+                      >
+                        {t("ai_studio.wizard.video_seconds", { seconds })}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                    {t("ai_studio.wizard.video_resolution")}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {VIDEO_RESOLUTIONS.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => setVideoResolution(option)}
+                        className={`rounded-full px-3.5 py-1.5 text-sm font-medium ${
+                          videoResolution === option
+                            ? "bg-w text-theme shadow"
+                            : "t-secondary hover:t-primary"
+                        }`}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {material !== "asset" ? (
+                  <div className="flex flex-col gap-1.5">
+                    <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                      {t("ai_studio.wizard.video_ratio")}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {VIDEO_RATIOS.map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => setVideoRatio(option)}
+                          className={`rounded-full px-3.5 py-1.5 text-sm font-medium ${
+                            videoRatio === option
+                              ? "bg-w text-theme shadow"
+                              : "t-secondary hover:t-primary"
+                          }`}
+                        >
+                          {option}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                <p className="rounded-xl bg-amber-500/10 px-3.5 py-2.5 text-sm font-medium text-amber-700 dark:text-amber-300">
+                  {videoProvider === "comfyui"
+                  ? t("ai_studio.wizard.video_cost_local")
+                  : t("ai_studio.wizard.video_cost_estimate", {
+                      seconds: videoDuration,
+                      price: (videoDuration * VIDEO_PRICE_PER_SECOND[videoResolution]).toFixed(1),
+                    })}
+                </p>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -659,7 +849,35 @@ function JobWizard({
                       {question.trim()}
                     </p>
                   ) : null}
-                  {isTranscribeVideo ? (
+                  {capability === "video" ? (
+                    <>
+                      <p>
+                        <span className="text-neutral-500">{t("ai_studio.wizard.review_video_params")}: </span>
+                        {t("ai_studio.wizard.video_seconds", { seconds: videoDuration })}
+                        {" · "}
+                        {videoResolution}
+                        {" · "}
+                        {material === "asset"
+                          ? t("ai_studio.wizard.video_ratio_adaptive")
+                          : videoRatio}
+                      </p>
+                      {material === "asset" ? (
+                        <p>
+                          <span className="text-neutral-500">{t("ai_studio.wizard.review_video_prompt")}: </span>
+                          {videoPrompt.trim()}
+                        </p>
+                      ) : null}
+                      <p className="font-medium text-amber-700 dark:text-amber-300">
+                        {videoProvider === "comfyui"
+                          ? t("ai_studio.wizard.video_cost_local")
+                          : t("ai_studio.wizard.video_cost_estimate", {
+                              seconds: videoDuration,
+                              price: (videoDuration * VIDEO_PRICE_PER_SECOND[videoResolution]).toFixed(1),
+                            })}
+                      </p>
+                    </>
+                  ) : null}
+                  {needsAudioExtraction ? (
                     <p className="text-neutral-500">{t("ai_studio.wizard.extract_audio_note")}</p>
                   ) : null}
                   {needsTranscribePreprocess && !isTranscribeVideo ? (
@@ -697,7 +915,7 @@ function JobWizard({
                       ? t("ai_studio.wizard.submitting")
                       : t("ai_studio.wizard.submit")
                 }
-                disabled={submitting || transcribeAssetInvalid}
+                disabled={submitting || transcribeAssetInvalid || videoAssetInvalid}
                 onClick={() => void submit()}
               />
             )}
@@ -775,6 +993,7 @@ function ArtifactCard({
 
   const draftText = useMemo(() => extractDraftText(artifact.output_json), [artifact.output_json]);
   const errorInfo = useMemo(() => errorArtifactInfo(artifact.output_json), [artifact.output_json]);
+  const videoInfo = useMemo(() => videoArtifactInfo(artifact.output_json), [artifact.output_json]);
 
   // Load the current body/transcript for the diff view when it is first opened.
   useEffect(() => {
@@ -833,7 +1052,7 @@ function ArtifactCard({
       />
       <SettingsCardBody>
         <div className="flex flex-col gap-3">
-          {!errorInfo ? (
+          {!errorInfo && !videoInfo ? (
             <div className="flex gap-2">
               {(["result", "diff"] as const).map((tab) => (
                 <button
@@ -847,6 +1066,41 @@ function ArtifactCard({
                   {t(`ai_studio.detail.view_${tab}`)}
                 </button>
               ))}
+            </div>
+          ) : null}
+
+          {videoInfo && !errorInfo ? (
+            <div className="flex flex-col gap-3">
+              {videoInfo.assetId != null ? (
+                <video
+                  controls
+                  preload="metadata"
+                  src={mediaPlaybackRelativeUrl(String(videoInfo.assetId))}
+                  className="w-full rounded-xl bg-black"
+                />
+              ) : null}
+              <div className="rounded-xl border border-black/10 px-3.5 py-3 text-sm dark:border-white/10">
+                {videoInfo.prompt ? (
+                  <p className="whitespace-pre-wrap break-words t-primary">{videoInfo.prompt}</p>
+                ) : null}
+                <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+                  {[
+                    videoInfo.duration != null
+                      ? t("ai_studio.wizard.video_seconds", { seconds: videoInfo.duration })
+                      : null,
+                    videoInfo.resolution ?? null,
+                    videoInfo.ratio ?? null,
+                    videoInfo.bytes != null ? formatBytes(videoInfo.bytes) : null,
+                  ]
+                    .filter((part) => part != null)
+                    .join(" · ")}
+                </p>
+                {videoInfo.assetId == null ? (
+                  <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+                    {t("ai_studio.detail.video_accept_hint")}
+                  </p>
+                ) : null}
+              </div>
             </div>
           ) : null}
 
@@ -871,9 +1125,9 @@ function ArtifactCard({
             </div>
           ) : null}
 
-          {!errorInfo && view === "result" ? <JsonTree value={artifact.output_json} /> : null}
+          {!errorInfo && !videoInfo && view === "result" ? <JsonTree value={artifact.output_json} /> : null}
 
-          {!errorInfo && view === "diff" ? (
+          {!errorInfo && !videoInfo && view === "diff" ? (
             draftText && currentText !== null ? (
               <TextDiffView oldText={currentText} newText={draftText} />
             ) : draftText && currentTextFailed ? (
@@ -927,7 +1181,13 @@ function ArtifactCard({
             <div className="flex flex-wrap gap-2">
               {!errorInfo ? (
                 <Button
-                  title={acting === "accept" ? t("ai_studio.detail.accepting") : t("ai_studio.detail.accept")}
+                  title={
+                    acting === "accept"
+                      ? t("ai_studio.detail.accepting")
+                      : videoInfo
+                        ? t("ai_studio.detail.accept_video")
+                        : t("ai_studio.detail.accept")
+                  }
                   disabled={acting !== null}
                   onClick={() => void act("accept")}
                 />

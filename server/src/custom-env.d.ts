@@ -41,6 +41,11 @@ declare global {
      *  帖子页 HTML 对机房 IP 会 429，抓取交给 Apify 的 actor。未配置时
      *  /api/admin/media/from-url 对 IG 链接返回 422 instagram_resolve_failed。 */
     APIFY_TOKEN?: string;
+    // --- MiniMax H3 视频生成中转（ddns.hoo.ink 自建服务，见 minimax-relay/）---
+    /** 中转服务地址，如 https://ddns.hoo.ink:18081（须经公网 HTTPS 可达，Worker 要能回调） */
+    MINIMAX_RELAY_URL?: string;
+    /** 中转服务鉴权密钥（与中转机的 RELAY_SECRET 相同） */
+    MINIMAX_RELAY_SECRET?: string;
   }
 }
 
