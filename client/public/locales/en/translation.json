@@ -57,8 +57,9 @@
       "from_url_too_large": "Image exceeds the 10MB limit",
       "from_url_not_image": "That URL did not return an image",
       "from_url_not_configured": "Server storage is not configured",
-      "from_url_hint": "Direct image links work; an Instagram post link is resolved through Apify and the whole carousel is imported (?img_index=N picks just one item; use & instead of ? if the link already has query params like ?igsh=)",
+      "from_url_hint": "Direct image links work; an Instagram post link is resolved through Apify and the whole carousel is imported by default",
       "from_url_instagram_failed": "Could not resolve the Instagram post. Check that APIFY_TOKEN is configured and the post is public, or paste a direct image link.",
+      "from_url_batch_all": "Import the whole carousel",
       "group_count": "{{count}} photos",
       "group_expand": "Expand",
       "group_collapse": "Collapse"
