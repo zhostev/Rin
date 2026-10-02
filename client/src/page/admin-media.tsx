@@ -18,7 +18,7 @@ import { useAlert, useConfirm } from "../components/dialog";
 import { Waiting } from "../components/loading";
 import type { AssetKind, MediaAsset } from "../api/story";
 import { detectMediaType, uploadMediaFile } from "../utils/media-upload";
-import { groupAssets, groupTitle } from "../utils/media-groups";
+import { groupAssets, groupTitle, isInstagramPostUrl, applyInstagramBatchPreference } from "../utils/media-groups";
 import { formatDuration } from "../components/story-blocks/block-utils";
 
 type KindFilter = "all" | AssetKind;
@@ -314,6 +314,7 @@ export function AdminMediaLibraryPage() {
   const [fromUrl, setFromUrl] = useState("");
   const [fromUrlTitle, setFromUrlTitle] = useState("");
   const [fromUrlAlt, setFromUrlAlt] = useState("");
+  const [fromUrlBatchAll, setFromUrlBatchAll] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const { showAlert, AlertUI } = useAlert();
@@ -369,11 +370,13 @@ export function AdminMediaLibraryPage() {
   }
 
   async function handleFromUrlDownload() {
-    const url = fromUrl.trim();
-    if (!url) {
+    const raw = fromUrl.trim();
+    if (!raw) {
       showAlert(t("admin.media_library.from_url_invalid"));
       return;
     }
+    // 「整组导入」开关只影响 Instagram 帖子链接：关掉时追加 img_index=1 只取第 1 张
+    const url = applyInstagramBatchPreference(raw, fromUrlBatchAll);
     setDownloading(true);
     try {
       const { data, error } = await client.media.fromUrl({
@@ -548,6 +551,18 @@ export function AdminMediaLibraryPage() {
             <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
               {t("admin.media_library.from_url_hint")}
             </p>
+            {isInstagramPostUrl(fromUrl) && (
+              <label className="mb-3 flex cursor-pointer items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+                <input
+                  type="checkbox"
+                  checked={fromUrlBatchAll}
+                  disabled={downloading}
+                  onChange={(e) => setFromUrlBatchAll(e.target.checked)}
+                  className="h-4 w-4 shrink-0 accent-theme disabled:opacity-60"
+                />
+                {t("admin.media_library.from_url_batch_all")}
+              </label>
+            )}
             <label className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">
               {t("admin.media_library.from_url_name")}
             </label>
