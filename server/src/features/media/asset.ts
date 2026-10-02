@@ -37,6 +37,8 @@ export interface MediaAsset {
     images_id?: string;
     /** {thumb,medium,large,public...} 变体完整 URL */
     images_variants?: Record<string, string>;
+    /** 图片集分组 key（同一次批量导入的图共享，如 instagram:<shortcode>）；空表示未分组 */
+    group_key?: string;
 }
 
 export type { MediaAssetRow };
@@ -114,6 +116,9 @@ export function serializeMediaAsset(
     }
     if (row.title) {
         asset.title = row.title;
+    }
+    if (row.groupKey) {
+        asset.group_key = row.groupKey;
     }
 
     if (row.source === "stream" && row.streamUid) {

@@ -316,7 +316,7 @@ export function instagramShortcode(url: URL): string | null {
 
 /**
  * ?img_index=N 是 1-based 的媒体序号（图片和视频一起数，与浏览器里看到的一致）。
- * 缺省或非法时返回 null，表示取首图。
+ * 缺省或非法时返回 null，表示导入帖子里的全部图片。
  */
 export function instagramImageIndex(url: URL): number | null {
     const raw = url.searchParams.get("img_index");
@@ -329,14 +329,13 @@ export function instagramImageIndex(url: URL): number | null {
 
 /**
  * 轮播图导入模式：
- * - ?img_index=all：把帖子里所有图片逐张导入（每张建一个媒体资产）；
  * - ?img_index=N：只取第 N 个媒体（与浏览器里看到的一致）；
- * - 缺省/非法：取首图。
+ * - 缺省/非法（包括 ?img_index=all）：把帖子里所有图片逐张导入（每张建一个媒体资产）。
+ * 帖子链接原样粘贴即可批量导入整组轮播图，不用再手动拼参数。
  */
 export type InstagramImageSelection =
     | { mode: "all" }
-    | { mode: "index"; index: number }
-    | { mode: "first" };
+    | { mode: "index"; index: number };
 
 export function instagramImageSelection(url: URL): InstagramImageSelection {
     const raw = url.searchParams.get("img_index");
@@ -344,7 +343,7 @@ export function instagramImageSelection(url: URL): InstagramImageSelection {
         return { mode: "all" };
     }
     const index = instagramImageIndex(url);
-    return index === null ? { mode: "first" } : { mode: "index", index };
+    return index === null ? { mode: "all" } : { mode: "index", index };
 }
 
 /** 单次批量导入的媒体数上限（Instagram 轮播上限 20，留余量防超长）。 */
@@ -538,6 +537,8 @@ export async function resolveInstagramMediaEntries(
  * 把 Instagram 帖子页 URL 解析为图片直链。
  *
  * 带 ?img_index=N 时取第 N 个媒体（与浏览器里看到的一致），否则取首图。
+ * 注意：路由层默认走批量导入（见 resolveFromUrlImageTargets），这里的
+ * 缺省取首图只保留给明确的单张场景。
  */
 export async function resolveInstagramImageUrl(
     pageUrl: URL,

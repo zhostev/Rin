@@ -213,15 +213,15 @@ const FROM_URL_DOWNLOAD_CONCURRENCY = 3;
 /**
  * 把用户提交的 URL 解析为待下载的图片直链列表，附带要回报给用户的警告。
  * Instagram 帖子页经 Apify 解析（需要 APIFY_TOKEN 环境变量）：
- * ?img_index=all 返回轮播全部图片，?img_index=N 返回第 N 张，缺省返回首图。
+ * ?img_index=N 返回第 N 张，缺省返回轮播全部图片（逐张入库）。
  * 普通 URL 直接返回自身。
  */
 async function resolveFromUrlImageTargets(
     pageUrl: URL,
     env: Env,
-): Promise<{ targets: URL[]; warnings: string[]; batch: boolean }> {
+): Promise<{ targets: URL[]; warnings: string[]; batch: boolean; groupKey: string }> {
     if (!isInstagramPostUrl(pageUrl)) {
-        return { targets: [pageUrl], warnings: [], batch: false };
+        return { targets: [pageUrl], warnings: [], batch: false, groupKey: "" };
     }
     const token = (env.APIFY_TOKEN ?? "").trim();
     const selection = instagramImageSelection(pageUrl);
@@ -235,14 +235,16 @@ async function resolveFromUrlImageTargets(
         if (batch.truncated > 0) {
             warnings.push(`单次最多导入 ${INSTAGRAM_BATCH_MAX_ITEMS} 张，还有 ${batch.truncated} 张没导入`);
         }
-        return { targets: batch.images.map((url) => new URL(url)), warnings, batch: true };
+        // 同一次批量导入的图共享 group_key，前端按此聚成图片集展示
+        const groupKey = `instagram:${instagramShortcode(pageUrl) ?? "batch"}`;
+        return { targets: batch.images.map((url) => new URL(url)), warnings, batch: true, groupKey };
     }
     const resolved = await resolveInstagramImageUrl(pageUrl, fetch, token);
     const revalidated = parseRemoteImageUrl(resolved);
     if ("error" in revalidated) {
         throw new RemoteImageDownloadError("instagram_resolve_failed", "解析出的图片地址无效");
     }
-    return { targets: [revalidated.url], warnings: [], batch: false };
+    return { targets: [revalidated.url], warnings: [], batch: false, groupKey: "" };
 }
 
 /**
@@ -254,7 +256,7 @@ async function importImageFromUrl(
     db: DB,
     env: Env,
     imageUrl: URL,
-    opts: { title: string; alt: string; fromUrl: string },
+    opts: { title: string; alt: string; fromUrl: string; groupKey?: string },
 ): Promise<ReturnType<typeof serializeMediaAsset>> {
     const downloaded = await downloadImageBytes(imageUrl.toString());
     const now = new Date();
@@ -264,6 +266,7 @@ async function importImageFromUrl(
         mime: downloaded.mime,
         title: opts.title,
         altText: opts.alt || opts.title,
+        groupKey: opts.groupKey || "",
         streamStatus: 'ready',
         uploadSessionJson: JSON.stringify({
             fromUrl: opts.fromUrl,
@@ -757,7 +760,7 @@ export function AdminMediaService(): HonoApp {
         const alt = typeof body['alt'] === 'string' ? body['alt'].slice(0, 500) : '';
 
         // 解析待下载的图片直链列表：Instagram 帖子页经 Apify 解析，
-        // ?img_index=all 时取轮播全部图片（逐张入库），否则单张。
+        // 缺省取轮播全部图片（逐张入库）；?img_index=N 只取第 N 张。
         let resolved: Awaited<ReturnType<typeof resolveFromUrlImageTargets>>;
         try {
             resolved = await resolveFromUrlImageTargets(parsed.url, env);
@@ -802,6 +805,7 @@ export function AdminMediaService(): HonoApp {
                                 : titleBase,
                             alt,
                             fromUrl: parsed.url.toString(),
+                            groupKey: resolved.batch ? resolved.groupKey : "",
                         });
                     } catch (error) {
                         // 单张失败先记着：全部失败才算这次请求失败，

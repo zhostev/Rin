@@ -160,7 +160,7 @@ describe('AdminMediaService POST /from-url', () => {
         expect(data.error.code).toBe('storage_not_configured');
     });
 
-    it('resolves an Instagram post URL through Apify and downloads the first image (201)', async () => {
+    it('plain Instagram post URL imports the whole carousel by default (201)', async () => {
         await setup({ R2_BUCKET: r2Mock(), APIFY_TOKEN: 'apify_api_test' });
         const cdnUrl =
             'https://scontent-lax3-2.cdninstagram.com/v/t51.82787-15/819629641_18069542963758159_8941759054600826811_n.jpg?stp=dst-jpg_e35_tt6';
@@ -187,15 +187,23 @@ describe('AdminMediaService POST /from-url', () => {
         });
 
         const res = await postFromUrl({
-            url: 'https://www.instagram.com/p/DdqNdIPmjpa/',
+            url: 'https://www.instagram.com/p/DdqNdIPmjpa/?stkn=MTE0bjlpd3k4dXR4Zw==',
             title: 'Kumamoto',
         });
         expect(res.status).toBe(201);
         const data = await res.json() as any;
-        expect(data.kind).toBe('image');
-        expect(data.mime).toBe('image/png');
+        // 缺省即批量：响应为 { assets, warnings }，视频跳过要如实回报
+        expect(Array.isArray(data.assets)).toBe(true);
+        expect(data.assets).toHaveLength(1);
+        expect(data.assets[0].kind).toBe('image');
+        expect(data.assets[0].mime).toBe('image/png');
+        expect(data.assets[0].title).toBe('Kumamoto');
         expect(puts.length).toBe(1);
         expect(puts[0]).toMatch(/_n\.jpg$/);
+        expect(data.warnings).toHaveLength(1);
+        expect(data.warnings[0]).toContain('1 个视频');
+        // 同组图片共享 group_key，前端按此聚成图片集
+        expect(data.assets[0].group_key).toBe('instagram:DdqNdIPmjpa');
     });
 
     it('?img_index=all imports every carousel image as its own asset (201)', async () => {
@@ -238,6 +246,8 @@ describe('AdminMediaService POST /from-url', () => {
         expect(data.assets[2].title).toBe('Carousel (3/3)');
         // 跳过的视频要如实回报，不能悄悄少几张
         expect(data.warnings).toHaveLength(1);
+        // 同组图片共享 group_key，前端按此聚成图片集
+        expect(data.assets.every((a: any) => a.group_key === 'instagram:Dd6OBf1lAy5')).toBe(true);
         expect(data.warnings[0]).toContain('1 个视频');
     });
 
