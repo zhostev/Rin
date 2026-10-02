@@ -253,8 +253,10 @@ async function processTranscribeChunks(
             chunks.push(bytes);
         }
 
-        const result = await transcribeChunks(env, chunks, async () => {
-            await recordUsage(db, { jobId, model: getWorkerAIModelId(WHISPER_MODEL) });
+        const result = await transcribeChunks(env, chunks, {
+            onChunk: async () => {
+                await recordUsage(db, { jobId, model: getWorkerAIModelId(WHISPER_MODEL) });
+            },
         });
 
         if (!result.text) {

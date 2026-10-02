@@ -133,15 +133,23 @@ function parseWhisperResponse(response: unknown): { text: string; words: Whisper
     return { text, words };
 }
 
+/** Workers AI 调用函数类型（默认 runWorkerAIModel；测试可注入 fake，避免 mock.module 跨文件泄漏） */
+export type WorkerAIRunner = (env: Env, model: string, input: unknown) => Promise<unknown>;
+
 export async function transcribeAudio(
     env: Env,
     audio: Uint8Array,
-    options: { durationSec?: number | null; maxMinutes?: number; language?: string } = {},
+    options: {
+        durationSec?: number | null;
+        maxMinutes?: number;
+        language?: string;
+        runModel?: WorkerAIRunner;
+    } = {},
 ): Promise<TranscribeResult> {
     const { bytes, truncated } = planTruncation(audio, options.durationSec, options.maxMinutes);
 
     // 官方文档格式：{ audio: number[] }（原始文件字节数组）
-    const response = await runWorkerAIModel(env, WHISPER_MODEL, {
+    const response = await (options.runModel ?? runWorkerAIModel)(env, WHISPER_MODEL, {
         audio: [...bytes],
     });
 
@@ -220,20 +228,24 @@ export function buildTranscribeChunkKeys(batchId: string, count: number): string
 /**
  * 逐片转写并拼接。time offset 按各片实际时长累加（WAV 头解析，失败则按
  * TRANSCRIBE_CHUNK_SECONDS 兜底），保证分段文稿的时间戳连续。
- * onChunk 每完成一片回调一次（processor 用来记用量）。
+ * options.onChunk 每完成一片回调一次（processor 用来记用量）。
  */
 export async function transcribeChunks(
     env: Env,
     chunks: Uint8Array[],
-    onChunk?: (index: number, result: TranscribeResult) => void | Promise<void>,
+    options: {
+        onChunk?: (index: number, result: TranscribeResult) => void | Promise<void>;
+        runModel?: WorkerAIRunner;
+    } = {},
 ): Promise<TranscribeResult> {
+    const { onChunk, runModel } = options;
     const texts: string[] = [];
     const words: WhisperWord[] = [];
     const segments: WhisperSegment[] = [];
     let language = "";
     let offset = 0;
     for (let i = 0; i < chunks.length; i++) {
-        const result = await transcribeAudio(env, chunks[i], { durationSec: null });
+        const result = await transcribeAudio(env, chunks[i], { durationSec: null, runModel });
         if (onChunk) await onChunk(i, result);
         if (!language && result.language) language = result.language;
         if (result.text) texts.push(result.text);
