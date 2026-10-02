@@ -36,6 +36,11 @@ declare global {
     WECHAT_RELAY_URL?: string;
     /** 中转服务鉴权密钥（与 ECS 的 RELAY_SECRET 相同） */
     WECHAT_RELAY_SECRET?: string;
+    // --- Instagram 帖子解析（媒体库 from-url）---
+    /** Apify API Token：用于把 Instagram 帖子链接解析成图片直链。
+     *  帖子页 HTML 对机房 IP 会 429，抓取交给 Apify 的 actor。未配置时
+     *  /api/admin/media/from-url 对 IG 链接返回 422 instagram_resolve_failed。 */
+    APIFY_TOKEN?: string;
   }
 }
 
