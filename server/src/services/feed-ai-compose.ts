@@ -94,6 +94,22 @@ export function decideComposeOutcome(input: { raw: string | null; error?: string
  */
 const MAX_CONTINUATIONS = 2;
 
+/**
+ * 推理模型的思考 token 预算余量（与 AI 改写 / AI Studio derive 同值）。
+ * 推理模型（如默认开 thinking 的 DeepSeek V4.1 Flash）把思考过程也计入
+ * max_tokens；没有余量时模型可能把全部预算用来思考，返回空正文
+ * （2026-09-26 事故：679 字文章只配 1180 token → 空返回）。
+ */
+export const COMPOSE_THINKING_TOKEN_HEADROOM = 8000;
+
+/**
+ * 写作链路的 token 预算：配置值与「篇幅下限 + 思考余量」取大。
+ * 纯函数，可单测。
+ */
+export function resolveComposeMaxTokens(length: ComposeLength, configuredMaxTokens: number): number {
+    return Math.max(configuredMaxTokens, composeMaxTokensFloor(length) + COMPOSE_THINKING_TOKEN_HEADROOM);
+}
+
 const CONTINUE_PROMPT =
     "你上一次的输出被截断了。请从中断处继续写完：不要重复 front-matter，不要重复已经写过的内容，直接续写正文。";
 
@@ -452,31 +468,43 @@ export async function processFeedAIComposeTask(
     });
 
     let generation: ComposeGeneration;
-    try {
-        const genOptions = {
-            // Never let a configured ceiling truncate the length that was asked for.
-            maxTokens: Math.max(writerConfig.max_tokens, composeMaxTokensFloor(length)),
-            temperature: writerConfig.temperature,
-        };
-        const withVision = visionParts.length > 0;
-        const baseMessages: AIChatMessage[] = withVision
-            ? [
-                  { role: "system", content: systemPrompt },
-                  {
-                      role: "user",
-                      content: [...visionParts, { type: "text" as const, text: userText }],
-                  },
-              ]
-            : [
-                  { role: "system", content: systemPrompt },
-                  { role: "user", content: userText },
-              ];
+    const genOptions = {
+        // Never let a configured ceiling truncate the length that was asked for.
+        // Plus thinking headroom: reasoning models (e.g. DeepSeek V4.1 Flash,
+        // which thinks by default) bill thinking against max_tokens; without
+        // headroom the model can burn the whole budget thinking and return
+        // an empty article.
+        maxTokens: resolveComposeMaxTokens(length, writerConfig.max_tokens),
+        temperature: writerConfig.temperature,
+    };
+    const withVision = visionParts.length > 0;
+    const baseMessages: AIChatMessage[] = withVision
+        ? [
+              { role: "system", content: systemPrompt },
+              {
+                  role: "user",
+                  content: [...visionParts, { type: "text" as const, text: userText }],
+              },
+          ]
+        : [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userText },
+          ];
+    const generateOnce = () =>
         // finish_reason=length 时自动续写；续写用完仍截断则按失败处理，不发布半成品。
-        generation = await generateArticleWithContinuation(baseMessages, (messages) =>
+        generateArticleWithContinuation(baseMessages, (messages) =>
             withVision
                 ? generateAITextWithVision(env, writerConfig, messages, genOptions)
                 : generateAIText(env, writerConfig, messages, genOptions),
         );
+    try {
+        generation = await generateOnce();
+        // 空返回时重试一次：新模型版本偶发首轮空响应（immediate EOS），
+        // 第二轮通常成功（与 AI 改写链路的重试策略一致）。
+        if (!generation.raw?.trim() && !generation.error && !generation.truncated) {
+            console.log("[AI Compose] Empty result, retrying once");
+            generation = await generateOnce();
+        }
     } catch (error) {
         console.error("[AI Compose] Generation failed:", error);
         generation = {
