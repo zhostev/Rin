@@ -50,19 +50,29 @@ export function isInstagramPostUrl(raw: string): boolean {
 /**
  * 按「整组导入」开关调整实际提交的 URL：
  * - 非 Instagram 帖子链接：原样返回；
- * - 开关开（默认）：原样返回，服务端整组导入；
- * - 开关关：帖子链接追加 img_index=1（只取第 1 个媒体）；链接里已有
- *   img_index 参数时尊重显式值，不覆盖。
+ * - 开关开（默认）：强制整组导入——删掉链接里可能自带的任何 img_index 参数
+ *   （用户粘贴的分享链接偶尔会带 ?img_index=N），其它参数（尤其 ?stkn=）原样保留；
+ * - 开关关：强制只取第 1 个媒体——先清掉已有 img_index 再追加 img_index=1。
+ *
+ * 注意不能用 new URL().toString() 重序列化，它会把 ?stkn= 里 base64 的 =
+ * 转义成 %3D——这里只做字符串替换/拼接，保持原链接不动。
  */
+function stripImgIndexParam(text: string): string {
+  // "?img_index=N&..." -> "?"（把 ? 留给后面的参数）
+  let out = text.replace(/\?img_index=[^&]*&/, "?");
+  // "&img_index=N" 或末尾的 "?img_index=N" 直接删掉
+  out = out.replace(/[?&]img_index=[^&]*/, "");
+  return out;
+}
+
 export function applyInstagramBatchPreference(raw: string, batchAll: boolean): string {
   const text = raw.trim();
-  if (batchAll || !isInstagramPostUrl(text)) {
+  if (!isInstagramPostUrl(text)) {
     return text;
   }
-  // 已有 img_index 参数时尊重显式值；注意不能用 new URL().toString() 重序列化，
-  // 它会把 ?stkn= 里 base64 的 = 转义成 %3D——这里只做字符串拼接，保持原链接不动。
-  if (/[?&]img_index=/.test(text)) {
-    return text;
+  const cleaned = stripImgIndexParam(text);
+  if (batchAll) {
+    return cleaned;
   }
-  return text + (text.includes("?") ? "&img_index=1" : "?img_index=1");
+  return cleaned + (cleaned.includes("?") ? "&img_index=1" : "?img_index=1");
 }
