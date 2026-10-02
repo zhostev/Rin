@@ -341,11 +341,16 @@ export function AdminMediaLibraryPage() {
         return;
       }
       setAssets((prev) => {
-        // ?img_index=all 批量导入时服务端返回 { assets: [...] }
+        // ?img_index=all 批量导入时服务端返回 { assets, warnings }
         const batch = (data as { assets?: unknown }).assets;
         const list = Array.isArray(batch) ? batch : [data];
         return [...(list as typeof prev), ...prev];
       });
+      const warnings = (data as { warnings?: unknown }).warnings;
+      if (Array.isArray(warnings) && warnings.length > 0) {
+        // 部分成功也必须说清楚：哪些跳过了、哪一张失败了
+        showAlert(warnings.join("\n"));
+      }
       setFromUrlOpen(false);
       setFromUrl("");
       setFromUrlTitle("");

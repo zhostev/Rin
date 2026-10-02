@@ -68,12 +68,14 @@ import {
 import {
     downloadImageBytes,
     filenameFromUrl,
+    INSTAGRAM_BATCH_MAX_ITEMS,
     instagramImageSelection,
+    instagramShortcode,
     isInstagramPostUrl,
     parseRemoteImageUrl,
     RemoteImageDownloadError,
+    resolveInstagramImageBatch,
     resolveInstagramImageUrl,
-    resolveInstagramImageUrls,
 } from "../features/media/from-url";
 import { headStorageObject, putStorageObjectAtKey } from "../utils/storage";
 import { createS3Client, deleteObject } from "../utils/s3";
@@ -203,27 +205,44 @@ function invalidUploadFile(c: AppContext, validation: { code?: string; message?:
 }
 
 /**
- * 把用户提交的 URL 解析为待下载的图片直链列表。
+ * from-url 批量导入的并发下载数。单张 1080p 图要十秒级，串行下 6 张就会撞上
+ * 请求超时；并发数再往上则和 Worker 的内存/连接预算抢资源，3 是经验平衡点。
+ */
+const FROM_URL_DOWNLOAD_CONCURRENCY = 3;
+
+/**
+ * 把用户提交的 URL 解析为待下载的图片直链列表，附带要回报给用户的警告。
  * Instagram 帖子页经 Apify 解析（需要 APIFY_TOKEN 环境变量）：
  * ?img_index=all 返回轮播全部图片，?img_index=N 返回第 N 张，缺省返回首图。
  * 普通 URL 直接返回自身。
  */
-async function resolveFromUrlImageTargets(pageUrl: URL, env: Env): Promise<URL[]> {
+async function resolveFromUrlImageTargets(
+    pageUrl: URL,
+    env: Env,
+): Promise<{ targets: URL[]; warnings: string[]; batch: boolean }> {
     if (!isInstagramPostUrl(pageUrl)) {
-        return [pageUrl];
+        return { targets: [pageUrl], warnings: [], batch: false };
     }
     const token = (env.APIFY_TOKEN ?? "").trim();
     const selection = instagramImageSelection(pageUrl);
     if (selection.mode === "all") {
-        // resolveInstagramImageUrls 内部已做 Instagram CDN 白名单校验
-        return (await resolveInstagramImageUrls(pageUrl, fetch, token)).map((u) => new URL(u));
+        // resolveInstagramImageBatch 内部已做 Instagram CDN 白名单校验
+        const batch = await resolveInstagramImageBatch(pageUrl, fetch, token);
+        const warnings: string[] = [];
+        if (batch.skippedVideos > 0) {
+            warnings.push(`帖子里有 ${batch.skippedVideos} 个视频，这个入口只导入图片，已跳过`);
+        }
+        if (batch.truncated > 0) {
+            warnings.push(`单次最多导入 ${INSTAGRAM_BATCH_MAX_ITEMS} 张，还有 ${batch.truncated} 张没导入`);
+        }
+        return { targets: batch.images.map((url) => new URL(url)), warnings, batch: true };
     }
     const resolved = await resolveInstagramImageUrl(pageUrl, fetch, token);
     const revalidated = parseRemoteImageUrl(resolved);
     if ("error" in revalidated) {
         throw new RemoteImageDownloadError("instagram_resolve_failed", "解析出的图片地址无效");
     }
-    return [revalidated.url];
+    return { targets: [revalidated.url], warnings: [], batch: false };
 }
 
 /**
@@ -703,10 +722,13 @@ export function AdminMediaService(): HonoApp {
     // POST /admin/media/from-url —— 从 URL 下载图片并存入媒体库（服务端直抓 → R2）
     //   JSON body: { url*, title?, alt? }
     //   201 -> MediaAsset（asset.url 为站内 /api/blob/<key>）
+    //   201 -> { assets: MediaAsset[], warnings: string[] }：Instagram ?img_index=all
+    //          批量导入（单张失败不影响其它张，失败原因与跳过的视频都在 warnings 里）
     //   400 invalid_url/url_not_allowed；413 image_too_large；415 not_an_image/empty_image；
-    //   422 instagram_resolve_failed（Instagram 帖子页解析失败）；
+    //   422 instagram_resolve_failed（Instagram 帖子页解析失败，或一张都没下成功）；
     //   502 download_failed/image_download_store_failed；503 storage_not_configured
-    //   Instagram 帖子/快拍链接（/p/、/reel/）会自动解析 og:image 首图下载。
+    //   Instagram 帖子/快拍链接（/p/、/reel/）会经 Apify 解析后下载：缺省首图，
+    //   ?img_index=N 取第 N 个媒体（图片视频一起数），?img_index=all 导入全部图片。
     app.post('/from-url', adminOnly(async (c) => {
         const db = c.get('db');
         const env = c.get('env');
@@ -736,9 +758,9 @@ export function AdminMediaService(): HonoApp {
 
         // 解析待下载的图片直链列表：Instagram 帖子页经 Apify 解析，
         // ?img_index=all 时取轮播全部图片（逐张入库），否则单张。
-        let imageTargets: URL[];
+        let resolved: Awaited<ReturnType<typeof resolveFromUrlImageTargets>>;
         try {
-            imageTargets = await resolveFromUrlImageTargets(parsed.url, env);
+            resolved = await resolveFromUrlImageTargets(parsed.url, env);
         } catch (error) {
             if (error instanceof RemoteImageDownloadError) {
                 return c.json({
@@ -752,37 +774,73 @@ export function AdminMediaService(): HonoApp {
             return upstreamError(c, error, "instagram_resolve_failed");
         }
 
-        // 逐张下载入库（顺序执行，避免并发打满内存/连接）。
-        // 批量模式下某张失败则整体失败（已入库的不回滚，调用方可重试剩余部分）。
-        const assets: ReturnType<typeof serializeMediaAsset>[] = [];
-        for (const [index, imageTarget] of imageTargets.entries()) {
-            try {
-                assets.push(await importImageFromUrl(db, env, imageTarget, {
-                    title: imageTargets.length > 1 && title ? `${title} (${index + 1}/${imageTargets.length})` : title,
-                    alt,
-                    fromUrl: parsed.url.toString(),
-                }));
-            } catch (error) {
-                if (error instanceof RemoteImageDownloadError) {
-                    return c.json({
-                        error: {
-                            code: error.code,
-                            message: error.message,
-                            ...(error.upstreamStatus ? { upstreamStatus: error.upstreamStatus } : {}),
-                        },
-                    }, fromUrlDownloadStatus(error));
+        const targets = resolved.targets;
+        // 批量标题带序号，方便在媒体库里认出同一帖的第几张。
+        const titleBase = title || (resolved.batch ? `Instagram ${instagramShortcode(parsed.url) ?? ""}`.trim() : "");
+
+        // 并发下载入库（上限 3）：单张 1080p 图要十秒级，6 张串行就会撞上请求超时；
+        // 再高则和 Worker 的内存/连接预算抢资源。每张各自落库，
+        // 某张失败不影响其它张（已入库的不回滚），失败原因进 warnings。
+        const results: (ReturnType<typeof serializeMediaAsset> | null)[] = new Array(targets.length).fill(null);
+        const failures: Array<{ index: number; error: unknown }> = [];
+        let cursor = 0;
+        await Promise.all(
+            Array.from({ length: Math.min(FROM_URL_DOWNLOAD_CONCURRENCY, targets.length) }, async () => {
+                for (;;) {
+                    const index = cursor++;
+                    if (index >= targets.length) {
+                        return;
+                    }
+                    const target = targets[index];
+                    if (!target) {
+                        return;
+                    }
+                    try {
+                        results[index] = await importImageFromUrl(db, env, target, {
+                            title: targets.length > 1 && titleBase
+                                ? `${titleBase} (${index + 1}/${targets.length})`
+                                : titleBase,
+                            alt,
+                            fromUrl: parsed.url.toString(),
+                        });
+                    } catch (error) {
+                        // 单张失败先记着：全部失败才算这次请求失败，
+                        // 部分成功必须返回 201（否则用户以为一张都没进去）。
+                        failures.push({ index, error });
+                    }
                 }
-                if (error instanceof Error && (error.message === 'Failed to insert media asset' || error.message === 'Failed to load media asset')) {
-                    return c.text(error.message, 500);
-                }
-                return upstreamError(c, error, 'image_download_failed');
+            }),
+        );
+
+        const assets = results.filter((asset): asset is ReturnType<typeof serializeMediaAsset> => asset !== null);
+
+        if (assets.length === 0) {
+            const first = failures[0]?.error;
+            if (first instanceof RemoteImageDownloadError) {
+                return c.json({
+                    error: {
+                        code: first.code,
+                        message: first.message,
+                        ...(first.upstreamStatus ? { upstreamStatus: first.upstreamStatus } : {}),
+                    },
+                }, fromUrlDownloadStatus(first));
             }
+            if (first instanceof Error && (first.message === 'Failed to insert media asset' || first.message === 'Failed to load media asset')) {
+                return c.text(first.message, 500);
+            }
+            return upstreamError(c, first, 'image_download_failed');
         }
 
-        if (assets.length === 1) {
+        const warnings = [
+            ...resolved.warnings,
+            ...failures.map(({ index, error }) =>
+                `第 ${index + 1}/${targets.length} 张下载失败：${error instanceof Error ? error.message : String(error)}`),
+        ];
+
+        if (!resolved.batch && assets.length === 1) {
             return c.json(assets[0], 201);
         }
-        return c.json({ assets }, 201);
+        return c.json({ assets, warnings }, 201);
     }));
 
     // POST /admin/media/audio —— multipart 上传音频（R2 binding 优先，否则 S3）

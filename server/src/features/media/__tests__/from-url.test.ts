@@ -10,8 +10,8 @@ import {
     isInstagramPostUrl,
     parseRemoteImageUrl,
     RemoteImageDownloadError,
+    resolveInstagramImageBatch,
     resolveInstagramImageUrl,
-    resolveInstagramImageUrls,
     sniffImageMime,
 } from "../from-url";
 
@@ -453,6 +453,16 @@ describe("downloadImageBytes", () => {
         expect(mime).toBe("image/jpeg");
     });
 
+    it("请求带超时信号：卡住的连接不会把整个请求拖死", async () => {
+        let seen: RequestInit | undefined;
+        const fn = (async (_url: unknown, init?: RequestInit) => {
+            seen = init;
+            return new Response(PNG, { status: 200, headers: { "content-type": "image/png" } });
+        }) as typeof fetch;
+        await downloadImageBytes("https://example.com/a.png", 1024, fn);
+        expect(seen?.signal).toBeInstanceOf(AbortSignal);
+    });
+
     it("fetch 抛错 → download_failed", async () => {
         const err = await downloadImageBytes("https://example.com/a.png", 1024, (async () => {
             throw new Error("boom");
@@ -478,7 +488,7 @@ describe("instagramImageSelection", () => {
     });
 });
 
-describe("resolveInstagramImageUrls（批量：?img_index=all）", () => {
+describe("resolveInstagramImageBatch（批量：?img_index=all）", () => {
     const page = new URL("https://www.instagram.com/p/Dd6OBf1lAy5/?img_index=all");
     const TOKEN = "apify_api_test";
     const img = (n: number) =>
@@ -511,29 +521,35 @@ describe("resolveInstagramImageUrls（批量：?img_index=all）", () => {
                 { type: "Image", url: img(3) },
             ]),
         );
-        expect(await resolveInstagramImageUrls(page, fn, TOKEN)).toEqual([img(1), img(2), img(3)]);
+        expect(await resolveInstagramImageBatch(page, fn, TOKEN)).toEqual({
+            images: [img(1), img(2), img(3)],
+            skippedVideos: 1,
+            truncated: 0,
+        });
     });
 
     it("帖子只有视频 → 明确报错", async () => {
         const fn = stubFetch(() => apifySidecar([{ type: "Video", url: video }]));
-        const err = await resolveInstagramImageUrls(page, fn, TOKEN).catch((e) => e);
+        const err = await resolveInstagramImageBatch(page, fn, TOKEN).catch((e) => e);
         expect(err).toBeInstanceOf(RemoteImageDownloadError);
         expect((err as RemoteImageDownloadError).code).toBe("instagram_resolve_failed");
     });
 
-    it("超过上限时截断到 INSTAGRAM_BATCH_MAX_ITEMS", async () => {
+    it("超过上限时截断到 INSTAGRAM_BATCH_MAX_ITEMS，并把截断数量回报出来", async () => {
         const children = Array.from({ length: INSTAGRAM_BATCH_MAX_ITEMS + 5 }, (_, i) => ({
             type: "Image",
             url: img(100 + i),
         }));
         const fn = stubFetch(() => apifySidecar(children));
-        const urls = await resolveInstagramImageUrls(page, fn, TOKEN);
-        expect(urls).toHaveLength(INSTAGRAM_BATCH_MAX_ITEMS);
+        const batch = await resolveInstagramImageBatch(page, fn, TOKEN);
+        expect(batch.images).toHaveLength(INSTAGRAM_BATCH_MAX_ITEMS);
+        expect(batch.truncated).toBe(5);
+        expect(batch.skippedVideos).toBe(0);
     });
 
     it("未配 APIFY_TOKEN → 明确报错", async () => {
         const fn = stubFetch(() => apifySidecar([{ type: "Image", url: img(1) }]));
-        const err = await resolveInstagramImageUrls(page, fn, "  ").catch((e) => e);
+        const err = await resolveInstagramImageBatch(page, fn, "  ").catch((e) => e);
         expect(err).toBeInstanceOf(RemoteImageDownloadError);
         expect((err as RemoteImageDownloadError).code).toBe("instagram_resolve_failed");
     });

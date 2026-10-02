@@ -14,6 +14,12 @@ import { R2_DIRECT_MAX_BYTES } from "./r2-direct";
 
 export const FROM_URL_MAX_BYTES = R2_DIRECT_MAX_BYTES.image;
 
+/**
+ * 单张图片下载的超时。轮播批量导入要连着下好几张，一条卡住的连接
+ * 会把整个请求拖到平台超时（前端只看到网络错误），所以每张都设上限。
+ */
+export const FROM_URL_DOWNLOAD_TIMEOUT_MS = 30_000;
+
 const MAX_URL_LENGTH = 2048;
 
 /** parseRemoteImageUrl 的机器可读错误码（路由层直接透传为 400 code）。 */
@@ -201,6 +207,7 @@ export async function downloadImageBytes(
         response = await fetchFn(url, {
             headers: { "User-Agent": FETCH_USER_AGENT },
             redirect: "follow",
+            signal: AbortSignal.timeout(FROM_URL_DOWNLOAD_TIMEOUT_MS),
         });
     } catch (error) {
         throw new RemoteImageDownloadError(
@@ -567,23 +574,38 @@ export async function resolveInstagramImageUrl(
 }
 
 /**
+ * 轮播批量导入的解析结果：图片直链 + 被排除的媒体计数。
+ * 视频不能当图片入库、超出上限的图片也不会下载 —— 两者都要如实回报给调用方，
+ * 否则用户看到「导入成功」却少了几张，还以为是自己数错了。
+ */
+export type InstagramImageBatch = {
+    /** CDN 白名单校验过的图片直链，保持帖子原顺序。 */
+    images: string[];
+    /** 帖子里被跳过的视频数。 */
+    skippedVideos: number;
+    /** 因超过单次上限而没导入的图片数。 */
+    truncated: number;
+};
+
+/**
  * 把 Instagram 帖子页 URL 解析为全部图片直链（保持帖子原顺序，跳过视频）。
  * 供 ?img_index=all 批量导入用；帖子里没有图片时抛 instagram_resolve_failed。
  */
-export async function resolveInstagramImageUrls(
+export async function resolveInstagramImageBatch(
     pageUrl: URL,
     fetchFn: typeof fetch = fetch,
     token: string = "",
-): Promise<string[]> {
+): Promise<InstagramImageBatch> {
     const media = await resolveInstagramMediaEntries(pageUrl, fetchFn, token);
-    const urls = media
-        .filter((item) => item.kind === "image")
-        .slice(0, INSTAGRAM_BATCH_MAX_ITEMS)
-        .map((item) => assertInstagramCdnUrl(item.url));
-    if (urls.length === 0) {
+    const images = media.filter((item) => item.kind === "image");
+    if (images.length === 0) {
         throw new RemoteImageDownloadError("instagram_resolve_failed", "该帖子没有图片（只有视频）");
     }
-    return urls;
+    return {
+        images: images.slice(0, INSTAGRAM_BATCH_MAX_ITEMS).map((item) => assertInstagramCdnUrl(item.url)),
+        skippedVideos: media.length - images.length,
+        truncated: Math.max(0, images.length - INSTAGRAM_BATCH_MAX_ITEMS),
+    };
 }
 
 /** 解析结果必须落在 Instagram CDN 上，避免被 actor 响应里的任意地址带偏。 */
