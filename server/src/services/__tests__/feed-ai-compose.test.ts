@@ -1,8 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import {
+  COMPOSE_THINKING_TOKEN_HEADROOM,
   decideComposeOutcome,
   generateArticleWithContinuation,
   normalizeComposeLength,
+  resolveComposeMaxTokens,
   stripLeadingFrontMatter,
 } from "../feed-ai-compose";
 import type { AIChatMessage, AITextResult } from "../../utils/ai";
@@ -195,5 +197,22 @@ describe("generateArticleWithContinuation", () => {
     expect(out.error).toContain("500");
     expect(out.truncated).toBe(false);
     expect(out.raw).toBeNull();
+  });
+});
+
+describe("resolveComposeMaxTokens", () => {
+  it("adds thinking headroom on top of the length floor", () => {
+    // short floor = 2000 → 2000 + 8000
+    expect(resolveComposeMaxTokens("short", 500)).toBe(2000 + COMPOSE_THINKING_TOKEN_HEADROOM);
+    // long floor = 8000 → 8000 + 8000
+    expect(resolveComposeMaxTokens("long", 500)).toBe(8000 + COMPOSE_THINKING_TOKEN_HEADROOM);
+  });
+
+  it("never goes below an explicitly configured ceiling", () => {
+    expect(resolveComposeMaxTokens("short", 30000)).toBe(30000);
+  });
+
+  it("scales with the requested length", () => {
+    expect(resolveComposeMaxTokens("short", 0)).toBeLessThan(resolveComposeMaxTokens("long", 0));
   });
 });
