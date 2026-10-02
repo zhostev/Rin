@@ -3,12 +3,15 @@ import {
     downloadImageBytes,
     extensionFromMime,
     filenameFromUrl,
+    INSTAGRAM_BATCH_MAX_ITEMS,
     instagramImageIndex,
+    instagramImageSelection,
     instagramShortcode,
     isInstagramPostUrl,
     parseRemoteImageUrl,
     RemoteImageDownloadError,
     resolveInstagramImageUrl,
+    resolveInstagramImageUrls,
     sniffImageMime,
 } from "../from-url";
 
@@ -455,5 +458,83 @@ describe("downloadImageBytes", () => {
             throw new Error("boom");
         }) as typeof fetch).catch((e) => e);
         expect(err.code).toBe("download_failed");
+    });
+});
+
+describe("instagramImageSelection", () => {
+    const base = "https://www.instagram.com/p/Dd6OBf1lAy5/";
+    it("img_index=all → 批量模式", () => {
+        expect(instagramImageSelection(new URL(`${base}?img_index=all`))).toEqual({ mode: "all" });
+    });
+    it("img_index=N → 单张序号模式", () => {
+        expect(instagramImageSelection(new URL(`${base}?img_index=4`))).toEqual({ mode: "index", index: 4 });
+    });
+    it("缺省 → 首图模式", () => {
+        expect(instagramImageSelection(new URL(base))).toEqual({ mode: "first" });
+    });
+    it("非法值 → 首图模式", () => {
+        expect(instagramImageSelection(new URL(`${base}?img_index=x`))).toEqual({ mode: "first" });
+        expect(instagramImageSelection(new URL(`${base}?img_index=0`))).toEqual({ mode: "first" });
+    });
+});
+
+describe("resolveInstagramImageUrls（批量：?img_index=all）", () => {
+    const page = new URL("https://www.instagram.com/p/Dd6OBf1lAy5/?img_index=all");
+    const TOKEN = "apify_api_test";
+    const img = (n: number) =>
+        `https://scontent-hkg1-2.cdninstagram.com/v/t51.82787-15/81962964${n}_n.jpg`;
+    const video = "https://scontent-lax3-2.cdninstagram.com/v/t51.82787-15/clip.mp4";
+
+    function apifySidecar(children: Array<{ type: string; url: string }>): Response {
+        return new Response(
+            JSON.stringify([
+                {
+                    shortCode: "Dd6OBf1lAy5",
+                    type: "Sidecar",
+                    childPosts: children.map((child) => ({ type: child.type, displayUrl: child.url })),
+                },
+            ]),
+            { status: 200, headers: { "content-type": "application/json" } },
+        );
+    }
+
+    function stubFetch(handler: () => Response): typeof fetch {
+        return (async () => handler()) as typeof fetch;
+    }
+
+    it("返回轮播全部图片（保持原顺序，跳过视频）", async () => {
+        const fn = stubFetch(() =>
+            apifySidecar([
+                { type: "Image", url: img(1) },
+                { type: "Video", url: video },
+                { type: "Image", url: img(2) },
+                { type: "Image", url: img(3) },
+            ]),
+        );
+        expect(await resolveInstagramImageUrls(page, fn, TOKEN)).toEqual([img(1), img(2), img(3)]);
+    });
+
+    it("帖子只有视频 → 明确报错", async () => {
+        const fn = stubFetch(() => apifySidecar([{ type: "Video", url: video }]));
+        const err = await resolveInstagramImageUrls(page, fn, TOKEN).catch((e) => e);
+        expect(err).toBeInstanceOf(RemoteImageDownloadError);
+        expect((err as RemoteImageDownloadError).code).toBe("instagram_resolve_failed");
+    });
+
+    it("超过上限时截断到 INSTAGRAM_BATCH_MAX_ITEMS", async () => {
+        const children = Array.from({ length: INSTAGRAM_BATCH_MAX_ITEMS + 5 }, (_, i) => ({
+            type: "Image",
+            url: img(100 + i),
+        }));
+        const fn = stubFetch(() => apifySidecar(children));
+        const urls = await resolveInstagramImageUrls(page, fn, TOKEN);
+        expect(urls).toHaveLength(INSTAGRAM_BATCH_MAX_ITEMS);
+    });
+
+    it("未配 APIFY_TOKEN → 明确报错", async () => {
+        const fn = stubFetch(() => apifySidecar([{ type: "Image", url: img(1) }]));
+        const err = await resolveInstagramImageUrls(page, fn, "  ").catch((e) => e);
+        expect(err).toBeInstanceOf(RemoteImageDownloadError);
+        expect((err as RemoteImageDownloadError).code).toBe("instagram_resolve_failed");
     });
 });

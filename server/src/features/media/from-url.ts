@@ -162,7 +162,8 @@ export type RemoteImageDownloadErrorCode =
     | "image_too_large"
     | "not_an_image"
     | "empty_image"
-    | "instagram_resolve_failed";
+    | "instagram_resolve_failed"
+    | "image_download_store_failed";
 
 export class RemoteImageDownloadError extends Error {
     readonly code: RemoteImageDownloadErrorCode;
@@ -319,6 +320,29 @@ export function instagramImageIndex(url: URL): number | null {
     return index > 0 ? index : null;
 }
 
+/**
+ * 轮播图导入模式：
+ * - ?img_index=all：把帖子里所有图片逐张导入（每张建一个媒体资产）；
+ * - ?img_index=N：只取第 N 个媒体（与浏览器里看到的一致）；
+ * - 缺省/非法：取首图。
+ */
+export type InstagramImageSelection =
+    | { mode: "all" }
+    | { mode: "index"; index: number }
+    | { mode: "first" };
+
+export function instagramImageSelection(url: URL): InstagramImageSelection {
+    const raw = url.searchParams.get("img_index");
+    if (raw === "all") {
+        return { mode: "all" };
+    }
+    const index = instagramImageIndex(url);
+    return index === null ? { mode: "first" } : { mode: "index", index };
+}
+
+/** 单次批量导入的媒体数上限（Instagram 轮播上限 20，留余量防超长）。 */
+export const INSTAGRAM_BATCH_MAX_ITEMS = 20;
+
 /** Instagram 图片 CDN 域名白名单（解析出的直链必须落在这上面）。 */
 const INSTAGRAM_CDN_SUFFIXES = [".cdninstagram.com", ".fbcdn.net"];
 
@@ -449,18 +473,17 @@ async function callApifyActor(
 }
 
 /**
- * 把 Instagram 帖子页 URL 解析为图片直链。
+ * 把 Instagram 帖子页 URL 解析为全部媒体条目（图片+视频，保持帖子原顺序）。
  *
  * 帖子页 HTML 对机房 IP 会直接 429（抓不动），所以抓取这一步交给 Apify 的
- * actor，这里只把 actor 的响应归一化成 CDN 直链。带 ?img_index=N 时取第 N 个
- * 媒体（与浏览器里看到的一致），否则取首图。
- * 没配 APIFY_TOKEN、帖子不存在/私密/被限流时抛 instagram_resolve_failed。
+ * actor，这里只把 actor 的响应归一化成条目。没配 APIFY_TOKEN、
+ * 帖子不存在/私密/被限流时抛 instagram_resolve_failed。
  */
-export async function resolveInstagramImageUrl(
+export async function resolveInstagramMediaEntries(
     pageUrl: URL,
     fetchFn: typeof fetch = fetch,
     token: string = "",
-): Promise<string> {
+): Promise<InstagramMediaEntry[]> {
     const shortcode = instagramShortcode(pageUrl);
     if (!shortcode) {
         throw new RemoteImageDownloadError("instagram_resolve_failed", "不是 Instagram 帖子链接");
@@ -501,6 +524,21 @@ export async function resolveInstagramImageUrl(
         );
     }
 
+    return media;
+}
+
+/**
+ * 把 Instagram 帖子页 URL 解析为图片直链。
+ *
+ * 带 ?img_index=N 时取第 N 个媒体（与浏览器里看到的一致），否则取首图。
+ */
+export async function resolveInstagramImageUrl(
+    pageUrl: URL,
+    fetchFn: typeof fetch = fetch,
+    token: string = "",
+): Promise<string> {
+    const media = await resolveInstagramMediaEntries(pageUrl, fetchFn, token);
+
     const requested = instagramImageIndex(pageUrl);
     let entry: InstagramMediaEntry | undefined;
 
@@ -526,6 +564,26 @@ export async function resolveInstagramImageUrl(
     }
 
     return assertInstagramCdnUrl(entry.url);
+}
+
+/**
+ * 把 Instagram 帖子页 URL 解析为全部图片直链（保持帖子原顺序，跳过视频）。
+ * 供 ?img_index=all 批量导入用；帖子里没有图片时抛 instagram_resolve_failed。
+ */
+export async function resolveInstagramImageUrls(
+    pageUrl: URL,
+    fetchFn: typeof fetch = fetch,
+    token: string = "",
+): Promise<string[]> {
+    const media = await resolveInstagramMediaEntries(pageUrl, fetchFn, token);
+    const urls = media
+        .filter((item) => item.kind === "image")
+        .slice(0, INSTAGRAM_BATCH_MAX_ITEMS)
+        .map((item) => assertInstagramCdnUrl(item.url));
+    if (urls.length === 0) {
+        throw new RemoteImageDownloadError("instagram_resolve_failed", "该帖子没有图片（只有视频）");
+    }
+    return urls;
 }
 
 /** 解析结果必须落在 Instagram CDN 上，避免被 actor 响应里的任意地址带偏。 */

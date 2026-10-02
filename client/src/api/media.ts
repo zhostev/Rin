@@ -255,12 +255,14 @@ export class MediaAPI {
   /**
    * Download an image from a URL into the media library: the server fetches
    * the bytes, verifies it's an image (magic bytes), and stores it in R2.
-   * 201 -> the new MediaAsset. 400 on invalid/blocked URL, 413 when the
-   * image exceeds 10MB, 415 when the URL doesn't serve an image,
+   * 201 -> the new MediaAsset, or { assets: MediaAsset[] } when the URL is an
+   * Instagram post with ?img_index=all (whole carousel imported).
+   * 400 on invalid/blocked URL, 413 when the image exceeds 10MB, 415 when the
+   * URL doesn't serve an image, 422 when Instagram resolution fails,
    * 502 when the download itself fails.
    */
-  async fromUrl(body: MediaFromUrlRequest): Promise<ApiResponse<MediaAsset>> {
-    return this.http.post<MediaAsset>("/api/admin/media/from-url", body);
+  async fromUrl(body: MediaFromUrlRequest): Promise<ApiResponse<MediaAsset | { assets: MediaAsset[] }>> {
+    return this.http.post<MediaAsset | { assets: MediaAsset[] }>("/api/admin/media/from-url", body);
   }
 
   /** List media library assets, optionally filtered by kind, paginated. */

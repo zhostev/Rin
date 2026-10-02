@@ -340,7 +340,12 @@ export function AdminMediaLibraryPage() {
         );
         return;
       }
-      setAssets((prev) => [data, ...prev]);
+      setAssets((prev) => {
+        // ?img_index=all 批量导入时服务端返回 { assets: [...] }
+        const batch = (data as { assets?: unknown }).assets;
+        const list = Array.isArray(batch) ? batch : [data];
+        return [...(list as typeof prev), ...prev];
+      });
       setFromUrlOpen(false);
       setFromUrl("");
       setFromUrlTitle("");

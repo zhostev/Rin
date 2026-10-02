@@ -198,6 +198,46 @@ describe('AdminMediaService POST /from-url', () => {
         expect(puts[0]).toMatch(/_n\.jpg$/);
     });
 
+    it('?img_index=all imports every carousel image as its own asset (201)', async () => {
+        await setup({ R2_BUCKET: r2Mock(), APIFY_TOKEN: 'apify_api_test' });
+        const cdn = (n: number) =>
+            `https://scontent-lax3-2.cdninstagram.com/v/t51.82787-15/81962964${n}_n.jpg`;
+        mockFetchImpl((url) => {
+            if (url.includes('api.apify.com')) {
+                return new Response(
+                    JSON.stringify([
+                        {
+                            shortCode: 'Dd6OBf1lAy5',
+                            type: 'Sidecar',
+                            childPosts: [
+                                { type: 'Image', displayUrl: cdn(1) },
+                                { type: 'Video', displayUrl: 'https://scontent-lax3-2.cdninstagram.com/clip.mp4' },
+                                { type: 'Image', displayUrl: cdn(2) },
+                                { type: 'Image', displayUrl: cdn(3) },
+                            ],
+                        },
+                    ]),
+                    { status: 200, headers: { 'content-type': 'application/json' } },
+                );
+            }
+            return pngResponse();
+        });
+
+        const res = await postFromUrl({
+            url: 'https://www.instagram.com/p/Dd6OBf1lAy5/?img_index=all',
+            title: 'Carousel',
+        });
+        expect(res.status).toBe(201);
+        const data = await res.json() as any;
+        expect(Array.isArray(data.assets)).toBe(true);
+        expect(data.assets).toHaveLength(3);
+        expect(data.assets.every((a: any) => a.kind === 'image')).toBe(true);
+        expect(puts).toHaveLength(3);
+        // 批量标题带序号后缀
+        expect(data.assets[0].title).toBe('Carousel (1/3)');
+        expect(data.assets[2].title).toBe('Carousel (3/3)');
+    });
+
     it('422 instagram_resolve_failed when Apify has nothing for the post', async () => {
         await setup({ R2_BUCKET: r2Mock(), APIFY_TOKEN: 'apify_api_test' });
         mockFetchImpl(() =>

@@ -68,10 +68,12 @@ import {
 import {
     downloadImageBytes,
     filenameFromUrl,
+    instagramImageSelection,
     isInstagramPostUrl,
     parseRemoteImageUrl,
     RemoteImageDownloadError,
     resolveInstagramImageUrl,
+    resolveInstagramImageUrls,
 } from "../features/media/from-url";
 import { headStorageObject, putStorageObjectAtKey } from "../utils/storage";
 import { createS3Client, deleteObject } from "../utils/s3";
@@ -198,6 +200,101 @@ async function deleteAssetWithObject(db: DB, env: Env, row: MediaAssetRow): Prom
 function invalidUploadFile(c: AppContext, validation: { code?: string; message?: string }): Response {
     const status = validation.code === 'video_too_large' ? 413 : 400;
     return c.json({ error: { code: validation.code ?? 'video_invalid_mime', message: validation.message ?? 'Invalid file' } }, status);
+}
+
+/**
+ * 把用户提交的 URL 解析为待下载的图片直链列表。
+ * Instagram 帖子页经 Apify 解析（需要 APIFY_TOKEN 环境变量）：
+ * ?img_index=all 返回轮播全部图片，?img_index=N 返回第 N 张，缺省返回首图。
+ * 普通 URL 直接返回自身。
+ */
+async function resolveFromUrlImageTargets(pageUrl: URL, env: Env): Promise<URL[]> {
+    if (!isInstagramPostUrl(pageUrl)) {
+        return [pageUrl];
+    }
+    const token = (env.APIFY_TOKEN ?? "").trim();
+    const selection = instagramImageSelection(pageUrl);
+    if (selection.mode === "all") {
+        // resolveInstagramImageUrls 内部已做 Instagram CDN 白名单校验
+        return (await resolveInstagramImageUrls(pageUrl, fetch, token)).map((u) => new URL(u));
+    }
+    const resolved = await resolveInstagramImageUrl(pageUrl, fetch, token);
+    const revalidated = parseRemoteImageUrl(resolved);
+    if ("error" in revalidated) {
+        throw new RemoteImageDownloadError("instagram_resolve_failed", "解析出的图片地址无效");
+    }
+    return [revalidated.url];
+}
+
+/**
+ * 下载单张图片并入库（建资产行 → 写 R2 → 回填 r2Key），返回序列化后的资产。
+ * 下载失败抛 RemoteImageDownloadError（调用方按 code 映射状态码）；
+ * R2 写入失败删孤儿行后抛 image_download_store_failed。
+ */
+async function importImageFromUrl(
+    db: DB,
+    env: Env,
+    imageUrl: URL,
+    opts: { title: string; alt: string; fromUrl: string },
+): Promise<ReturnType<typeof serializeMediaAsset>> {
+    const downloaded = await downloadImageBytes(imageUrl.toString());
+    const now = new Date();
+    const inserted = await insertMediaAsset(db, {
+        kind: 'image',
+        source: 'r2',
+        mime: downloaded.mime,
+        title: opts.title,
+        altText: opts.alt || opts.title,
+        streamStatus: 'ready',
+        uploadSessionJson: JSON.stringify({
+            fromUrl: opts.fromUrl,
+            downloadedAt: now.toISOString(),
+        }),
+        createdAt: now,
+        updatedAt: now,
+    });
+    if (!inserted) {
+        throw new Error('Failed to insert media asset');
+    }
+    const assetId = inserted.insertedId;
+
+    const key = buildDirectUploadKey(assetId, filenameFromUrl(imageUrl, downloaded.mime));
+    try {
+        await putStorageObjectAtKey(env, key, downloaded.bytes, downloaded.mime);
+    } catch (error) {
+        // R2 写入失败：删孤儿行，不留残留（R2 属于上游依赖，返回 502）
+        await deleteMediaAssetById(db, assetId);
+        console.error('[media] image_download_store_failed:', error);
+        throw new RemoteImageDownloadError('image_download_store_failed', 'Failed to write the downloaded image to storage');
+    }
+    await updateMediaAssetById(db, assetId, {
+        r2Key: key,
+        updatedAt: new Date(),
+    });
+
+    const row = await findMediaAssetById(db, assetId);
+    if (!row) {
+        throw new Error('Failed to load media asset');
+    }
+    return serializeMediaAsset(row);
+}
+
+/** from-url 下载类错误的 code → HTTP 状态码映射（与原单张逻辑一致）。 */
+function fromUrlDownloadStatus(error: unknown): 422 | 413 | 415 | 502 | 500 {
+    if (error instanceof RemoteImageDownloadError) {
+        switch (error.code) {
+            case 'instagram_resolve_failed':
+                return 422;
+            case 'image_too_large':
+                return 413;
+            case 'not_an_image':
+            case 'empty_image':
+                return 415;
+            default:
+                return 502;
+        }
+    }
+    return 500;
 }
 
 /**
@@ -637,23 +734,34 @@ export function AdminMediaService(): HonoApp {
         const title = typeof body['title'] === 'string' ? body['title'].slice(0, 200) : '';
         const alt = typeof body['alt'] === 'string' ? body['alt'].slice(0, 500) : '';
 
-        let downloaded: { bytes: Uint8Array; mime: string };
-        // Instagram 帖子页先解析出 og:image 直链再下载（轮播帖取首图）
-        let targetUrl = parsed.url;
-        if (isInstagramPostUrl(targetUrl)) {
+        // 解析待下载的图片直链列表：Instagram 帖子页经 Apify 解析，
+        // ?img_index=all 时取轮播全部图片（逐张入库），否则单张。
+        let imageTargets: URL[];
+        try {
+            imageTargets = await resolveFromUrlImageTargets(parsed.url, env);
+        } catch (error) {
+            if (error instanceof RemoteImageDownloadError) {
+                return c.json({
+                    error: {
+                        code: error.code,
+                        message: error.message,
+                        ...(error.upstreamStatus ? { upstreamStatus: error.upstreamStatus } : {}),
+                    },
+                }, 422);
+            }
+            return upstreamError(c, error, "instagram_resolve_failed");
+        }
+
+        // 逐张下载入库（顺序执行，避免并发打满内存/连接）。
+        // 批量模式下某张失败则整体失败（已入库的不回滚，调用方可重试剩余部分）。
+        const assets: ReturnType<typeof serializeMediaAsset>[] = [];
+        for (const [index, imageTarget] of imageTargets.entries()) {
             try {
-                const resolved = await resolveInstagramImageUrl(
-                    targetUrl,
-                    fetch,
-                    (env.APIFY_TOKEN ?? "").trim(),
-                );
-                const revalidated = parseRemoteImageUrl(resolved);
-                if ("error" in revalidated) {
-                    return c.json({
-                        error: { code: "instagram_resolve_failed", message: "解析出的图片地址无效" },
-                    }, 422);
-                }
-                targetUrl = revalidated.url;
+                assets.push(await importImageFromUrl(db, env, imageTarget, {
+                    title: imageTargets.length > 1 && title ? `${title} (${index + 1}/${imageTargets.length})` : title,
+                    alt,
+                    fromUrl: parsed.url.toString(),
+                }));
             } catch (error) {
                 if (error instanceof RemoteImageDownloadError) {
                     return c.json({
@@ -662,75 +770,19 @@ export function AdminMediaService(): HonoApp {
                             message: error.message,
                             ...(error.upstreamStatus ? { upstreamStatus: error.upstreamStatus } : {}),
                         },
-                    }, 422);
+                    }, fromUrlDownloadStatus(error));
                 }
-                return upstreamError(c, error, "instagram_resolve_failed");
+                if (error instanceof Error && (error.message === 'Failed to insert media asset' || error.message === 'Failed to load media asset')) {
+                    return c.text(error.message, 500);
+                }
+                return upstreamError(c, error, 'image_download_failed');
             }
         }
-        try {
-            downloaded = await downloadImageBytes(targetUrl.toString());
-        } catch (error) {
-            if (error instanceof RemoteImageDownloadError) {
-                const status = error.code === 'image_too_large'
-                    ? 413
-                    : error.code === 'not_an_image' || error.code === 'empty_image'
-                        ? 415
-                        : 502;
-                return c.json({
-                    error: {
-                        code: error.code,
-                        message: error.message,
-                        ...(error.upstreamStatus ? { upstreamStatus: error.upstreamStatus } : {}),
-                    },
-                }, status);
-            }
-            return upstreamError(c, error, 'image_download_failed');
-        }
 
-        const now = new Date();
-        const inserted = await insertMediaAsset(db, {
-            kind: 'image',
-            source: 'r2',
-            mime: downloaded.mime,
-            title,
-            altText: alt || title,
-            streamStatus: 'ready',
-            uploadSessionJson: JSON.stringify({
-                fromUrl: parsed.url.toString(),
-                downloadedAt: now.toISOString(),
-            }),
-            createdAt: now,
-            updatedAt: now,
-        });
-        if (!inserted) {
-            return c.text('Failed to insert media asset', 500);
+        if (assets.length === 1) {
+            return c.json(assets[0], 201);
         }
-        const assetId = inserted.insertedId;
-
-        const key = buildDirectUploadKey(assetId, filenameFromUrl(targetUrl, downloaded.mime));
-        try {
-            await putStorageObjectAtKey(env, key, downloaded.bytes, downloaded.mime);
-        } catch (error) {
-            // R2 写入失败：删孤儿行，不留残留（R2 属于上游依赖，返回 502）
-            await deleteMediaAssetById(db, assetId);
-            console.error('[media] image_download_store_failed:', error);
-            return c.json({
-                error: {
-                    code: 'image_download_store_failed',
-                    message: 'Failed to write the downloaded image to storage',
-                },
-            }, 502);
-        }
-        await updateMediaAssetById(db, assetId, {
-            r2Key: key,
-            updatedAt: new Date(),
-        });
-
-        const row = await findMediaAssetById(db, assetId);
-        if (!row) {
-            return c.text('Failed to load media asset', 500);
-        }
-        return c.json(serializeMediaAsset(row), 201);
+        return c.json({ assets }, 201);
     }));
 
     // POST /admin/media/audio —— multipart 上传音频（R2 binding 优先，否则 S3）
