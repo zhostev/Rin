@@ -248,7 +248,7 @@ const DERIVE_TYPES: DeriveType[] = ["summary", "chapters", "platform_copy"];
 const CHECK_ITEMS: CheckItem[] = ["broken_links", "missing_alt", "stale_facts", "metadata"];
 
 /** MiniMax H3 视频参数选项（与服务端 MINIMAX_VIDEO_* 常量保持一致）。 */
-const VIDEO_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const VIDEO_DURATIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 25, 30];
 const VIDEO_RESOLUTIONS = ["768P", "2K"] as const;
 const VIDEO_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"] as const;
 /** 约单价（元/秒），仅用于向导里的费用预估展示，以 MiniMax 官网为准。 */

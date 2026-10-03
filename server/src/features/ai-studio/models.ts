@@ -151,7 +151,7 @@ export const MINIMAX_VIDEO_MODEL = "MiniMax-H3";
 export const MINIMAX_VIDEO_PROMPT_MAX = 7000;
 /** 时长（秒，整数，MiniMax-H3 可用范围） */
 export const MINIMAX_VIDEO_DURATION_MIN = 4;
-export const MINIMAX_VIDEO_DURATION_MAX = 15;
+export const MINIMAX_VIDEO_DURATION_MAX = 30;
 export const MINIMAX_VIDEO_DURATION_DEFAULT = 6;
 /** 分辨率档位（MiniMax-H3） */
 export const MINIMAX_VIDEO_RESOLUTIONS = ["768P", "2K"] as const;
