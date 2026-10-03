@@ -303,9 +303,6 @@ function JobWizard({
   );
   /** relay 视频后端：minimax（按量计费）/ comfyui（本地免费）/ null（未知，按 minimax 展示）。 */
   const [videoProvider, setVideoProvider] = useState<"minimax" | "comfyui" | null>(null);
-  /** 视频转录时的提取阶段：download（取视频）/ extract（抽音轨）/ upload（传音频）。 */
-  const [extractPhase, setExtractPhase] = useState<"download" | "extract" | "upload" | null>(null);
-
   // Load pickers lazily when the wizard opens.
   useEffect(() => {
     if (!open) return;

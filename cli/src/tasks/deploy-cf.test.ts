@@ -71,7 +71,11 @@ describe("buildWranglerTriggersConfig", () => {
 
   it("includes cron triggers for production deploys", () => {
     expect(buildWranglerTriggersConfig(false)).toContain("[triggers]");
-    expect(buildWranglerTriggersConfig(false)).toContain('crons = ["*/20 * * * *"]');
+    // 视频 sweep 只在 cron === "*/5 * * * *" 时被调度（见 runtime/scheduled-handler），
+    // 少这条 production 的 video job 会永久停在 processing。
+    expect(buildWranglerTriggersConfig(false)).toContain(
+      'crons = ["*/5 * * * *", "*/20 * * * *"]',
+    );
   });
 });
 
