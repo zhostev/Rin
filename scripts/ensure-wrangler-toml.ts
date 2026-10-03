@@ -85,7 +85,7 @@ run_worker_first = true
 not_found_handling = "single-page-application"
 
 [triggers]
-crons = ["*/20 * * * *"]
+crons = ["*/5 * * * *", "*/20 * * * *"]
 
 [vars]
 S3_FOLDER = "images/"
@@ -226,7 +226,7 @@ run_worker_first = true
 not_found_handling = "single-page-application"
 
 [triggers]
-crons = ["*/20 * * * *"]
+crons = ["*/5 * * * *", "*/20 * * * *"]
 
 [vars]
 R2_BUCKET_NAME = "${r2BucketName}"
