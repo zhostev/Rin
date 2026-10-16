@@ -10,7 +10,7 @@ Cloudflare Worker 出口 IP 不固定，直调会被 40164 拒绝。
 
 ```
 文章编辑页 [推送公众号草稿]
-  → POST /api/admin/feed/:id/wechat-draft   (Worker, 仅管理员)
+  → POST /api/feed/:id/wechat-draft   (Worker, 仅管理员)
   → POST https://<ECS>:18080/push-draft     (Bearer 鉴权)
       1. 标题 64 字节检查（微信硬限制）
       2. access_token（内存缓存，过期前 5 分钟自动刷新）
@@ -43,6 +43,15 @@ cd wechat-relay && ./install.sh
 1. `/root/.wechat_config.json` 存在（复用现有手工流程的，内含 `app_id`/`app_secret`）
 2. 云厂商安全组放行 TCP 18080
 3. 微信公众号后台 IP 白名单包含本机公网 IP（已有，手工流程一直在用）
+
+token 获取走 `/cgi-bin/stable_token`（普通模式），不走 `/cgi-bin/token`：同一 app_id
+下若有别的程序（例如每日 cron 用 `/cgi-bin/token` + 文件缓存）也在取 token，两条路径
+会互相把对方的 token 刷失效（40001）。stable_token 与 `/cgi-bin/token` 互相隔离，
+普通模式重复调用不刷新 token，所以两边可以共存。
+
+不开公网口的替代方案：ECS 上跑 `cloudflared`（token 型 tunnel，出站建连），把
+`relay.<你的域名>` 这条 ingress 指到 `http://localhost:18080`，`WECHAT_RELAY_URL`
+填 `https://relay.<你的域名>` —— 不用动安全组，且 Bearer 不再明文过公网。
 
 ### HTTP 还是 HTTPS？
 
