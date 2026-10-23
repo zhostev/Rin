@@ -17,7 +17,7 @@ import {
     type FeedTranslationStatus,
 } from "../queue";
 import { generateFeedTranslationResult } from "../utils/ai-translation";
-import { getAIConfig } from "../utils/db-config";
+import { getAIWriterConfig } from "../utils/db-config";
 import { matchesExpectedUpdatedAt, normalizeQueueUpdatedAt } from "./feed-ai-summary";
 
 type ConfigReader = {
@@ -73,7 +73,7 @@ export async function syncFeedTranslationQueueState(
         resetTranslation?: boolean;
     },
 ) {
-    const aiConfig = await getAIConfig(serverConfig);
+    const aiConfig = await getAIWriterConfig(serverConfig);
     const shouldQueue = aiConfig.enabled && !options.draft;
     const reset = options.resetTranslation
         ? { titleEn: "", summaryEn: "", contentEn: "" }
@@ -124,7 +124,7 @@ export async function processFeedTranslationTask(
         return;
     }
 
-    const aiConfig = await getAIConfig(serverConfig);
+    const aiConfig = await getAIWriterConfig(serverConfig);
     if (!aiConfig.enabled || feed.draft === 1) {
         await db
             .update(feeds)
