@@ -35,6 +35,13 @@ export interface Feed {
   ai_tts_error?: string;
   /** 朗读音频的 media_assets id（公开序列化时剥离）；null = 未生成。 */
   tts_asset_id?: number | null;
+  /** 英文译文（0027）：站点切到英文时展示；空字符串 = 尚未译出。 */
+  titleEn?: string;
+  summaryEn?: string;
+  contentEn?: string;
+  translationEnStatus?: "idle" | "pending" | "processing" | "completed" | "failed";
+  /** 仅管理员可见（公开序列化时剥离）。 */
+  translationEnError?: string;
   hashtags: Array<{ id: number; name: string }>;
   user: {
     avatar: string | null;
@@ -110,6 +117,15 @@ export interface AdjacentFeed {
 export interface AdjacentFeedResponse {
   previousFeed: AdjacentFeed | null;
   nextFeed: AdjacentFeed | null;
+}
+
+/** GET /api/feed/:id/translation-en：英文译文状态（完成时附带译文）。 */
+export interface FeedTranslationResponse {
+  status: "idle" | "pending" | "processing" | "completed" | "failed";
+  titleEn: string;
+  summaryEn: string;
+  contentEn: string;
+  error?: string;
 }
 
 // ============================================================================

@@ -2,6 +2,8 @@ import type { AIComposeImageMode, ComposeLength } from "@rin/api";
 
 export const FEED_AI_SUMMARY_TASK = "feed.ai-summary.generate" as const;
 export const FEED_AI_COMPOSE_TASK = "feed.ai-compose.generate" as const;
+// 英文翻译：标题/摘要/正文译英（处理函数见 server/src/services/feed-ai-translation.ts）
+export const FEED_TRANSLATION_TASK = "feed.translation-en.generate" as const;
 // 文章播客化 TTS：朗读音频生成（处理函数见 server/src/services/feed-ai-tts.ts）
 export const FEED_TTS_TASK = "feed.tts.generate" as const;
 
@@ -79,7 +81,28 @@ export interface FeedAIComposeTask {
   payload: FeedAIComposeTaskPayload;
 }
 
-export type QueueTask = FeedAISummaryTask | FeedAIComposeTask | FeedTTSTask | AIStudioTask;
+export type FeedTranslationStatus = FeedAISummaryStatus;
+
+export interface FeedTranslationTaskPayload {
+  feedId: number;
+  expectedUpdatedAtUnix: number;
+}
+
+export interface FeedTranslationTask {
+  type: typeof FEED_TRANSLATION_TASK;
+  payload: FeedTranslationTaskPayload;
+}
+
+export function createFeedTranslationTask(
+  payload: FeedTranslationTaskPayload,
+): FeedTranslationTask {
+  return {
+    type: FEED_TRANSLATION_TASK,
+    payload,
+  };
+}
+
+export type QueueTask = FeedAISummaryTask | FeedAIComposeTask | FeedTTSTask | AIStudioTask | FeedTranslationTask;
 
 export function createFeedAISummaryTask(
   payload: FeedAISummaryTaskPayload,
@@ -126,6 +149,18 @@ export function createAIStudioTask(
     type,
     payload,
   };
+}
+
+function isTranslationPayload(value: unknown): value is FeedTranslationTaskPayload {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const payload = value as Partial<FeedTranslationTaskPayload>;
+  return (
+    typeof payload.feedId === "number" &&
+    typeof payload.expectedUpdatedAtUnix === "number"
+  );
 }
 
 function isTTSPayload(value: unknown): value is FeedTTSTaskPayload {
@@ -197,6 +232,10 @@ export function isQueueTask(value: unknown): value is QueueTask {
 
   if (task.type === FEED_TTS_TASK) {
     return isTTSPayload(task.payload);
+  }
+
+  if (task.type === FEED_TRANSLATION_TASK) {
+    return isTranslationPayload(task.payload);
   }
 
   if (

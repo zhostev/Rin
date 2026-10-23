@@ -19,6 +19,13 @@ export const feeds = sqliteTable("feeds", {
     // 0019 · AI 写作任务状态（feed-ai-compose.ts 读写；迁移已建列，schema 后补）
     aiComposeStatus: text("ai_compose_status").default("idle").notNull(),
     aiComposeError: text("ai_compose_error").default("").notNull(),
+    // 0027 · 英文翻译（feed-ai-translation.ts 读写）：原文为中文，切到英文时展示 *_en；
+    // 正文/标题/摘要任一变更即清空并重新入队翻译（与 ai_summary 的 reset 口径一致）
+    titleEn: text("title_en").default("").notNull(),
+    summaryEn: text("summary_en").default("").notNull(),
+    contentEn: text("content_en").default("").notNull(),
+    translationEnStatus: text("translation_en_status").default("idle").notNull(),
+    translationEnError: text("translation_en_error").default("").notNull(),
     content: text("content").notNull(),
     listed: integer("listed").default(1).notNull(),
     draft: integer("draft").default(1).notNull(),

@@ -8,8 +8,10 @@ import {
   createAIStudioTask,
   createFeedAIComposeTask,
   createFeedAISummaryTask,
+  createFeedTranslationTask,
   FEED_AI_COMPOSE_TASK,
   FEED_AI_SUMMARY_TASK,
+  FEED_TRANSLATION_TASK,
   isQueueTask,
 } from "../tasks";
 
@@ -32,6 +34,11 @@ describe("isQueueTask", () => {
 
   it("accepts compose tasks", () => {
     expect(isQueueTask(createFeedAIComposeTask(composePayload))).toBe(true);
+  });
+
+  it("accepts translation tasks and rejects malformed ones", () => {
+    expect(isQueueTask(createFeedTranslationTask({ feedId: 3, expectedUpdatedAtUnix: 123 }))).toBe(true);
+    expect(isQueueTask({ type: FEED_TRANSLATION_TASK, payload: { feedId: 3 } })).toBe(false);
   });
 
   it("rejects an unknown task type", () => {

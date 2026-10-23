@@ -1328,6 +1328,12 @@
     "hint": "ECS中継でWeChat公式アカウントの下書きに送信",
     "success": "WeChatの下書きに送信しました（draft_media_id={{mediaId}}）"
   },
+  "translation": {
+    "translating": "この記事を英語に翻訳中です…完了するまで原文を表示します。",
+    "failed": "翻訳に失敗したため、原文を表示しています。",
+    "translated_note": "中国語から AI が翻訳しました。",
+    "summary": "要約"
+  },
   "tts": {
     "title": "朗読音声を生成",
     "hint": "記事をAI朗読音声に変換",

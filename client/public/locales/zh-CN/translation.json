@@ -1337,6 +1337,12 @@
     "hint": "经 ECS 中转推送到微信公众号草稿箱",
     "success": "已送达公众号草稿箱（draft_media_id={{mediaId}}），去公众号后台草稿箱查看"
   },
+  "translation": {
+    "translating": "正在把这篇文章翻译成英文…译文就绪前先显示原文。",
+    "failed": "翻译失败，当前显示原文。",
+    "translated_note": "由 AI 从中文翻译。",
+    "summary": "摘要"
+  },
   "tts": {
     "title": "生成朗读音频",
     "hint": "用 AI 把文章转成语音朗读版",

@@ -4,13 +4,15 @@ import { client } from "../app/runtime";
 import {timeago} from "../utils/timeago.ts";
 import {Link} from "wouter";
 import {useTranslation} from "react-i18next";
+import {isEnglishLanguage} from "../utils/feed-localization";
 
 export function AdjacentSection({id, setError}: { id: string, setError: (error: string) => void }) {
     const [adjacentFeeds, setAdjacentFeeds] = useState<AdjacentFeedResponse>();
+    const {i18n} = useTranslation();
 
     useEffect(() => {
         client.feed
-            .adjacent(id)
+            .adjacent(id, isEnglishLanguage(i18n.language) ? "en" : undefined)
             .then(({data, error}) => {
                 if (error) {
                     setError(error.value as string);
@@ -18,7 +20,7 @@ export function AdjacentSection({id, setError}: { id: string, setError: (error: 
                     setAdjacentFeeds(data);
                 }
             });
-    }, [id, setError]);
+    }, [id, setError, i18n.language]);
     return (
         <div className="rounded-2xl bg-w m-2 grid grid-cols-1 sm:grid-cols-2">
             <AdjacentCard data={adjacentFeeds?.previousFeed} type="previous"/>

@@ -21,6 +21,14 @@ export function setPickedNote(picked: PickedAsset[], id: string, note: string): 
   return picked.map((asset) => (asset.id === id ? { ...asset, note } : asset));
 }
 
+/** 写作页素材区只展示最近上传的 6 个素材：素材库按 id 倒序返回（最新在前），取前 6 个即可。 */
+export const MEDIA_PICKER_RECENT_LIMIT = 6;
+
+/** Pure so the recent-only rule can be tested without mounting the component. */
+export function recentAssets<T>(assets: T[]): T[] {
+  return assets.slice(0, MEDIA_PICKER_RECENT_LIMIT);
+}
+
 export function MediaPicker({
   value,
   onChange,
@@ -39,13 +47,14 @@ export function MediaPicker({
     let cancelled = false;
 
     client.media
-      .list(undefined, { page: 1, limit: 50 })
+      .list(undefined, { page: 1, limit: MEDIA_PICKER_RECENT_LIMIT })
       .then(({ data, error: requestError }) => {
         if (cancelled) return;
         if (requestError) {
           setError(String(requestError.value ?? t("media.load_failed")));
         } else {
-          setAssets(data?.data ?? []);
+          // 服务端 limit 是上限而非保证：再切一刀，确保任何来源都只显示最近 6 个。
+          setAssets(recentAssets(data?.data ?? []));
         }
       })
       .finally(() => {
