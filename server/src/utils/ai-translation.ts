@@ -1,5 +1,5 @@
 import { generateAIText, stripReasoningTags } from "./ai";
-import { getAIConfig } from "./db-config";
+import { getAIWriterConfig } from "./db-config";
 
 type ConfigReader = {
     get(key: string): Promise<unknown>;
@@ -116,15 +116,16 @@ export interface FeedTranslationResult {
 
 /**
  * Translate one feed (title + summary in one call, content chunk by chunk)
- * with the site's ai_summary AI config — same enable switch and provider as
- * AI summaries, so no new settings surface is needed.
+ * with the site's AI *writer* config — the channel AI compose/revise already
+ * run on in production. (The ai_summary switch is off on s7ea.com while the
+ * writer channel is on, so gating on ai_summary would leave this dormant.)
  */
 export async function generateFeedTranslationResult(
     env: Env,
     serverConfig: ConfigReader,
     feed: { title: string | null; summary: string; content: string },
 ): Promise<FeedTranslationResult> {
-    const config = await getAIConfig(serverConfig);
+    const config = await getAIWriterConfig(serverConfig);
     if (!config.enabled) {
         return { titleEn: null, summaryEn: null, contentEn: null, skipped: true };
     }
