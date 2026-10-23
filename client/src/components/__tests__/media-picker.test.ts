@@ -1,5 +1,24 @@
 import { describe, expect, it } from "bun:test";
-import { setPickedNote, togglePickedAsset, type PickedAsset } from "../media-picker";
+import {
+  MEDIA_PICKER_RECENT_LIMIT,
+  recentAssets,
+  setPickedNote,
+  togglePickedAsset,
+  type PickedAsset,
+} from "../media-picker";
+
+describe("recentAssets", () => {
+  it("keeps only the most recent 6 assets (list is newest-first)", () => {
+    const assets = Array.from({ length: 12 }, (_, i) => ({ id: i + 1 }));
+    expect(MEDIA_PICKER_RECENT_LIMIT).toBe(6);
+    expect(recentAssets(assets).map((asset) => asset.id)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it("returns everything when there are 6 or fewer assets", () => {
+    expect(recentAssets([1, 2, 3])).toEqual([1, 2, 3]);
+    expect(recentAssets([])).toEqual([]);
+  });
+});
 
 describe("togglePickedAsset", () => {
   it("appends a newly picked asset with an empty note", () => {
