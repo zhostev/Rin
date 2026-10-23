@@ -56,6 +56,10 @@ export async function searchFeedPage(db: DB, options: SearchFeedPageOptions) {
         like(feeds.content, searchPattern),
         like(feeds.summary, searchPattern),
         like(feeds.alias, searchPattern),
+        // 英文译文也可搜：切英文时用英文关键词应能命中已译文章
+        like(feeds.titleEn, searchPattern),
+        like(feeds.contentEn, searchPattern),
+        like(feeds.summaryEn, searchPattern),
     );
     const where = options.admin
         ? searchWhere

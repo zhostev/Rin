@@ -11,6 +11,7 @@ import { useSiteConfig } from "../hooks/useSiteConfig";
 import { siteName } from "../utils/constants"
 import { tryInt } from "../utils/int"
 import { useTranslation } from "react-i18next";
+import { isEnglishLanguage } from "../utils/feed-localization";
 
 type FeedsData = {
     size: number,
@@ -25,7 +26,7 @@ type FeedsMap = {
 }
 
 export function FeedsPage() {
-    const { t } = useTranslation()
+    const { t, i18n } = useTranslation()
     const siteConfig = useSiteConfig();
     const query = new URLSearchParams(useSearch());
     const profile = useContext(ProfileContext);
@@ -46,7 +47,8 @@ export function FeedsPage() {
         client.feed.list({
             page: page,
             limit: limit,
-            type: type
+            type: type,
+            lang: isEnglishLanguage(i18n.language) ? "en" : undefined
         }).then(({ data }) => {
             if (data) {
                 setFeeds({
@@ -58,7 +60,7 @@ export function FeedsPage() {
         })
     }
     useEffect(() => {
-        const key = `${query.get("page")} ${query.get("type")} ${limit}`
+        const key = `${query.get("page")} ${query.get("type")} ${limit} ${i18n.language}`
         if (ref.current == key) return
         const type = query.get("type") as FeedType || 'normal'
         if (type !== listState) {
@@ -67,7 +69,7 @@ export function FeedsPage() {
         setStatus('loading')
         fetchFeeds(type)
         ref.current = key
-    }, [limit, query.get("page"), query.get("type")])
+    }, [limit, query.get("page"), query.get("type"), i18n.language])
     return (
         <>
             <Helmet>

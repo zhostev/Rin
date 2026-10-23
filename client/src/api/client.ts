@@ -57,6 +57,7 @@ import type {
   AIReviseResponse,
   WechatDraftResponse,
   FeedTTSStatusResponse,
+  FeedTranslationResponse,
 } from "@rin/api";
 
 export interface SettingsConfigResponse {
@@ -320,20 +321,21 @@ class HttpClient {
 class FeedAPI {
   constructor(private http: HttpClient) {}
 
-  // GET /api/feed
-  async list(params?: { page?: number; limit?: number; type?: 'draft' | 'unlisted' | 'normal' }): Promise<ApiResponse<FeedListResponse>> {
+  // GET /api/feed（lang=en 时列表标题/摘要换成已译完的英文版）
+  async list(params?: { page?: number; limit?: number; type?: 'draft' | 'unlisted' | 'normal'; lang?: string }): Promise<ApiResponse<FeedListResponse>> {
     const searchParams = new URLSearchParams();
     if (params?.page) searchParams.set("page", params.page.toString());
     if (params?.limit) searchParams.set("limit", params.limit.toString());
     if (params?.type) searchParams.set("type", params.type);
-    
+    if (params?.lang) searchParams.set("lang", params.lang);
+
     const query = searchParams.toString();
     return this.http.get<FeedListResponse>(`/api/feed${query ? `?${query}` : ""}`);
   }
 
   // GET /api/feed/timeline
-  async timeline(): Promise<ApiResponse<TimelineItem[]>> {
-    return this.http.get<TimelineItem[]>("/api/feed/timeline");
+  async timeline(lang?: string): Promise<ApiResponse<TimelineItem[]>> {
+    return this.http.get<TimelineItem[]>(`/api/feed/timeline${lang ? `?lang=${encodeURIComponent(lang)}` : ""}`);
   }
 
   // GET /api/feed/:id
@@ -357,8 +359,18 @@ class FeedAPI {
   }
 
   // GET /api/feed/adjacent/:id
-  async adjacent(id: number | string): Promise<ApiResponse<AdjacentFeedResponse>> {
-    return this.http.get<AdjacentFeedResponse>(`/api/feed/adjacent/${id}`);
+  async adjacent(id: number | string, lang?: string): Promise<ApiResponse<AdjacentFeedResponse>> {
+    return this.http.get<AdjacentFeedResponse>(`/api/feed/adjacent/${id}${lang ? `?lang=${encodeURIComponent(lang)}` : ""}`);
+  }
+
+  // POST /api/feed/:id/translate-en — 按需入队英文翻译（已译完/在途时幂等返回当前状态）
+  async translateEn(id: number): Promise<ApiResponse<{ status: string }>> {
+    return this.http.post<{ status: string }>(`/api/feed/${id}/translate-en`, {});
+  }
+
+  // GET /api/feed/:id/translation-en — 英文译文状态与译文（不走详情缓存，供英文模式轮询）
+  async translationEn(id: number): Promise<ApiResponse<FeedTranslationResponse>> {
+    return this.http.get<FeedTranslationResponse>(`/api/feed/${id}/translation-en`);
   }
 
   // POST /api/feed/top/:id

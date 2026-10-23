@@ -4,6 +4,7 @@ import {
   isQueueTask,
   FEED_AI_COMPOSE_TASK,
   FEED_AI_SUMMARY_TASK,
+  FEED_TRANSLATION_TASK,
   FEED_TTS_TASK,
   AISTUDIO_CHECK_TASK,
   AISTUDIO_DERIVE_TASK,
@@ -16,6 +17,7 @@ import { processAIStudioTask } from "../features/ai-studio/processors";
 import { processFeedAIComposeTask } from "../services/feed-ai-compose";
 import { processFeedAISummaryTask } from "../services/feed-ai-summary";
 import { processFeedAITTSTask } from "../services/feed-ai-tts";
+import { processFeedTranslationTask } from "../services/feed-ai-translation";
 import { clearFeedCache } from "../services/feed";
 
 export async function handleQueue(
@@ -50,6 +52,17 @@ export async function handleQueue(
         break;
       case FEED_AI_COMPOSE_TASK:
         await processFeedAIComposeTask(
+          env,
+          db,
+          cache,
+          serverConfig,
+          body.payload,
+          clearFeedCache,
+        );
+        message.ack();
+        break;
+      case FEED_TRANSLATION_TASK:
+        await processFeedTranslationTask(
           env,
           db,
           cache,

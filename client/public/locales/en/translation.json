@@ -1337,6 +1337,12 @@
     "hint": "Push to WeChat Official Account draft box via ECS relay",
     "success": "Delivered to WeChat draft box (draft_media_id={{mediaId}})"
   },
+  "translation": {
+    "translating": "Translating this article into English… the original is shown until the translation is ready.",
+    "failed": "Translation failed, so the original text is shown.",
+    "translated_note": "Translated from Chinese by AI.",
+    "summary": "Summary"
+  },
   "tts": {
     "title": "Generate narration audio",
     "hint": "Turn this article into AI-narrated audio",

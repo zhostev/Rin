@@ -27,6 +27,7 @@ import { stripMarkdown } from "../utils/markdown";
 import { registerFeedAIComposeRoutes } from "./feed-ai-compose";
 import { registerFeedAIReviseRoutes } from "./feed-ai-revise";
 import { registerFeedTTSRoutes } from "./feed-ai-tts";
+import { registerFeedTranslationRoutes, syncFeedTranslationQueueState } from "./feed-ai-translation";
 import { registerFeedWechatDraftRoutes } from "./feed-wechat-draft";
 import { syncFeedAISummaryQueueState } from "./feed-ai-summary";
 import { bindTagToPost } from "./tag";
@@ -85,6 +86,7 @@ export function FeedService(): Hono<{
     registerFeedAIComposeRoutes(app);
     registerFeedAIReviseRoutes(app);
     registerFeedTTSRoutes(app);
+    registerFeedTranslationRoutes(app);
     registerFeedWechatDraftRoutes(app);
 
     // GET /feed - List feeds
@@ -95,6 +97,8 @@ export function FeedService(): Hono<{
         const page = c.req.query('page');
         const limit = c.req.query('limit');
         const type = c.req.query('type');
+        // ?lang=en：已译完的文章在列表里直接换成英文标题/摘要（译文状态见 feed-ai-translation.ts）
+        const wantEn = c.req.query('lang') === 'en';
 
         if ((type === 'draft' || type === 'unlisted') && !admin) {
             return c.text('Permission denied', 403);
@@ -102,7 +106,7 @@ export function FeedService(): Hono<{
 
         const page_num = parsePositiveInteger(page, 1) - 1;
         const limit_num = parsePositiveInteger(limit, 20, 50);
-        const cacheKey = `feeds_${type}_${page_num}_${limit_num}`;
+        const cacheKey = `feeds_${type}_${page_num}_${limit_num}${wantEn ? '_en' : ''}`;
         const cached = await profileAsync(c, 'feed_list_cache_get', () => cache.get(cacheKey));
 
         if (cached) {
@@ -136,14 +140,18 @@ export function FeedService(): Hono<{
             orderBy: [desc(feeds.top), desc(feeds.createdAt), desc(feeds.updatedAt)],
             offset: page_num * limit_num,
             limit: limit_num + 1,
-        }))).map(({ content, hashtags, summary, ...other }: any) => {
+        }))).map(({ content, hashtags, summary, titleEn, summaryEn, contentEn, translationEnStatus, translationEnError, ...other }: any) => {
             const avatar = extractImageWithMetadata(content);
-            const plainText = stripMarkdown(content);
+            const translated = wantEn && translationEnStatus === 'completed' && typeof contentEn === 'string' && contentEn.length > 0;
+            const effectiveSummary = translated && summaryEn ? summaryEn : summary;
+            const effectiveContent = translated ? contentEn : content;
+            const plainText = stripMarkdown(effectiveContent);
             return {
-                summary: summary.length > 0 ? summary : plainText.length > 100 ? plainText.slice(0, 100) : plainText,
+                summary: effectiveSummary.length > 0 ? effectiveSummary : plainText.length > 100 ? plainText.slice(0, 100) : plainText,
                 hashtags: hashtags.map(({ hashtag }: any) => hashtag),
                 avatar,
-                ...other
+                ...other,
+                ...(translated && titleEn ? { title: titleEn } : {}),
             };
         });
 
@@ -166,11 +174,21 @@ export function FeedService(): Hono<{
     app.get('/timeline', async (c) => {
         const db = c.get('db');
         const where = and(eq(feeds.draft, 0), eq(feeds.listed, 1));
+        const wantEn = c.req.query('lang') === 'en';
 
-        return c.json(await profileAsync(c, 'feed_timeline_db', () => db.query.feeds.findMany({
+        const items = await profileAsync(c, 'feed_timeline_db', () => db.query.feeds.findMany({
             where: where,
-            columns: { id: true, title: true, createdAt: true },
+            columns: { id: true, title: true, createdAt: true, ...(wantEn ? { titleEn: true, contentEn: true, translationEnStatus: true } : {}) },
             orderBy: [desc(feeds.createdAt), desc(feeds.updatedAt)],
+        }));
+
+        if (!wantEn) {
+            return c.json(items);
+        }
+
+        return c.json(items.map(({ titleEn, contentEn, translationEnStatus, ...item }: any) => ({
+            ...item,
+            ...(translationEnStatus === 'completed' && titleEn && contentEn ? { title: titleEn } : {}),
         })));
     });
 
@@ -224,6 +242,11 @@ export function FeedService(): Hono<{
             draft: Boolean(draft),
             updatedAt: date,
             resetSummary: true,
+        }));
+        await profileAsync(c, 'feed_create_translation_queue', () => syncFeedTranslationQueueState(db, serverConfig, env, result.insertedId, {
+            draft: Boolean(draft),
+            updatedAt: date,
+            resetTranslation: true,
         }));
         await profileAsync(c, 'feed_create_cache_invalidate', () => clearFeedCollectionCaches(cache));
 
@@ -304,7 +327,7 @@ export function FeedService(): Hono<{
 
         // Provider error text can carry an API status line or a self-hosted
         // api_url, so it stays admin-only.
-        const { ai_compose_error, ai_summary_error, ai_tts_status, ai_tts_error, tts_asset_id, ...publicFields } = other as Record<string, unknown>;
+        const { ai_compose_error, ai_summary_error, ai_tts_status, ai_tts_error, tts_asset_id, translationEnError, ...publicFields } = other as Record<string, unknown>;
         const visible = admin ? other : publicFields;
 
         return c.json({ ...visible, hashtags: hashtags_flatten, pv, uv });
@@ -315,6 +338,7 @@ export function FeedService(): Hono<{
         const db = c.get('db');
         const cache = c.get('cache');
         const id = c.req.param('id');
+        const wantEn = c.req.query('lang') === 'en';
         let id_num = parseFeedId(id);
 
         if (id_num === null) {
@@ -339,14 +363,16 @@ export function FeedService(): Hono<{
         function formatAndCacheData(feed: any, feedDirection: "previous_feed" | "next_feed") {
             if (feed) {
                 const hashtags_flatten = feed.hashtags.map((f: any) => f.hashtag);
-                const plainText = stripMarkdown(feed.content);
-                const summary = feed.summary.length > 0
-                    ? feed.summary
+                const translated = wantEn && feed.translationEnStatus === 'completed' && feed.contentEn;
+                const plainText = stripMarkdown(translated ? feed.contentEn : feed.content);
+                const sourceSummary = translated && feed.summaryEn ? feed.summaryEn : feed.summary;
+                const summary = sourceSummary.length > 0
+                    ? sourceSummary
                     : plainText.length > 50 ? plainText.slice(0, 50) : plainText;
-                const cacheKey = `${feed.id}_${feedDirection}_${id_num}`;
+                const cacheKey = `${feed.id}_${feedDirection}_${id_num}${wantEn ? '_en' : ''}`;
                 const cacheData = {
                     id: feed.id,
-                    title: feed.title,
+                    title: translated && feed.titleEn ? feed.titleEn : feed.title,
                     summary: summary,
                     hashtags: hashtags_flatten,
                     createdAt: feed.createdAt,
@@ -359,7 +385,7 @@ export function FeedService(): Hono<{
         }
 
         const getPreviousFeed = async () => {
-            const previousFeedCached = await profileAsync(c, 'feed_adjacent_prev_cache', () => cache.getBySuffix(`previous_feed_${id_num}`));
+            const previousFeedCached = await profileAsync(c, 'feed_adjacent_prev_cache', () => cache.getBySuffix(`previous_feed_${id_num}${wantEn ? '_en' : ''}`));
             if (previousFeedCached && previousFeedCached.length > 0) {
                 return previousFeedCached[0];
             } else {
@@ -379,7 +405,7 @@ export function FeedService(): Hono<{
         };
 
         const getNextFeed = async () => {
-            const nextFeedCached = await profileAsync(c, 'feed_adjacent_next_cache', () => cache.getBySuffix(`next_feed_${id_num}`));
+            const nextFeedCached = await profileAsync(c, 'feed_adjacent_next_cache', () => cache.getBySuffix(`next_feed_${id_num}${wantEn ? '_en' : ''}`));
             if (nextFeedCached && nextFeedCached.length > 0) {
                 return nextFeedCached[0];
             } else {
@@ -434,6 +460,9 @@ export function FeedService(): Hono<{
         const contentChanged = !!normalizedContent && normalizedContent !== feed.content;
         const isDraft = draft !== undefined ? draft : (feed.draft === 1);
         const shouldQueueAISummary = (contentChanged && !isDraft) || (!isDraft && feed.draft === 1 && !feed.ai_summary);
+        // 标题/摘要/正文任一变更，英文译文即过期：清空并重新入队（草稿转发布时同样补译）
+        const shouldRetranslate = ((contentChanged || (title !== undefined && title !== feed.title) || (summary !== undefined && summary !== feed.summary)) && !isDraft)
+            || (!isDraft && feed.draft === 1 && !feed.contentEn);
         const updateTime = new Date();
 
         await profileAsync(c, 'feed_update_db', () => updateFeedById(db, id_num, {
@@ -443,6 +472,11 @@ export function FeedService(): Hono<{
             ai_summary: shouldQueueAISummary ? "" : undefined,
             ai_summary_status: isDraft ? "idle" : undefined,
             ai_summary_error: shouldQueueAISummary || isDraft ? "" : undefined,
+            titleEn: shouldRetranslate ? "" : undefined,
+            summaryEn: shouldRetranslate ? "" : undefined,
+            contentEn: shouldRetranslate ? "" : undefined,
+            translationEnStatus: isDraft ? "idle" : undefined,
+            translationEnError: shouldRetranslate || isDraft ? "" : undefined,
             alias,
             top,
             listed: listed ? 1 : 0,
@@ -460,6 +494,14 @@ export function FeedService(): Hono<{
                 draft: Boolean(isDraft),
                 updatedAt: updateTime,
                 resetSummary: shouldQueueAISummary,
+            }));
+        }
+
+        if (shouldRetranslate || isDraft) {
+            await profileAsync(c, 'feed_update_translation_queue', () => syncFeedTranslationQueueState(db, serverConfig, env, id_num, {
+                draft: Boolean(isDraft),
+                updatedAt: updateTime,
+                resetTranslation: shouldRetranslate,
             }));
         }
 
@@ -558,7 +600,7 @@ export function SearchService(): Hono<{
                 pageIndex: page_num,
                 limit: limit_num,
             });
-            const data = pageResult.rows.map(({ content, hashtags, summary, ...other }: any) => {
+            const data = pageResult.rows.map(({ content, hashtags, summary, titleEn, summaryEn, contentEn, translationEnStatus, translationEnError, ...other }: any) => {
                 const plainText = stripMarkdown(content);
                 return {
                     summary: summary.length > 0 ? summary : plainText.length > 100 ? plainText.slice(0, 100) : plainText,

@@ -1,4 +1,4 @@
-import type { Feed, FeedTTSStatusResponse } from "@rin/api";
+import type { Feed, FeedTranslationResponse, FeedTTSStatusResponse } from "@rin/api";
 import { Modal } from "@rin/ui";
 import { useContext, useEffect, useRef, useState } from "react";
 import { Helmet } from "react-helmet";
@@ -26,6 +26,7 @@ import { ShareButtons } from "../components/share_buttons";
 import { AudioPlayer } from "../components/audio-player";
 import { formatDuration } from "../components/story-blocks/block-utils";
 import { stripImageUrlMetadata } from "../utils/image-upload";
+import { isEnglishLanguage, resolveLocalizedFeed, shouldRequestTranslation } from "../utils/feed-localization";
 
 function extractFirstMarkdownImageUrl(content: string) {
   const match = /!\[.*?\]\((\S+?)(?:\s+"[^"]*")?\)/.exec(content);
@@ -37,10 +38,13 @@ function extractFirstMarkdownImageUrl(content: string) {
 }
 
 export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Element, clean: (id: string) => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const siteConfig = useSiteConfig();
   const profile = useContext(ProfileContext);
   const [feed, setFeed] = useState<Feed>();
+  const [translation, setTranslation] = useState<FeedTranslationResponse | null>(null);
+  const isEn = isEnglishLanguage(i18n.language);
+  const localized = feed ? resolveLocalizedFeed(feed, translation, i18n.language) : null;
   const [error, setError] = useState<string>();
   const [headImage, setHeadImage] = useState<string>();
   const ref = useRef("");
@@ -178,7 +182,7 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
           setTimeout(() => {
             setFeed(data as any);
             setTop(data.top || 0);
-            const headImageUrl = extractFirstMarkdownImageUrl(data.content);
+            const headImageUrl = extractFirstMarkdownImageUrl(data.contentEn && data.translationEnStatus === "completed" ? data.contentEn : data.content);
             if (headImageUrl) {
               setHeadImage(headImageUrl);
             }
@@ -188,6 +192,47 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
       });
     ref.current = id;
   }, [id]);
+  // 英文模式：展示英文译文。详情已带译文时直接用；缺译文时按需入队并轮询
+  // translation-en（不走详情缓存），完成即换成英文标题/正文。
+  useEffect(() => {
+    if (!feed || !isEn) {
+      setTranslation(null);
+      return;
+    }
+    if (feed.translationEnStatus === "completed" && feed.contentEn) {
+      setTranslation({
+        status: "completed",
+        titleEn: feed.titleEn ?? "",
+        summaryEn: feed.summaryEn ?? "",
+        contentEn: feed.contentEn,
+      });
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let requests = 0;
+    const poll = async () => {
+      const { data } = await client.feed.translationEn(feed.id);
+      if (cancelled || !data) return;
+      setTranslation(data);
+      if (data.status === "pending" || data.status === "processing") {
+        timer = setTimeout(poll, 4000);
+        return;
+      }
+      // 只触发一次：触发后仍是 idle 说明 AI 未启用/未入队，停轮询、提示回退原文。
+      if (shouldRequestTranslation(data.status, i18n.language) && requests === 0) {
+        requests += 1;
+        await client.feed.translateEn(feed.id);
+        if (!cancelled) timer = setTimeout(poll, 2000);
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feed?.id, feed?.translationEnStatus, isEn]);
   // 朗读音频状态：文章切换时加载；管理员在生成中时轮询
   useEffect(() => {
     if (!feed) return;
@@ -227,18 +272,18 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
     <Waiting for={feed || error}>
       {feed && (
         <Helmet>
-          <title>{`${feed.title ?? "Unnamed"} - ${siteConfig.name}`}</title>
+          <title>{`${localized?.title ?? feed.title ?? "Unnamed"} - ${siteConfig.name}`}</title>
           <meta property="og:site_name" content={siteName} />
-          <meta property="og:title" content={feed.title ?? ""} />
+          <meta property="og:title" content={localized?.title ?? feed.title ?? ""} />
           <meta property="og:image" content={headImage ?? siteConfig.avatar} />
           <meta property="og:type" content="article" />
           <meta property="og:url" content={document.URL} />
           <meta
             name="og:description"
             content={
-              feed.content.length > 200
-                ? feed.content.substring(0, 200)
-                : feed.content
+              (localized?.content ?? feed.content).length > 200
+                ? (localized?.content ?? feed.content).substring(0, 200)
+                : (localized?.content ?? feed.content)
             }
           />
           <meta name="author" content={feed.user.username} />
@@ -249,9 +294,9 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
           <meta
             name="description"
             content={
-              feed.content.length > 200
-                ? feed.content.substring(0, 200)
-                : feed.content
+              (localized?.content ?? feed.content).length > 200
+                ? (localized?.content ?? feed.content).substring(0, 200)
+                : (localized?.content ?? feed.content)
             }
           />
         </Helmet>
@@ -408,7 +453,7 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                   </div>
                 </div>
                 <h1 className="text-2xl font-bold t-primary break-all mt-1">
-                  {feed.title}
+                  {localized?.title ?? feed.title}
                 </h1>
                 {tts?.audioUrl && !showTtsPlayer && (
                   <button
@@ -434,13 +479,35 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                           url: tts.audioUrl,
                           duration: tts.durationSec ?? undefined,
                         },
-                        title: `${feed.title ?? ""} · ${t("tts.player_title")}`,
+                        title: `${localized?.title ?? feed.title ?? ""} · ${t("tts.player_title")}`,
                         duration: tts.durationSec ?? undefined,
                       }}
                     />
                   </div>
                 )}
-                {(hasAISummary || showAISummaryState) && (
+                {isEn && localized && (
+                  <div className="my-4 rounded-xl border border-black/10 px-4 py-3 text-sm t-secondary dark:border-white/10">
+                    {localized.translated
+                      ? t("translation.translated_note")
+                      : localized.status === "failed"
+                        ? t("translation.failed")
+                        : t("translation.translating")}
+                  </div>
+                )}
+                {isEn && translation?.summaryEn && localized?.translated && (
+                  <div className="my-4 p-4 rounded-xl bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border border-purple-100 dark:border-purple-800/30">
+                    <div className="flex items-center gap-2 mb-2">
+                      <i className="ri-translate-2 text-purple-500" />
+                      <span className="text-sm font-medium text-purple-600 dark:text-purple-400">
+                        {t('translation.summary')}
+                      </span>
+                    </div>
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed t-secondary [overflow-wrap:anywhere]">
+                      {translation.summaryEn}
+                    </p>
+                  </div>
+                )}
+                {!isEn && (hasAISummary || showAISummaryState) && (
                   <div className="my-4 p-4 rounded-xl bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border border-purple-100 dark:border-purple-800/30">
                     <div className="flex items-center justify-between gap-2 mb-2">
                       <div className="flex items-center gap-2">
@@ -465,7 +532,7 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                     ) : null}
                   </div>
                 )}
-                <Markdown content={feed.content} />
+                <Markdown content={localized?.content ?? feed.content} />
                 <div className="mt-6 flex flex-col gap-2">
                   {hashtags.length > 0 && (
                     <div className="flex flex-row flex-wrap gap-x-2">
@@ -487,9 +554,9 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                     </div>
                   </div>
                   <ShareButtons
-                    title={feed.title ?? ""}
-                    excerpt={feed.ai_summary?.trim() || feed.content}
-                    content={feed.content}
+                    title={localized?.title ?? feed.title ?? ""}
+                    excerpt={localized?.translated ? (localized.content) : (feed.ai_summary?.trim() || feed.content)}
+                    content={localized?.content ?? feed.content}
                     date={new Date(feed.createdAt).toLocaleDateString()}
                     author={feed.user.username}
                     siteName={siteConfig.name}

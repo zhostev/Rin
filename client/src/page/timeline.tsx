@@ -6,6 +6,7 @@ import { client } from "../app/runtime"
 import {useSiteConfig} from "../hooks/useSiteConfig";
 import {siteName} from "../utils/constants"
 import {useTranslation} from "react-i18next";
+import { isEnglishLanguage } from "../utils/feed-localization";
 
 interface FeedItem {
     id: number;
@@ -16,11 +17,10 @@ interface FeedItem {
 export function TimelinePage() {
     const [feeds, setFeeds] = useState<Partial<Record<number, FeedItem[]>>>()
     const [length, setLength] = useState(0)
-    const ref = useRef(false)
-    const { t } = useTranslation()
+    const { t, i18n } = useTranslation()
     const siteConfig = useSiteConfig();
     function fetchFeeds() {
-        client.feed.timeline()
+        client.feed.timeline(isEnglishLanguage(i18n.language) ? "en" : undefined)
         .then(({ data }) => {
             if (data) {
                 const arr = Array.isArray(data) ? data : []
@@ -43,11 +43,13 @@ export function TimelinePage() {
         })
     }
 
+    const languageRef = useRef("")
     useEffect(() => {
-        if (ref.current) return
+        if (languageRef.current === i18n.language) return
+        languageRef.current = i18n.language
         fetchFeeds()
-        ref.current = true
-    }, [])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [i18n.language])
     return (
         <>
             <Helmet>
