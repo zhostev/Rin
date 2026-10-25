@@ -444,8 +444,38 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
 
   /* ---------------- Monaco Mount & IME Optimization ---------------- */
 
+  /**
+   * Force Monaco to re-measure its container once it is actually visible.
+   * Monaco measures its container at creation; story rich-text editors are
+   * mounted through React.lazy / Suspense and sit inside a wrapper that hides
+   * the editor DOM until it reports ready, so the first measurement can be
+   * stale (blank viewport, misplaced lines, unresponsive scroll). A layout
+   * pass after paint re-measures the real container size. layout() is
+   * idempotent, so extra calls on tab switches are harmless. The double
+   * requestAnimationFrame lets the Suspense swap and the flex layout settle
+   * before measuring. This intentionally does not touch accessibilitySupport
+   * or the IME composition handlers below.
+   */
+  const layoutEditor = () => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        editorRef.current?.layout();
+      });
+    });
+  };
+
+  // The editor instance is disposed by @monaco-editor/react on unmount; drop
+  // our reference so a pending layout pass never touches a disposed editor.
+  useEffect(
+    () => () => {
+      editorRef.current = undefined;
+    },
+    [],
+  );
+
   const handleEditorMount = (editor: editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
+    layoutEditor();
 
     editor.onDidCompositionStart(() => {
       isComposingRef.current = true;
@@ -468,6 +498,16 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
   };
 
   /* ---------------- synchronization ---------------- */
+
+  // Switching back from preview hides the edit pane (display: none) and shows
+  // it again; re-measure then, for the same reason as on mount.
+  useEffect(() => {
+    if (preview !== "preview") {
+      layoutEditor();
+    }
+    // layoutEditor only reads editorRef; intentionally not a dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview]);
 
   useEffect(() => {
     const editor = editorRef.current;
