@@ -22,6 +22,16 @@ import type { MediaAssetRow } from "../media/repository";
 
 export const MEDIA_BLOCK_TYPES = ["image", "gallery", "video", "audio"] as const;
 
+/**
+ * 归属扫描要看的块类型：结构化块之外，还要看 rich_text——早期图集是
+ * 用富文本里的 Markdown 图片链接（![…](/api/media/<id>/playback)）拼的，
+ * 块里没有 asset_id，不看 rich_text 那些图在媒体页就永远没有归属。
+ */
+const ATTRIBUTION_BLOCK_TYPES = [...MEDIA_BLOCK_TYPES, "rich_text"] as const;
+
+/** rich_text Markdown 图片链接里的播放地址：![alt](/api/media/123/playback)。 */
+const MARKDOWN_PLAYBACK_RE = /!\[[^\]]*\]\([^)]*?\/api\/media\/(\d+)\/playback(?:[?#][^)]*)?\)/g;
+
 /** status=published 的 story 算“已发布”；updated 是发布后的旧文维护，同样公开可见。 */
 export const VISIBLE_STORY_STATUSES = ["published", "updated"] as const;
 
@@ -64,6 +74,29 @@ function extractAssetIds(payload: unknown): number[] {
             }
         }
     }
+    // rich_text 的 Markdown 图片链接：![alt](/api/media/<id>/playback)。
+    // 只认图片语法（! 开头），正文里随手提到的播放地址不算引用。
+    const walkStrings = (value: unknown): void => {
+        if (typeof value === "string") {
+            for (const match of value.matchAll(MARKDOWN_PLAYBACK_RE)) {
+                const id = Number(match[1]);
+                if (Number.isSafeInteger(id) && id > 0) {
+                    ids.push(id);
+                }
+            }
+            return;
+        }
+        if (Array.isArray(value)) {
+            for (const entry of value) walkStrings(entry);
+            return;
+        }
+        if (typeof value === "object" && value !== null) {
+            for (const entry of Object.values(value as Record<string, unknown>)) {
+                walkStrings(entry);
+            }
+        }
+    };
+    walkStrings(record);
     return ids;
 }
 
@@ -79,8 +112,8 @@ export async function buildAssetStoryMap(
     statuses?: readonly string[],
 ): Promise<Map<number, AssetStoryInfo>> {
     const whereClause = statuses
-        ? and(inArray(stories.status, [...statuses]), inArray(contentBlocks.type, [...MEDIA_BLOCK_TYPES]))
-        : inArray(contentBlocks.type, [...MEDIA_BLOCK_TYPES]);
+        ? and(inArray(stories.status, [...statuses]), inArray(contentBlocks.type, [...ATTRIBUTION_BLOCK_TYPES]))
+        : inArray(contentBlocks.type, [...ATTRIBUTION_BLOCK_TYPES]);
 
     const rows = await db
         .select({

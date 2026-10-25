@@ -655,7 +655,8 @@
       "media": "媒体库",
       "series": "专题",
       "ai_studio": "AI Studio",
-      "maintenance": "维护"
+      "maintenance": "维护",
+      "public_stories": "故事"
     },
     "detail": {
       "not_found": "主题不存在",
@@ -781,14 +782,25 @@
       "image_caption": "图注",
       "image_caption_placeholder": "如：现场照片",
       "image_alt": "替代文本",
-      "image_alt_placeholder": "如：两位嘉宾在台上交谈"
+      "image_alt_placeholder": "如：两位嘉宾在台上交谈",
+      "block_gallery": "图集",
+      "gallery_count": "共 {{count}} 张",
+      "gallery_add": "从素材库添加",
+      "gallery_empty": "还没有图片，点击添加从素材库里选图。",
+      "gallery_remove": "移除这张",
+      "gallery_alt_placeholder": "图片说明（可选）"
     },
     "list": {
       "hint": "每个内容包只有一个永久地址；文字、视频、音频是同一主题的不同入口。",
       "new_story": "新建内容包",
       "empty": "还没有内容包。",
       "delete_title": "删除内容包",
-      "delete_confirm": "删除「{{title}}」？此操作不可撤销。"
+      "delete_confirm": "删除「{{title}}」？此操作不可撤销。",
+      "public_title": "故事",
+      "public_empty": "还没有已发布的故事。",
+      "public_failed": "故事列表加载失败，请稍后重试。",
+      "total$count_one": "共有 {{count}} 个故事",
+      "total$count_other": "共有 {{count}} 个故事"
     },
     "placeholder": {
       "scheduled": "计划中",

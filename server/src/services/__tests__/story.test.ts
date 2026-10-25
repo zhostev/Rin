@@ -75,6 +75,21 @@ describe('StoryService (public read)', () => {
         cleanupTestDB(sqlite);
     });
 
+    it('lists only published/updated stories on GET / without block payloads', async () => {
+        await seedStory(db, 'pub-story', 'published');
+        await seedStory(db, 'draft-story', 'draft');
+
+        const res = await app.request('/', { method: 'GET' }, env);
+        expect(res.status).toBe(200);
+        const data = await res.json() as any;
+
+        expect(data.size).toBe(1);
+        expect(data.data).toHaveLength(1);
+        expect(data.data[0].slug).toBe('pub-story');
+        expect(data.data[0]).not.toHaveProperty('blocks');
+        expect(data.hasNext).toBe(false);
+    });
+
     it('returns 404 when neither stories.slug nor feeds.alias matches', async () => {
         const res = await app.request('/nope', { method: 'GET' }, env);
         expect(res.status).toBe(404);

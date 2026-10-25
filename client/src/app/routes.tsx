@@ -27,6 +27,7 @@ import { SearchPage } from "../page/search";
 import { MediaCenterPage } from "../page/media";
 import { PublicSeriesPage } from "../page/series";
 import { Settings } from "../page/settings";
+import { PublicStoriesPage } from "../page/public-stories";
 import { StoryPage } from "../page/story";
 import { StoriesPage } from "../page/stories";
 import { StoryEditorPage } from "../page/story-editor";
@@ -139,6 +140,10 @@ export function AppRoutes() {
       <TocRoute path="/feed/:id">
         {(params, toc, cleanup) => <FeedPage id={params.id || ""} TOC={toc} clean={cleanup} />}
       </TocRoute>
+
+      <AppRoute path="/stories">
+        <PublicStoriesPage />
+      </AppRoute>
 
       <AppRoute path="/story/:slug">
         {(params) => <StoryPage slug={params.slug || ""} />}

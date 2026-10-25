@@ -1,7 +1,7 @@
 // Pure helpers for story block editing and the story detail media switcher.
 // Kept free of React/DOM so they can be unit-tested with bun:test.
 
-import type { AudioChapter, BlockType, ContentBlock } from "../../api/story";
+import type { AudioChapter, BlockType, ContentBlock, GalleryItem } from "../../api/story";
 
 /** Media switcher tabs on the story detail page. */
 export type MediaTab = "read" | "video" | "audio";
@@ -50,6 +50,8 @@ function defaultPayload(type: BlockType): Record<string, unknown> {
   switch (type) {
     case "rich_text":
       return { markdown: "" };
+    case "gallery":
+      return { items: [] };
     case "image":
       return {};
     case "video":
@@ -96,6 +98,42 @@ export function updateBlockPayload<T extends ContentBlock>(
   return blocks.map((block) =>
     block.id === id ? { ...block, payload: { ...block.payload, ...patch } } : block,
   );
+}
+
+/** Gallery items: pure list ops so the editor's add/remove/reorder is testable. */
+export function galleryItems(payload: unknown): GalleryItem[] {
+  const items = (payload as { items?: unknown } | null)?.items;
+  if (!Array.isArray(items)) return [];
+  return items
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null && typeof item.url === "string" && item.url.length > 0)
+    .map((item) => ({
+      ...(typeof item.id === "number" && Number.isInteger(item.id) && item.id > 0 ? { id: item.id } : {}),
+      url: item.url as string,
+      ...(typeof item.alt === "string" && item.alt ? { alt: item.alt } : {}),
+    }));
+}
+
+/** Append an item unless the same asset id (or, for id-less links, the same url) is already in. */
+export function addGalleryItem(items: GalleryItem[], item: GalleryItem): GalleryItem[] {
+  const duplicate = items.some((existing) =>
+    item.id !== undefined ? existing.id === item.id : existing.url === item.url,
+  );
+  return duplicate ? items : [...items, item];
+}
+
+export function removeGalleryItem(items: GalleryItem[], index: number): GalleryItem[] {
+  return items.filter((_, i) => i !== index);
+}
+
+export function moveGalleryItem(items: GalleryItem[], index: number, delta: -1 | 1): GalleryItem[] {
+  const target = index + delta;
+  if (index < 0 || index >= items.length || target < 0 || target >= items.length) {
+    return items;
+  }
+  const next = items.slice();
+  const [item] = next.splice(index, 1);
+  next.splice(target, 0, item);
+  return next;
 }
 
 /** Format seconds as m:ss / h:mm:ss; undefined/null/NaN -> "—". */

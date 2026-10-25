@@ -10,6 +10,7 @@ import {
     insertStory,
     insertStoryBlocks,
     listStoryPage,
+    listVisibleStoryPage,
     replaceStoryBlocks,
     updateStoryById,
 } from '../repository';
@@ -149,6 +150,58 @@ describe('story repository', () => {
         const second = await listStoryPage(db, { pageIndex: 1, limit: 2 });
         expect(second.rows).toHaveLength(1);
         expect(second.hasNext).toBe(false);
+    });
+
+    it('inserts more than 20 blocks in batches (D1: 100 bound params, 5 per row)', async () => {
+        const id = await createStory();
+        const blocks = Array.from({ length: 67 }, (_, i) => ({
+            type: 'image' as const,
+            payload: { asset_id: 1000 + i },
+        }));
+
+        await replaceStoryBlocks(db, id, blocks);
+
+        const story = await findStoryById(db, id);
+        expect(story?.blocks).toHaveLength(67);
+        // Positions stay sequential across batch boundaries (10/20/30/…).
+        expect(story?.blocks.map((block) => block.position)).toEqual(
+            Array.from({ length: 67 }, (_, i) => i),
+        );
+        expect(JSON.parse(story!.blocks[66].payloadJson)).toEqual({ asset_id: 1066 });
+    });
+
+    it('lists only published/updated stories without blocks for the public list', async () => {
+        const pub = await createStory('pub-list');
+        const upd = await insertStory(db, {
+            slug: 'upd-list',
+            title: 'Updated',
+            status: 'updated',
+            summary: '',
+            coverAssetId: null,
+            feedId: null,
+            publishedAt: null,
+            updatedAt: new Date('2026-01-03T00:00:00.000Z'),
+            verifiedAt: null,
+        });
+        await insertStory(db, {
+            slug: 'draft-list',
+            title: 'Draft',
+            status: 'draft',
+            summary: '',
+            coverAssetId: null,
+            feedId: null,
+            publishedAt: null,
+            updatedAt: new Date('2026-01-04T00:00:00.000Z'),
+            verifiedAt: null,
+        });
+        void pub;
+        void upd;
+
+        const page = await listVisibleStoryPage(db, { pageIndex: 0, limit: 20 });
+        expect(page.size).toBe(2);
+        expect(page.rows.map((row) => row.slug)).toEqual(['upd-list', 'pub-list']);
+        expect(page.rows[0]).not.toHaveProperty('blocks');
+        expect(page.hasNext).toBe(false);
     });
 
     it('finds a legacy feed by alias for the read-time fallback', async () => {

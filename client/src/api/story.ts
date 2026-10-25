@@ -110,6 +110,17 @@ export interface ImagePayload {
   url?: string;
 }
 
+/** One gallery item: the asset id is what the media center attributes on. */
+export interface GalleryItem {
+  id?: number;
+  url: string;
+  alt?: string;
+}
+
+export interface GalleryPayload {
+  items?: GalleryItem[];
+}
+
 export interface Story {
   id: number;
   slug: string;
@@ -144,7 +155,14 @@ export interface StoryListItem {
   title: string;
   summary?: string;
   status: StoryStatus;
+  coverAssetId?: number | null;
   updated_at?: string;
+}
+
+export interface PublicStoryListResponse {
+  stories: StoryListItem[];
+  total: number;
+  hasNext: boolean;
 }
 
 export interface StoryListResponse {
@@ -204,7 +222,8 @@ interface WireStory {
   updatedAt: string;
   verifiedAt: string | null;
   fromLegacyFeed?: boolean;
-  blocks: WireStoryBlock[];
+  /** Absent on public-list summaries, which never carry blocks. */
+  blocks?: WireStoryBlock[];
 }
 
 interface WireStoryList {
@@ -261,6 +280,7 @@ function toListItem(w: WireStory): StoryListItem {
     title: w.title,
     summary: w.summary,
     status: w.status as StoryStatus,
+    coverAssetId: w.coverAssetId,
     updated_at: w.updatedAt,
   };
 }
@@ -281,6 +301,20 @@ export class StoryAPI {
     const res = await this.http.get<WireStory>(`/api/story/${slug}`);
     if (res.error || !res.data) return { error: res.error } as ApiResponse<StoryDetailResponse>;
     return { data: toStoryDetail(res.data) };
+  }
+
+  // GET /api/story (public list: published/updated only, no blocks)
+  async listPublic(params?: {
+    page?: number;
+    limit?: number;
+  }): Promise<ApiResponse<PublicStoryListResponse>> {
+    const searchParams = new URLSearchParams();
+    if (params?.page) searchParams.set("page", String(params.page));
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    const query = searchParams.toString();
+    const res = await this.http.get<WireStoryList>(`/api/story${query ? `?${query}` : ""}`);
+    if (res.error || !res.data) return { error: res.error } as ApiResponse<PublicStoryListResponse>;
+    return { data: { stories: res.data.data.map(toListItem), total: res.data.size, hasNext: res.data.hasNext } };
   }
 
   // GET /api/admin/stories (admin)

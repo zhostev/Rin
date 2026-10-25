@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  addGalleryItem,
   createBlock,
   formatDuration,
+  galleryItems,
   kindForMime,
   mediaTabsForBlocks,
   moveBlock,
+  moveGalleryItem,
   removeBlock,
+  removeGalleryItem,
   updateBlockPayload,
 } from '../block-utils'
 import type { ContentBlock } from '../../../api/story'
@@ -133,6 +137,37 @@ describe('formatDuration', () => {
     expect(formatDuration(null)).toBe('—')
     expect(formatDuration(NaN)).toBe('—')
     expect(formatDuration(-1)).toBe('—')
+  })
+})
+
+describe('gallery block helpers', () => {
+  it('creates a gallery block with an empty items payload', () => {
+    const block = createBlock('gallery', 1)
+    expect(block.type).toBe('gallery')
+    expect(block.payload).toEqual({ items: [] })
+  })
+
+  it('normalizes items and drops entries without a url', () => {
+    expect(galleryItems({ items: [{ id: 5, url: '/api/media/5/playback', alt: 'a' }, { id: 6 }, 'x', null] })).toEqual([
+      { id: 5, url: '/api/media/5/playback', alt: 'a' },
+    ])
+    expect(galleryItems({})).toEqual([])
+    expect(galleryItems(null)).toEqual([])
+  })
+
+  it('ignores duplicate asset ids and duplicate id-less urls', () => {
+    const items = [{ id: 5, url: 'u5' }]
+    expect(addGalleryItem(items, { id: 5, url: 'other' })).toBe(items)
+    expect(addGalleryItem(items, { id: 6, url: 'u6' })).toEqual([{ id: 5, url: 'u5' }, { id: 6, url: 'u6' }])
+    expect(addGalleryItem([{ url: 'u' }], { url: 'u' })).toHaveLength(1)
+  })
+
+  it('removes and reorders items', () => {
+    const items = [{ url: 'a' }, { url: 'b' }, { url: 'c' }]
+    expect(removeGalleryItem(items, 1)).toEqual([{ url: 'a' }, { url: 'c' }])
+    expect(moveGalleryItem(items, 0, 1)).toEqual([{ url: 'b' }, { url: 'a' }, { url: 'c' }])
+    expect(moveGalleryItem(items, 0, -1)).toBe(items)
+    expect(moveGalleryItem(items, 2, 1)).toBe(items)
   })
 })
 

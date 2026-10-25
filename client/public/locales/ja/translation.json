@@ -646,7 +646,8 @@
       "media": "メディアライブラリ",
       "series": "シリーズ",
       "ai_studio": "AI Studio",
-      "maintenance": "メンテナンス"
+      "maintenance": "メンテナンス",
+      "public_stories": "ストーリー"
     },
     "detail": {
       "not_found": "ストーリーが見つかりません",
@@ -772,14 +773,25 @@
       "image_caption": "キャプション",
       "image_caption_placeholder": "例：会場の写真",
       "image_alt": "代替テキスト",
-      "image_alt_placeholder": "例：ステージ上で話す2人の登壇者"
+      "image_alt_placeholder": "例：ステージ上で話す2人の登壇者",
+      "block_gallery": "ギャラリー",
+      "gallery_count": "{{count}} 枚",
+      "gallery_add": "ライブラリから追加",
+      "gallery_empty": "画像がまだありません。ライブラリから追加してください。",
+      "gallery_remove": "この画像を削除",
+      "gallery_alt_placeholder": "キャプション（任意）"
     },
     "list": {
       "hint": "各コンテンツパッケージは1つの永続アドレスを持ちます。テキスト・動画・音声は同じストーリーへの入口です。",
       "new_story": "新規パッケージ",
       "empty": "コンテンツパッケージはまだありません。",
       "delete_title": "パッケージを削除",
-      "delete_confirm": "「{{title}}」を削除しますか？元に戻せません。"
+      "delete_confirm": "「{{title}}」を削除しますか？元に戻せません。",
+      "public_title": "ストーリー",
+      "public_empty": "公開済みのストーリーはまだありません。",
+      "public_failed": "ストーリー一覧の読み込みに失敗しました。しばらくしてから再度お試しください。",
+      "total$count_one": "合計 {{count}} 件のストーリー",
+      "total$count_other": "合計 {{count}} 件のストーリー"
     },
     "placeholder": {
       "scheduled": "予定",
