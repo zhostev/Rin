@@ -655,7 +655,8 @@
       "media": "Media Library",
       "series": "Series",
       "ai_studio": "AI Studio",
-      "maintenance": "Maintenance"
+      "maintenance": "Maintenance",
+      "public_stories": "Stories"
     },
     "detail": {
       "not_found": "Story not found",
@@ -781,14 +782,25 @@
       "image_caption": "Caption",
       "image_caption_placeholder": "e.g. photo from the event",
       "image_alt": "Alt text",
-      "image_alt_placeholder": "e.g. two speakers talking on stage"
+      "image_alt_placeholder": "e.g. two speakers talking on stage",
+      "block_gallery": "Gallery",
+      "gallery_count": "{{count}} images",
+      "gallery_add": "Add from library",
+      "gallery_empty": "No images yet. Add some from the media library.",
+      "gallery_remove": "Remove this image",
+      "gallery_alt_placeholder": "Caption (optional)"
     },
     "list": {
       "hint": "Each content package has one permanent address; text, video and audio are entries to the same story.",
       "new_story": "New package",
       "empty": "No content packages yet.",
       "delete_title": "Delete package",
-      "delete_confirm": "Delete “{{title}}”? This cannot be undone."
+      "delete_confirm": "Delete “{{title}}”? This cannot be undone.",
+      "public_title": "Stories",
+      "public_empty": "No published stories yet.",
+      "public_failed": "Failed to load the story list. Please try again later.",
+      "total$count_one": "{{count}} story in total",
+      "total$count_other": "{{count}} stories in total"
     },
     "placeholder": {
       "scheduled": "Planned",
