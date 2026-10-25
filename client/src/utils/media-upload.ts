@@ -50,6 +50,8 @@ type UploadMediaOptions = {
   onProgress?: (percent: number | null) => void;
   /** Asset title override; defaults to the file name. */
   title?: string;
+  /** 批量上传共用的分组 key（直传建单时传给服务端）；旧中转链路不支持，会丢掉 */
+  groupKey?: string;
 };
 
 export interface R2DirectUploadFileOptions extends UploadMediaOptions {
@@ -90,7 +92,7 @@ export async function uploadR2DirectFile(
   kind: R2DirectUploadKind,
   options: R2DirectUploadFileOptions,
 ): Promise<MediaAsset> {
-  const { t, onProgress, title, duration, width, height } = options;
+  const { t, onProgress, title, duration, width, height, groupKey } = options;
   const cap = R2_DIRECT_MAX_BYTES[kind];
   if (file.size > cap) {
     throw new Error(sizeLimitMessage(t, cap));
@@ -103,6 +105,7 @@ export async function uploadR2DirectFile(
     mimeType: file.type,
     size: file.size,
     ...(title ? { title } : {}),
+    ...(groupKey ? { groupKey } : {}),
     ...(typeof duration === "number" ? { duration } : {}),
     ...(typeof width === "number" ? { width } : {}),
     ...(typeof height === "number" ? { height } : {}),
