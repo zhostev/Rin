@@ -15,6 +15,7 @@ import Lightbox from "yet-another-react-lightbox";
 import Zoom from "yet-another-react-lightbox/plugins/zoom";
 import { Waiting } from "../components/loading";
 import { Markdown } from "../components/markdown";
+import { ShareButtons } from "../components/share_buttons";
 import { Tips } from "../components/tips";
 import { Button } from "../components/button";
 import { AudioPlayer } from "../components/audio-player";
@@ -433,6 +434,18 @@ export function StoryPage({ slug }: { slug: string }) {
                     </div>
                   )}
                 </div>
+
+                <ShareButtons
+                  title={story.title ?? ""}
+                  excerpt={story.summary ?? ""}
+                  content={readBlocks
+                    .filter((block) => block.type === "rich_text")
+                    .map((block) => asString(asRecord(block.payload).markdown))
+                    .filter(Boolean)
+                    .join("\n\n")}
+                  date={story.published_at ? new Date(story.published_at).toLocaleDateString() : ""}
+                  siteName={siteConfig.name}
+                />
 
                 <div className="mt-8 border-t border-black/5 pt-4 dark:border-white/5">
                   <h2 className="text-sm font-semibold t-primary">{t("story.detail.update_history")}</h2>

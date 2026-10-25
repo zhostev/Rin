@@ -10,6 +10,7 @@ import Loading from "react-loading";
 import { useLocation } from "wouter";
 import { useAlert } from "../components/dialog";
 import { client } from "../app/runtime";
+import { StoryAIPanel } from "./story-ai-panel";
 import { useSiteConfig } from "../hooks/useSiteConfig";
 import { siteName } from "../utils/constants";
 import type { BlockType, ContentBlock, StoryStatus } from "../api/story";
@@ -53,6 +54,22 @@ export function StoryEditorPage({ storyKey }: { storyKey?: string }) {
   const [blocks, setBlocks] = useState<ContentBlock[]>([]);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(Boolean(storyKey));
+  const [pushingWechat, setPushingWechat] = useState(false);
+
+  function pushWechatDraft() {
+    if (storyId === undefined || pushingWechat) return;
+    setPushingWechat(true);
+    client.story
+      .wechatDraft(storyId)
+      .then(({ data, error }) => {
+        if (error) {
+          showAlert(error.value as string);
+        } else if (data) {
+          showAlert(t("wechat_draft.success", { mediaId: data.draft_media_id }));
+        }
+      })
+      .finally(() => setPushingWechat(false));
+  }
 
   const isEdit = storyKey !== undefined;
 
@@ -155,15 +172,29 @@ export function StoryEditorPage({ storyKey }: { storyKey?: string }) {
                 {isEdit ? t("story.editor.edit") : t("story.editor.new")}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={save}
-              disabled={saving || loading}
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-theme px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-theme-hover active:bg-theme-active disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving && <Loading type="spin" height={16} width={16} />}
-              <span>{t("story.editor.save")}</span>
-            </button>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              {isEdit && storyId !== undefined && (
+                <button
+                  type="button"
+                  onClick={pushWechatDraft}
+                  disabled={pushingWechat || loading}
+                  title={t("wechat_draft.hint")}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-black/10 px-4 py-3 text-sm font-medium t-secondary transition-colors hover:border-theme/40 hover:text-theme disabled:opacity-60 dark:border-white/10"
+                >
+                  {pushingWechat && <Loading type="spin" height={16} width={16} />}
+                  <span>{pushingWechat ? t("wechat_draft.pushing") : t("wechat_draft.title")}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={save}
+                disabled={saving || loading}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-theme px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-theme-hover active:bg-theme-active disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {saving && <Loading type="spin" height={16} width={16} />}
+                <span>{t("story.editor.save")}</span>
+              </button>
+            </div>
           </div>
 
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
@@ -206,6 +237,8 @@ export function StoryEditorPage({ storyKey }: { storyKey?: string }) {
             </label>
           </div>
         </div>
+
+        <StoryAIPanel storyId={storyId} blocks={blocks} setBlocks={setBlocks} />
 
         {loading ? (
           <div className="flex items-center justify-center rounded-2xl border border-black/10 p-12 dark:border-white/10">
