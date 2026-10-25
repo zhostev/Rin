@@ -17,6 +17,9 @@
 //   POST /api/admin/media/from-url
 //       JSON body { url*, title?, alt? } — the server downloads the image
 //       bytes itself and stores them in R2.
+//   POST /api/admin/media/batch-from-urls
+//       JSON body { items*: [{ url*, title?, alt? }], groupTitle?, groupKey? }
+//       — at most 20 items per request; 201 -> { assets, failures, warnings, groupKey }.
 //       201 -> MediaAsset; 400 invalid_url/url_not_allowed; 413 image_too_large;
 //       415 not_an_image/empty_image; 502 download_failed; 503 storage_not_configured
 //   GET  /api/admin/media?kind=video|audio|image|gallery|attachment&page=&limit=
@@ -70,6 +73,8 @@ export interface R2DirectUploadRequest {
   duration?: number;
   width?: number;
   height?: number;
+  /** 批量上传共用的分组 key（服务端清洗后存到资产行）；不传则不分组 */
+  groupKey?: string;
 }
 
 export interface R2DirectUploadResponse {
@@ -84,6 +89,40 @@ export interface MediaFromUrlRequest {
   url: string;
   title?: string;
   alt?: string;
+}
+
+/** One item of POST /api/admin/media/batch-from-urls. */
+export interface BatchFromUrlsItem {
+  url: string;
+  title?: string;
+  alt?: string;
+}
+
+/** Body for POST /api/admin/media/batch-from-urls (max 20 items per request). */
+export interface BatchFromUrlsRequest {
+  items: BatchFromUrlsItem[];
+  /** 分组标题：服务端只在条目无标题时兜底命名，客户端命名优先 */
+  groupTitle?: string;
+  /**
+   * 客户端一次生成的分组 key，分片请求复用它，同一批跨分片聚成一组。
+   * 只传 groupTitle 不传 groupKey 时服务端不自动造 key。
+   */
+  groupKey?: string;
+}
+
+export interface BatchFromUrlsFailure {
+  index: number;
+  url: string;
+  code: string;
+  message: string;
+}
+
+/** 201 response of POST /api/admin/media/batch-from-urls. */
+export interface BatchFromUrlsResponse {
+  assets: MediaAsset[];
+  failures: BatchFromUrlsFailure[];
+  warnings: string[];
+  groupKey: string;
 }
 
 export interface MediaListResponse {
@@ -268,6 +307,21 @@ export class MediaAPI {
       "/api/admin/media/from-url",
       body,
     );
+  }
+
+  /**
+   * Batch-download up to 20 images from URLs into the media library:
+   * the server fetches each URL, verifies it's an image, and stores it
+   * in R2 (concurrency 3, one failure doesn't affect the others).
+   * 201 -> { assets, failures: [{ index, url, code, message }], warnings, groupKey }.
+   * When every item fails, the response is an error with the first failure's
+   * status code instead of 201. Callers split larger batches into 20-item
+   * chunks and reuse one client-generated groupKey across chunks.
+   */
+  async batchFromUrls(
+    body: BatchFromUrlsRequest,
+  ): Promise<ApiResponse<BatchFromUrlsResponse>> {
+    return this.http.post<BatchFromUrlsResponse>("/api/admin/media/batch-from-urls", body);
   }
 
   /** List media library assets, optionally filtered by kind, paginated. */

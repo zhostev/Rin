@@ -62,7 +62,25 @@
       "from_url_batch_all": "Import the whole carousel",
       "group_count": "{{count}} photos",
       "group_expand": "Expand",
-      "group_collapse": "Collapse"
+      "group_collapse": "Collapse",
+      "batch_from_url": "Batch import from URLs",
+      "batch_from_url_title": "Batch import images from URLs",
+      "batch_from_url_text": "Image URLs (one per line)",
+      "batch_from_url_text_placeholder": "https://…\nhttps://…\nor: https://… | Title",
+      "batch_from_url_hint": "One URL per line, or “URL | Title”; batches over 20 are split automatically and share one group",
+      "batch_group_title": "Group title (optional)",
+      "batch_group_title_placeholder": "e.g. Shanhai ride; untitled images are named “Group title (i/N)”",
+      "batch_start": "Start import",
+      "batch_stop": "Stop",
+      "batch_retry_failed": "Retry failed",
+      "batch_progress": "Batch {{chunk}} / {{chunks}} · {{done}} / {{total}} · succeeded {{success}} · failed {{failed}}",
+      "batch_stopped": "Stopped",
+      "batch_no_lines": "Enter at least one URL first",
+      "batch_chunk_failed": "This batch request failed and was recorded as failed items",
+      "batch_dismiss": "Close",
+      "upload_group_title": "Group title (optional, for batch upload)",
+      "upload_queue": "Upload queue: {{done}} / {{total}}",
+      "upload_queue_current": "Current: {{name}}"
     }
   },
   "compat_tasks": {

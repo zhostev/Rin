@@ -19,6 +19,14 @@ import { Waiting } from "../components/loading";
 import type { AssetKind, MediaAsset } from "../api/story";
 import { detectMediaType, uploadMediaFile } from "../utils/media-upload";
 import { groupAssets, groupTitle, isInstagramPostUrl, applyInstagramBatchPreference } from "../utils/media-groups";
+import {
+  BATCH_MEDIA_MAX_ITEMS,
+  chunkBatchItems,
+  generateBatchGroupKey,
+  parseBatchUrlLines,
+  titleBatchItems,
+  type BatchUrlItem,
+} from "../utils/batch-media";
 import { formatDuration } from "../components/story-blocks/block-utils";
 
 type KindFilter = "all" | AssetKind;
@@ -316,6 +324,35 @@ export function AdminMediaLibraryPage() {
   const [fromUrlAlt, setFromUrlAlt] = useState("");
   const [fromUrlBatchAll, setFromUrlBatchAll] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  // 多文件上传队列：分组标题填了则本次队列共用一个 groupKey。
+  const [uploadGroupTitle, setUploadGroupTitle] = useState("");
+  const [uploadQueue, setUploadQueue] = useState<{
+    total: number;
+    done: number;
+    current: string;
+    stopped: boolean;
+    failures: Array<{ name: string; message: string }>;
+  } | null>(null);
+  const uploadStopRef = useRef(false);
+  // 批量从 URL 导入对话框状态。
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchText, setBatchText] = useState("");
+  const [batchGroupTitle, setBatchGroupTitle] = useState("");
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{
+    chunk: number;
+    chunks: number;
+    done: number;
+    total: number;
+    success: number;
+    failed: number;
+  } | null>(null);
+  const [batchFailures, setBatchFailures] = useState<
+    Array<{ index: number; url: string; title?: string; message: string; code: string }>
+  >([]);
+  const [batchStopped, setBatchStopped] = useState(false);
+  const batchStopRef = useRef(false);
+  const batchGroupKeyRef = useRef<string | undefined>(undefined);
   const fileRef = useRef<HTMLInputElement>(null);
   const { showAlert, AlertUI } = useAlert();
 
@@ -347,26 +384,157 @@ export function AdminMediaLibraryPage() {
     void fetchAssets(1, false);
   }, [kind, fetchAssets]);
 
-  async function handlePickedFile(file: File) {
-    const type = detectMediaType(file);
-    if (!type) {
-      showAlert(t("admin.media_library.upload_unsupported"));
-      return;
-    }
+  async function handlePickedFiles(files: File[]) {
+    if (files.length === 0) return;
+    // 分组标题填了则本次队列共用一个 groupKey（直传建单时传给服务端）；
+    // 没填则不分组，与旧单文件行为一致。
+    const groupKey = uploadGroupTitle.trim() ? generateBatchGroupKey() : undefined;
+    uploadStopRef.current = false;
+    const failures: Array<{ name: string; message: string }> = [];
+    const succeeded: MediaAsset[] = [];
+    setUploadQueue({ total: files.length, done: 0, current: "", stopped: false, failures: [] });
     setUploading(true);
     setUploadProgress(0);
     try {
-      const { asset } = await uploadMediaFile(file, type, {
-        t,
-        onProgress: (p) => setUploadProgress(p),
-      });
-      setAssets((prev) => [asset, ...prev]);
-    } catch (err) {
-      showAlert(err instanceof Error ? err.message : t("admin.media_library.upload_failed"));
+      for (let i = 0; i < files.length; i += 1) {
+        if (uploadStopRef.current) break;
+        const file = files[i]!;
+        setUploadQueue((prev) =>
+          prev ? { ...prev, current: file.name } : prev,
+        );
+        const type = detectMediaType(file);
+        if (!type) {
+          failures.push({ name: file.name, message: t("admin.media_library.upload_unsupported") });
+          setUploadQueue((prev) =>
+            prev ? { ...prev, done: i + 1, failures: [...failures] } : prev,
+          );
+          continue;
+        }
+        try {
+          const { asset } = await uploadMediaFile(file, type, {
+            t,
+            onProgress: (p) => setUploadProgress(p),
+            ...(groupKey ? { groupKey } : {}),
+          });
+          succeeded.push(asset);
+        } catch (err) {
+          failures.push({
+            name: file.name,
+            message: err instanceof Error ? err.message : t("admin.media_library.upload_failed"),
+          });
+        }
+        setUploadQueue((prev) =>
+          prev
+            ? { ...prev, done: i + 1, failures: [...failures], stopped: uploadStopRef.current }
+            : prev,
+        );
+      }
+      if (succeeded.length > 0) {
+        setAssets((prev) => [...succeeded.reverse(), ...prev]);
+      }
+      setUploadQueue((prev) =>
+        prev ? { ...prev, current: "", stopped: uploadStopRef.current, failures: [...failures] } : prev,
+      );
     } finally {
       setUploading(false);
       setUploadProgress(null);
     }
+  }
+
+  type BatchRunItem = BatchUrlItem & { index: number };
+
+  async function runBatch(items: BatchRunItem[], groupTitle: string, groupKey: string | undefined) {
+    const chunks = chunkBatchItems(items, BATCH_MEDIA_MAX_ITEMS);
+    const newAssets: MediaAsset[] = [];
+    const newFailures: Array<{ index: number; url: string; title?: string; message: string; code: string }> = [];
+    let done = 0;
+    let success = 0;
+    setBatchProgress({ chunk: 0, chunks: chunks.length, done: 0, total: items.length, success: 0, failed: 0 });
+    for (let ci = 0; ci < chunks.length; ci += 1) {
+      if (batchStopRef.current) break;
+      const chunk = chunks[ci]!;
+      setBatchProgress((prev) =>
+        prev ? { ...prev, chunk: ci + 1 } : prev,
+      );
+      const { data, error } = await client.media.batchFromUrls({
+        items: chunk.map((item) => ({
+          url: item.url,
+          ...(item.title ? { title: item.title } : {}),
+        })),
+        ...(groupTitle ? { groupTitle } : {}),
+        ...(groupKey ? { groupKey } : {}),
+      });
+      if (error || !data) {
+        const message = t("admin.media_library.batch_chunk_failed");
+        for (const item of chunk) {
+          newFailures.push({ index: item.index, url: item.url, title: item.title, message, code: "batch_request_failed" });
+        }
+      } else {
+        newAssets.push(...data.assets);
+        for (const failure of data.failures) {
+          const item = chunk[failure.index];
+          newFailures.push({
+            index: item ? item.index : failure.index,
+            url: failure.url,
+            title: item?.title,
+            message: failure.message,
+            code: failure.code,
+          });
+        }
+      }
+      done += chunk.length;
+      success = newAssets.length;
+      setBatchProgress((prev) =>
+        prev
+          ? { ...prev, done, success, failed: newFailures.length }
+          : prev,
+      );
+    }
+    return { newAssets, newFailures };
+  }
+
+  async function handleBatchStart(retryFailed: boolean) {
+    let runItems: BatchRunItem[];
+    let groupTitle: string;
+    if (retryFailed) {
+      if (batchFailures.length === 0) return;
+      runItems = batchFailures.map((f) => ({ index: f.index, url: f.url, ...(f.title ? { title: f.title } : {}) }));
+      groupTitle = batchGroupTitle.trim();
+    } else {
+      const parsed = parseBatchUrlLines(batchText);
+      if (parsed.length === 0) {
+        showAlert(t("admin.media_library.batch_no_lines"));
+        return;
+      }
+      groupTitle = batchGroupTitle.trim();
+      runItems = titleBatchItems(parsed, groupTitle).map((item, i) => ({ ...item, index: i }));
+      batchGroupKeyRef.current = groupTitle ? generateBatchGroupKey() : undefined;
+      setBatchFailures([]);
+    }
+    batchStopRef.current = false;
+    setBatchStopped(false);
+    setBatchRunning(true);
+    try {
+      const { newAssets, newFailures } = await runBatch(runItems, groupTitle, batchGroupKeyRef.current);
+      setBatchFailures(newFailures);
+      setBatchStopped(batchStopRef.current);
+      if (newAssets.length > 0) {
+        setAssets((prev) => [...newAssets, ...prev]);
+      }
+    } finally {
+      setBatchRunning(false);
+    }
+  }
+
+  function handleBatchClose() {
+    if (batchRunning) return;
+    setBatchOpen(false);
+    setBatchText("");
+    setBatchGroupTitle("");
+    setBatchProgress(null);
+    setBatchFailures([]);
+    setBatchStopped(false);
+    batchGroupKeyRef.current = undefined;
   }
 
   async function handleFromUrlDownload() {
@@ -442,10 +610,18 @@ export function AdminMediaLibraryPage() {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {uploading && uploadProgress !== null && (
             <span className="text-xs text-neutral-500">{uploadProgress}%</span>
           )}
+          <input
+            type="text"
+            value={uploadGroupTitle}
+            disabled={uploading}
+            onChange={(e) => setUploadGroupTitle(e.target.value)}
+            placeholder={t("admin.media_library.upload_group_title")}
+            className="w-44 rounded-full border border-black/10 bg-w px-3 py-1.5 text-xs t-primary outline-none focus:border-theme disabled:opacity-60 dark:border-white/10"
+          />
           <button
             type="button"
             disabled={uploading || downloading}
@@ -454,6 +630,15 @@ export function AdminMediaLibraryPage() {
           >
             <i className="ri-link mr-1" />
             {t("admin.media_library.from_url")}
+          </button>
+          <button
+            type="button"
+            disabled={uploading || downloading || batchRunning}
+            onClick={() => setBatchOpen(true)}
+            className="rounded-full border border-black/10 px-4 py-1.5 text-xs font-medium t-secondary transition-colors hover:border-theme/40 hover:text-theme disabled:opacity-60 dark:border-white/10"
+          >
+            <i className="ri-stack-line mr-1" />
+            {t("admin.media_library.batch_from_url")}
           </button>
           <button
             type="button"
@@ -468,15 +653,59 @@ export function AdminMediaLibraryPage() {
             ref={fileRef}
             type="file"
             accept="image/*,video/*,audio/*"
+            multiple
             className="hidden"
             onChange={(e) => {
-              const file = e.target.files?.[0];
+              const files = Array.from(e.target.files ?? []);
               e.target.value = "";
-              if (file) void handlePickedFile(file);
+              if (files.length > 0) void handlePickedFiles(files);
             }}
           />
         </div>
       </div>
+
+      {uploadQueue && (
+        <div className="rounded-2xl border border-black/10 bg-w p-3 text-xs t-primary dark:border-white/10">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>
+              {t("admin.media_library.upload_queue", { done: uploadQueue.done, total: uploadQueue.total })}
+              {uploadQueue.current ? ` · ${t("admin.media_library.upload_queue_current", { name: uploadQueue.current })}` : ""}
+              {uploadQueue.stopped ? ` · ${t("admin.media_library.batch_stopped")}` : ""}
+            </span>
+            <span className="flex gap-2">
+              {uploading && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    uploadStopRef.current = true;
+                  }}
+                  className="rounded-full border border-black/10 px-2.5 py-0.5 t-secondary hover:border-theme/40 hover:text-theme dark:border-white/10"
+                >
+                  {t("admin.media_library.batch_stop")}
+                </button>
+              )}
+              {!uploading && (
+                <button
+                  type="button"
+                  onClick={() => setUploadQueue(null)}
+                  className="rounded-full border border-black/10 px-2.5 py-0.5 t-secondary hover:border-theme/40 hover:text-theme dark:border-white/10"
+                >
+                  {t("admin.media_library.batch_dismiss")}
+                </button>
+              )}
+            </span>
+          </div>
+          {uploadQueue.failures.length > 0 && (
+            <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-neutral-500 dark:text-neutral-400">
+              {uploadQueue.failures.map((failure, i) => (
+                <li key={`${failure.name}-${i}`} className="truncate">
+                  {failure.name} — {failure.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <Waiting />
@@ -601,6 +830,110 @@ export function AdminMediaLibraryPage() {
                 {downloading
                   ? t("admin.media_library.from_url_downloading")
                   : t("admin.media_library.from_url_confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {batchOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => {
+            if (!batchRunning) handleBatchClose();
+          }}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-black/10 bg-w p-5 dark:border-white/10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-4 text-sm font-medium t-primary">
+              {t("admin.media_library.batch_from_url_title")}
+            </h3>
+            <label className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">
+              {t("admin.media_library.batch_from_url_text")}
+            </label>
+            <textarea
+              value={batchText}
+              disabled={batchRunning}
+              onChange={(e) => setBatchText(e.target.value)}
+              placeholder={t("admin.media_library.batch_from_url_text_placeholder")}
+              rows={8}
+              className="mb-1 w-full rounded-xl border border-black/10 bg-w p-3 text-sm t-primary outline-none focus:border-theme disabled:opacity-60 dark:border-white/10"
+            />
+            <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+              {t("admin.media_library.batch_from_url_hint")}
+            </p>
+            <label className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">
+              {t("admin.media_library.batch_group_title")}
+            </label>
+            <input
+              type="text"
+              value={batchGroupTitle}
+              disabled={batchRunning}
+              onChange={(e) => setBatchGroupTitle(e.target.value)}
+              placeholder={t("admin.media_library.batch_group_title_placeholder")}
+              className="mb-3 w-full rounded-xl border border-black/10 bg-w p-3 text-sm t-primary outline-none focus:border-theme disabled:opacity-60 dark:border-white/10"
+            />
+            {batchProgress && (
+              <p className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">
+                {t("admin.media_library.batch_progress", {
+                  chunk: batchProgress.chunk,
+                  chunks: batchProgress.chunks,
+                  done: batchProgress.done,
+                  total: batchProgress.total,
+                  success: batchProgress.success,
+                  failed: batchProgress.failed,
+                })}
+                {batchStopped ? ` · ${t("admin.media_library.batch_stopped")}` : ""}
+              </p>
+            )}
+            {batchFailures.length > 0 && (
+              <ul className="mb-3 max-h-40 space-y-1 overflow-auto text-xs text-neutral-500 dark:text-neutral-400">
+                {batchFailures.map((failure) => (
+                  <li key={`${failure.index}-${failure.url}`} className="truncate">
+                    #{failure.index + 1} {failure.url} — {failure.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              {batchRunning && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    batchStopRef.current = true;
+                  }}
+                  className="rounded-full border border-black/10 px-4 py-1.5 text-xs font-medium t-secondary hover:border-theme/40 hover:text-theme dark:border-white/10"
+                >
+                  {t("admin.media_library.batch_stop")}
+                </button>
+              )}
+              {!batchRunning && batchFailures.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void handleBatchStart(true)}
+                  className="rounded-full border border-black/10 px-4 py-1.5 text-xs font-medium t-secondary hover:border-theme/40 hover:text-theme dark:border-white/10"
+                >
+                  {t("admin.media_library.batch_retry_failed")}
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={batchRunning}
+                onClick={handleBatchClose}
+                className="rounded-full px-4 py-1.5 text-xs font-medium t-secondary hover:t-primary disabled:opacity-60"
+              >
+                {t("admin.media_library.from_url_cancel")}
+              </button>
+              <button
+                type="button"
+                disabled={batchRunning || !batchText.trim()}
+                onClick={() => void handleBatchStart(false)}
+                className="rounded-full bg-theme px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-theme-hover disabled:opacity-60"
+              >
+                {batchRunning
+                  ? t("admin.media_library.from_url_downloading")
+                  : t("admin.media_library.batch_start")}
               </button>
             </div>
           </div>

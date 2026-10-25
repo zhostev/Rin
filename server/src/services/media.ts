@@ -211,6 +211,27 @@ function invalidUploadFile(c: AppContext, validation: { code?: string; message?:
 const FROM_URL_DOWNLOAD_CONCURRENCY = 3;
 
 /**
+ * 批量 from-url 的单请求条数上限（与 Instagram 轮播上限同值）。
+ * Worker 单请求有超时预算：单张 1080p 图十秒级，并发 3 下 20 张已接近
+ * 一次请求的合理上限；再多就该由客户端按 20 条分片发多个请求，
+ * 而不是把超时风险推给一次请求。
+ */
+export const BATCH_FROM_URLS_MAX_ITEMS = 20;
+
+/**
+ * group_key 清洗：只留字母数字与 - _ :，超长截到 100 字符。
+ * 纯函数，可单测。客户端传来的 key 原样存（不自动加前缀），
+ * 这样同一批跨分片只要传同一个 key 就能聚成一组；非法字符直接
+ * 删掉而不是报错，避免整批因一个怪 key 全失败。
+ */
+export function sanitizeGroupKey(raw: unknown): string {
+    if (typeof raw !== "string") {
+        return "";
+    }
+    return raw.replace(/[^A-Za-z0-9\-_:]/g, "").slice(0, 100);
+}
+
+/**
  * 把用户提交的 URL 解析为待下载的图片直链列表，附带要回报给用户的警告。
  * Instagram 帖子页经 Apify 解析（需要 APIFY_TOKEN 环境变量）：
  * ?img_index=N 返回第 N 张，缺省返回轮播全部图片（逐张入库）。
@@ -633,12 +654,16 @@ export function AdminMediaService(): HonoApp {
         const duration = parseProbedNumber(body['duration']);
         const width = parseProbedNumber(body['width']);
         const height = parseProbedNumber(body['height']);
+        // 批量上传共用一个 groupKey 时，前端在建单时传进来；清洗后存行，
+        // 其余直传逻辑不动。没传时存 ""，与旧行为一致。
+        const groupKey = sanitizeGroupKey(body['groupKey']);
 
         const inserted = await insertMediaAsset(db, {
             kind: directKind,
             source: 'r2',
             mime: mimeType,
             title,
+            groupKey,
             duration: duration ?? undefined,
             width: width ?? undefined,
             height: height ?? undefined,
@@ -845,6 +870,134 @@ export function AdminMediaService(): HonoApp {
             return c.json(assets[0], 201);
         }
         return c.json({ assets, warnings }, 201);
+    }));
+
+    // POST /admin/media/batch-from-urls —— 批量从 URL 导入（单张 from-url 的批量版）
+    //   JSON body: { items*: [{ url*, title?, alt? }], groupTitle?, groupKey? }
+    //   每请求最多 20 条（BATCH_FROM_URLS_MAX_ITEMS），超了 400；客户端按 20 条
+    //   分片发多个请求，分片间传同一个 groupKey 即可跨分片成组。
+    //   逐条用 parseRemoteImageUrl 校验、复用 importImageFromUrl 入库，并发 3，
+    //   单条失败不影响其它条，失败原因进 failures（不是 warnings）。
+    //   groupKey 经清洗后原样存到所有成功资产的 group_key；只传 groupTitle
+    //   不传 groupKey 时服务端不自动造 key（客户端一次生成、分片复用）。
+    //   201 -> { assets, failures: [{ index, url, code, message }], warnings: [], groupKey }
+    //   全部失败时返回首个失败对应的状态码（parse 错误 400，下载类错误复用
+    //   fromUrlDownloadStatus，其它 500）；503 storage_not_configured。
+    app.post('/batch-from-urls', adminOnly(async (c) => {
+        const db = c.get('db');
+        const env = c.get('env');
+
+        let body: Record<string, unknown>;
+        try {
+            body = await c.req.json() as Record<string, unknown>;
+        } catch {
+            return c.json({ error: { code: 'invalid_json', message: 'Request body must be JSON' } }, 400);
+        }
+
+        const items = body['items'];
+        if (!Array.isArray(items) || items.length === 0) {
+            return c.json({ error: { code: 'items_required', message: 'items must be a non-empty array' } }, 400);
+        }
+        if (items.length > BATCH_FROM_URLS_MAX_ITEMS) {
+            return c.json({
+                error: {
+                    code: 'batch_too_large',
+                    message: `At most ${BATCH_FROM_URLS_MAX_ITEMS} items per request; split into chunks`,
+                },
+            }, 400);
+        }
+
+        const storageError = requireStorage(c, 'Image download');
+        if (storageError) {
+            return storageError;
+        }
+
+        const groupKey = sanitizeGroupKey(body['groupKey']);
+        const groupTitle = typeof body['groupTitle'] === 'string' ? body['groupTitle'].slice(0, 200) : '';
+
+        type BatchFailure = { index: number; url: string; code: string; message: string };
+        const results: (ReturnType<typeof serializeMediaAsset> | null)[] = new Array(items.length).fill(null);
+        const failures: BatchFailure[] = [];
+        let cursor = 0;
+        await Promise.all(
+            Array.from({ length: Math.min(FROM_URL_DOWNLOAD_CONCURRENCY, items.length) }, async () => {
+                for (;;) {
+                    const index = cursor++;
+                    if (index >= items.length) {
+                        return;
+                    }
+                    const rawItem = items[index] as Record<string, unknown> | null;
+                    const rawUrl = rawItem && typeof rawItem === 'object' ? rawItem['url'] : undefined;
+                    const urlText = typeof rawUrl === 'string' ? rawUrl : '';
+                    const parsed = parseRemoteImageUrl(rawUrl);
+                    if ('error' in parsed) {
+                        failures.push({
+                            index,
+                            url: urlText,
+                            code: parsed.error,
+                            message: parsed.error === 'invalid_url'
+                                ? 'Invalid image URL (expected http(s) URL)'
+                                : 'URL host is not allowed',
+                        });
+                        continue;
+                    }
+                    const itemTitle = rawItem && typeof rawItem['title'] === 'string'
+                        ? rawItem['title'].slice(0, 200)
+                        : '';
+                    const itemAlt = rawItem && typeof rawItem['alt'] === 'string'
+                        ? rawItem['alt'].slice(0, 500)
+                        : '';
+                    // 客户端已按「分组标题 (i/N)」命名未指定标题的条目时，itemTitle
+                    // 非空，直接用它；只有直接调接口又没给标题时才用 groupTitle 兜底
+                    // （分片内序号，与客户端的全局序号可能不同，UI 侧以客户端命名为准）。
+                    const title = itemTitle || (groupTitle
+                        ? (items.length > 1 ? `${groupTitle} (${index + 1}/${items.length})` : groupTitle)
+                        : '');
+                    try {
+                        results[index] = await importImageFromUrl(db, env, parsed.url, {
+                            title,
+                            alt: itemAlt,
+                            fromUrl: parsed.url.toString(),
+                            groupKey,
+                        });
+                    } catch (error) {
+                        if (error instanceof RemoteImageDownloadError) {
+                            failures.push({ index, url: urlText, code: error.code, message: error.message });
+                        } else if (error instanceof Error) {
+                            failures.push({ index, url: urlText, code: 'image_download_failed', message: error.message });
+                        } else {
+                            failures.push({ index, url: urlText, code: 'image_download_failed', message: String(error) });
+                        }
+                    }
+                }
+            }),
+        );
+
+        const assets = results.filter((asset): asset is ReturnType<typeof serializeMediaAsset> => asset !== null);
+        // failures 按原始下标排回顺序，调用方按 index 对回输入行。
+        failures.sort((a, b) => a.index - b.index);
+
+        if (assets.length === 0) {
+            const first = failures[0];
+            if (!first) {
+                return c.text('Failed to import images', 500);
+            }
+            // 全部失败时返回首个失败对应的状态码：parse 错误 400，下载类错误
+            // 与单张 fromUrlDownloadStatus 一致（too_large 413、not_an_image /
+            // empty_image 415、其余下载失败 502），其它未知错误 500。
+            const status = first.code === 'invalid_url' || first.code === 'url_not_allowed'
+                ? 400
+                : first.code === 'image_too_large'
+                    ? 413
+                    : first.code === 'not_an_image' || first.code === 'empty_image'
+                        ? 415
+                        : first.code === 'download_failed' || first.code === 'image_download_store_failed' || first.code === 'image_download_failed'
+                            ? 502
+                            : 500;
+            return c.json({ error: { code: first.code, message: first.message } }, status);
+        }
+
+        return c.json({ assets, failures, warnings: [], groupKey }, 201);
     }));
 
     // POST /admin/media/audio —— multipart 上传音频（R2 binding 优先，否则 S3）

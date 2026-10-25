@@ -62,7 +62,25 @@
       "from_url_batch_all": "整组导入轮播图",
       "group_count": "共 {{count}} 张",
       "group_expand": "展开",
-      "group_collapse": "收起"
+      "group_collapse": "收起",
+      "batch_from_url": "批量从 URL 导入",
+      "batch_from_url_title": "批量从 URL 导入图片",
+      "batch_from_url_text": "图片 URL（每行一个）",
+      "batch_from_url_text_placeholder": "https://…\nhttps://…\n或：https://… | 标题",
+      "batch_from_url_hint": "每行一个 URL，或“URL | 标题”；超过 20 条自动分批发送，分批共用一个分组",
+      "batch_group_title": "分组标题（可选）",
+      "batch_group_title_placeholder": "例如：山海骑行；未写标题的图片会按“分组标题 (i/N)”命名",
+      "batch_start": "开始导入",
+      "batch_stop": "停止",
+      "batch_retry_failed": "重试失败",
+      "batch_progress": "第 {{chunk}} / {{chunks}} 批 · {{done}} / {{total}} 张 · 成功 {{success}} · 失败 {{failed}}",
+      "batch_stopped": "已停止",
+      "batch_no_lines": "请先输入至少一个 URL",
+      "batch_chunk_failed": "本批请求失败，已记为失败项",
+      "batch_dismiss": "关闭",
+      "upload_group_title": "分组标题（可选，批量上传用）",
+      "upload_queue": "上传队列：{{done}} / {{total}}",
+      "upload_queue_current": "当前：{{name}}"
     }
   },
   "compat_tasks": {
