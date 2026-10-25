@@ -11,7 +11,10 @@ import { buildMarkdownImage, uploadImageFile } from "../utils/image-upload";
 import { detectMediaType, uploadImageToLibrary, uploadMediaFile } from "../utils/media-upload";
 import { Markdown } from "./markdown";
 import { buildMediaMarkup } from "./media-embed";
-import { resetEditorViewportToStart } from "./markdown-editor-viewport";
+import {
+  EditorVisibilityResetTracker,
+  resetEditorViewportToStart,
+} from "./markdown-editor-viewport";
 
 interface MarkdownEditorProps {
   content: string;
@@ -79,6 +82,13 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
   const { t } = useTranslation();
   const colorMode = useColorMode();
   const editorRef = useRef<editor.IStandaloneCodeEditor>();
+  const editorContainerRef = useRef<HTMLDivElement>(null);
+  const visibilityTrackerRef = useRef<EditorVisibilityResetTracker | null>(
+    null,
+  );
+  if (visibilityTrackerRef.current === null) {
+    visibilityTrackerRef.current = new EditorVisibilityResetTracker();
+  }
   const isComposingRef = useRef(false);
   const [preview, setPreview] = useState<'edit' | 'preview' | 'comparison'>('edit');
   const [uploading, setUploading] = useState(false);
@@ -495,6 +505,12 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
   const handleEditorMount = (editor: editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
     layoutAndResetViewport();
+    // If the container is already in the viewport, the mount reset counts
+    // as the visible-session reset; if it is still below the fold, leave
+    // the tracker unarmed so the observer entry below can fire later.
+    if (visibilityTrackerRef.current?.isVisible) {
+      visibilityTrackerRef.current.noteResetDone();
+    }
 
     editor.onDidCompositionStart(() => {
       isComposingRef.current = true;
@@ -520,14 +536,59 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
 
   // Switching back from preview hides the edit pane (display: none) and shows
   // it again; re-measure and reset the viewport then, for the same reason
-  // as on mount (see the policy note above).
+  // as on mount (see the policy note above). Hiding the pane also re-arms
+  // the visibility tracker, so the observer entry that follows the pane
+  // becoming visible again can fire alongside this reset.
   useEffect(() => {
-    if (preview !== "preview") {
+    if (preview === "preview") {
+      visibilityTrackerRef.current?.noteHidden();
+    } else {
       layoutAndResetViewport();
+      visibilityTrackerRef.current?.noteResetDone();
     }
     // layoutAndResetViewport only reads editorRef; intentionally not a dep.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preview]);
+
+  // Visibility-triggered reset: the mount and preview-switch resets above
+  // can both run while this editor's container is still below the fold
+  // (story pages put title/summary/AI panels above the first block), and
+  // a reset applied to an invisible container does not fix the viewport.
+  // Observe this instance's own container — each Monaco instance on the
+  // page gets its own observer — and reset only on the first entry into
+  // the viewport for the current visible session. Re-entering by scrolling
+  // the page does not re-reset, so editing is never yanked back to (1, 1).
+  // The observer is disconnected on unmount, and a pending frame firing
+  // after unmount is harmless (reset no-ops on a null editor).
+  // The minimap is intentionally left alone: the narrow strip at the right
+  // edge is Monaco's default minimap rendering, not the cause of the blank
+  // main area, so disabling it would only hide a symptom.
+  useEffect(() => {
+    const container = editorContainerRef.current;
+    if (!container || typeof IntersectionObserver === "undefined") return;
+    const tracker = visibilityTrackerRef.current;
+    if (!tracker) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (
+            tracker.noteIntersection(
+              entry.isIntersecting,
+              editorRef.current !== undefined,
+            ) &&
+            editorRef.current
+          ) {
+            layoutAndResetViewport();
+          }
+        }
+      },
+      { threshold: 0 },
+    );
+    observer.observe(container);
+    return () => observer.disconnect();
+    // layoutAndResetViewport only reads editorRef; intentionally not a dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -590,6 +651,7 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
       <div className={`grid grid-cols-1 gap-0 sm:gap-4 ${preview === 'comparison' ? "lg:grid-cols-2" : ""}`}>
         <div className={"flex min-w-0 flex-col " + (preview === 'preview' ? "hidden" : "")}>
           <div
+            ref={editorContainerRef}
             className={"relative min-h-0 overflow-hidden rounded-none border-0 bg-w"}
             onDrop={(e) => {
               e.preventDefault();
