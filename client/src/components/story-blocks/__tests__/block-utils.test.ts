@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   addGalleryItem,
+  collectStorySourceText,
   createBlock,
   formatDuration,
   galleryItems,
@@ -168,6 +169,29 @@ describe('gallery block helpers', () => {
     expect(moveGalleryItem(items, 0, 1)).toEqual([{ url: 'b' }, { url: 'a' }, { url: 'c' }])
     expect(moveGalleryItem(items, 0, -1)).toBe(items)
     expect(moveGalleryItem(items, 2, 1)).toBe(items)
+  })
+})
+
+describe('collectStorySourceText', () => {
+  it('joins rich_text and image/gallery captions, skipping other blocks', () => {
+    const blocks: ContentBlock[] = [
+      { id: 'a', type: 'rich_text', position: 0, payload: { markdown: '早上在会场集合' } },
+      { id: 'b', type: 'image', position: 1, payload: { caption: '女子组检录区' } },
+      {
+        id: 'c',
+        type: 'gallery',
+        position: 2,
+        payload: { items: [{ url: 'u1', alt: '大团骑行' }, { url: 'u2' }] },
+      },
+      { id: 'd', type: 'video', position: 3, payload: { title: 'ignored' } },
+    ]
+    expect(collectStorySourceText(blocks)).toBe(
+      '早上在会场集合\n\n[图片说明] 女子组检录区\n\n[图片说明] 大团骑行',
+    )
+  })
+
+  it('returns empty for no usable blocks', () => {
+    expect(collectStorySourceText([])).toBe('')
   })
 })
 
