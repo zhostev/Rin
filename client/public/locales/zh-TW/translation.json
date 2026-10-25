@@ -62,7 +62,25 @@
       "from_url_batch_all": "整組匯入輪播圖",
       "group_count": "共 {{count}} 張",
       "group_expand": "展開",
-      "group_collapse": "收起"
+      "group_collapse": "收起",
+      "batch_from_url": "批次從 URL 匯入",
+      "batch_from_url_title": "批次從 URL 匯入圖片",
+      "batch_from_url_text": "圖片 URL（每行一個）",
+      "batch_from_url_text_placeholder": "https://…\nhttps://…\n或：https://… | 標題",
+      "batch_from_url_hint": "每行一個 URL，或“URL | 標題”；超過 20 條自動分批發送，分批共用一個分組",
+      "batch_group_title": "分組標題（可選）",
+      "batch_group_title_placeholder": "例如：山海騎行；未寫標題的圖片會按“分組標題 (i/N)”命名",
+      "batch_start": "開始匯入",
+      "batch_stop": "停止",
+      "batch_retry_failed": "重試失敗",
+      "batch_progress": "第 {{chunk}} / {{chunks}} 批 · {{done}} / {{total}} 張 · 成功 {{success}} · 失敗 {{failed}}",
+      "batch_stopped": "已停止",
+      "batch_no_lines": "請先輸入至少一個 URL",
+      "batch_chunk_failed": "本批請求失敗，已記為失敗項",
+      "batch_dismiss": "關閉",
+      "upload_group_title": "分組標題（可選，批次上傳用）",
+      "upload_queue": "上傳佇列：{{done}} / {{total}}",
+      "upload_queue_current": "目前：{{name}}"
     }
   },
   "compat_tasks": {
