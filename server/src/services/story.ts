@@ -29,6 +29,7 @@ import {
     insertStory,
     insertStoryBlocks,
     listStoryPage,
+    listVisibleStoryPage,
     replaceStoryBlocks,
     updateStoryById,
 } from "../features/story/repository";
@@ -126,6 +127,31 @@ function validateBlockTypes(blocks: ContentBlockInput[] | undefined): string | n
  * GET /:slug：先查 stories.slug；不存在则查 feeds.alias，命中时合成为单
  * rich_text block 的 story 视图返回。旧 /:alias 与 /feed/:id 链路不受影响。
  */
+
+/** 公开列表摘要：不带 blocks 全量，列表页只用它渲染标题/简介/封面/时间。 */
+function serializeStorySummary(row: {
+    id: number;
+    slug: string;
+    title: string | null;
+    summary: string;
+    status: string;
+    coverAssetId: number | null;
+    publishedAt: Date | null;
+    updatedAt: Date;
+    verifiedAt: Date | null;
+}) {
+    return {
+        id: row.id,
+        slug: row.slug,
+        title: row.title,
+        summary: row.summary,
+        status: row.status,
+        coverAssetId: row.coverAssetId,
+        publishedAt: row.publishedAt ? row.publishedAt.toISOString() : null,
+        updatedAt: row.updatedAt.toISOString(),
+        verifiedAt: row.verifiedAt ? row.verifiedAt.toISOString() : null,
+    };
+}
 export function StoryService(): Hono<{
     Bindings: Env;
     Variables: Variables;
@@ -134,6 +160,24 @@ export function StoryService(): Hono<{
         Bindings: Env;
         Variables: Variables;
     }>();
+
+    // GET /story — 公开故事列表（只含 published/updated，不带 blocks 全量）。
+    app.get('/', async (c) => {
+        const db = c.get('db');
+        const page = parsePositiveInteger(c.req.query('page'), 1) - 1;
+        const limit = parsePositiveInteger(c.req.query('limit'), 20, 50);
+
+        const result = await profileAsync(c, 'story_public_list_db', () => listVisibleStoryPage(db, {
+            pageIndex: page,
+            limit,
+        }));
+
+        return c.json({
+            size: result.size,
+            data: result.rows.map(serializeStorySummary),
+            hasNext: result.hasNext,
+        });
+    });
 
     // GET /story/:slug
     // 解析顺序：stories.slug → 纯数字时 stories.id → feeds.alias（旧文 fallback）。

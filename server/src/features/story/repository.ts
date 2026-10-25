@@ -1,4 +1,4 @@
-import { asc, count, desc, eq } from "drizzle-orm";
+import { asc, count, desc, eq, inArray } from "drizzle-orm";
 import type { DB } from "../../core/hono-types";
 import { contentBlocks, feeds, stories } from "../../db/schema";
 import type { ContentBlockInput } from "@rin/api";
@@ -61,17 +61,33 @@ export async function deleteStoryById(db: DB, id: number) {
     return db.delete(stories).where(eq(stories.id, id));
 }
 
+/**
+ * D1 caps a single statement at 100 bound parameters
+ * (https://developers.cloudflare.com/d1/platform/limits/). A content-block
+ * row binds 5 parameters, so one multi-row INSERT tops out at exactly 20
+ * blocks — a 21st block used to fail with "too many SQL variables". Insert
+ * in batches of 10 blocks (50 parameters) so the ceiling is never approached,
+ * no matter how many blocks a story has.
+ */
+const STORY_BLOCK_INSERT_BATCH_SIZE = 10;
+
 export async function insertStoryBlocks(db: DB, storyId: number, inputs: ContentBlockInput[]) {
     if (inputs.length === 0) {
         return [];
     }
-    return db.insert(contentBlocks).values(inputs.map((input, index) => ({
-        storyId,
-        type: input.type,
-        position: input.position ?? index,
-        payloadJson: JSON.stringify(input.payload ?? {}),
-        revision: input.revision ?? 1,
-    }))).returning({ insertedId: contentBlocks.id });
+    const inserted: Array<{ insertedId: number }> = [];
+    for (let start = 0; start < inputs.length; start += STORY_BLOCK_INSERT_BATCH_SIZE) {
+        const batch = inputs.slice(start, start + STORY_BLOCK_INSERT_BATCH_SIZE);
+        const rows = await db.insert(contentBlocks).values(batch.map((input, index) => ({
+            storyId,
+            type: input.type,
+            position: input.position ?? start + index,
+            payloadJson: JSON.stringify(input.payload ?? {}),
+            revision: input.revision ?? 1,
+        }))).returning({ insertedId: contentBlocks.id });
+        inserted.push(...rows);
+    }
+    return inserted;
 }
 
 /** 整体替换某 story 的内容块（先删后插，position 按传入顺序重排） */
@@ -84,6 +100,42 @@ export type ListStoryPageOptions = {
     pageIndex: number;
     limit: number;
 };
+
+/**
+ * 公开故事列表：只含 published/updated 的故事，且不带 blocks 全量——列表页
+ * 只需标题/简介/时间/封面资产 id，块内容走 /story/:slug 单页读取。
+ */
+export async function listVisibleStoryPage(db: DB, options: ListStoryPageOptions) {
+    const [sizeRows, rows] = await Promise.all([
+        db.select({ count: count() }).from(stories).where(inArray(stories.status, ['published', 'updated'])),
+        db.select({
+            id: stories.id,
+            slug: stories.slug,
+            title: stories.title,
+            summary: stories.summary,
+            status: stories.status,
+            coverAssetId: stories.coverAssetId,
+            publishedAt: stories.publishedAt,
+            updatedAt: stories.updatedAt,
+            verifiedAt: stories.verifiedAt,
+        }).from(stories)
+            .where(inArray(stories.status, ['published', 'updated']))
+            .orderBy(desc(stories.updatedAt), desc(stories.id))
+            .offset(options.pageIndex * options.limit)
+            .limit(options.limit + 1),
+    ]);
+
+    const hasNext = rows.length > options.limit;
+    if (hasNext) {
+        rows.pop();
+    }
+
+    return {
+        size: sizeRows[0]?.count ?? 0,
+        rows,
+        hasNext,
+    };
+}
 
 export async function listStoryPage(db: DB, options: ListStoryPageOptions) {
     const [sizeRows, rows] = await Promise.all([
