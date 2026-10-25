@@ -188,6 +188,19 @@ export interface UpdateStoryRequest {
   blocks?: ContentBlock[];
 }
 
+export type StoryAIComposeRequest = {
+  topic: string;
+  style?: string;
+  length?: "short" | "medium" | "long";
+  sourceText?: string;
+};
+
+export type StoryAIReviseRequest = {
+  mode: "polish" | "expand" | "shorten" | "proofread" | "custom";
+  instruction?: string;
+  content: string;
+};
+
 /** Minimal structural surface of the shared HttpClient in ./client */
 export interface StoryHttp {
   get<T>(path: string, options?: unknown): Promise<ApiResponse<T>>;
@@ -362,5 +375,31 @@ export class StoryAPI {
   // DELETE /api/admin/stories/:id (admin)
   async remove(id: number | string): Promise<ApiResponse<void>> {
     return this.http.delete<void>(`/api/admin/stories/${id}`);
+  }
+
+  // POST /api/admin/stories/:id/ai-compose (admin; synchronous, returns only —
+  // the editor inserts the result as a new rich_text block, nothing is saved
+  // until the user clicks Save)
+  async aiCompose(
+    id: number | string,
+    body: StoryAIComposeRequest,
+  ): Promise<ApiResponse<{ markdown: string }>> {
+    return this.http.post<{ markdown: string }>(`/api/admin/stories/${id}/ai-compose`, body);
+  }
+
+  // POST /api/admin/stories/:id/ai-revise (admin; revises one rich_text block's
+  // current editor content, returns only — applying it only replaces the
+  // block in the editor, saving still requires the Save button)
+  async aiRevise(
+    id: number | string,
+    body: StoryAIReviseRequest,
+  ): Promise<ApiResponse<{ revised: string }>> {
+    return this.http.post<{ revised: string }>(`/api/admin/stories/${id}/ai-revise`, body);
+  }
+
+  // POST /api/admin/stories/:id/wechat-draft (admin; via the same ECS relay
+  // as feed articles, returns the draft media id)
+  async wechatDraft(id: number | string): Promise<ApiResponse<{ draft_media_id: string }>> {
+    return this.http.post<{ draft_media_id: string }>(`/api/admin/stories/${id}/wechat-draft`, {});
   }
 }

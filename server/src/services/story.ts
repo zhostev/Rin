@@ -33,6 +33,8 @@ import {
     replaceStoryBlocks,
     updateStoryById,
 } from "../features/story/repository";
+import { registerStoryAIRoutes } from "./story-ai";
+import { registerStoryWechatDraftRoutes } from "./story-wechat-draft";
 
 type StoryRow = NonNullable<Awaited<ReturnType<typeof findStoryBySlug>>>;
 type LegacyFeedRow = NonNullable<Awaited<ReturnType<typeof findLegacyFeedByAlias>>>;
@@ -233,6 +235,11 @@ export function AdminStoryService(): Hono<{
         Bindings: Env;
         Variables: Variables;
     }>();
+
+    // 故事 AI 与公众号推送：注册在 /:id 路由之前，避免带后缀的 POST
+    // 被单段 :id 路由误捕获（沿用 Feed 服务的注册顺序惯例）。
+    registerStoryAIRoutes(app);
+    registerStoryWechatDraftRoutes(app);
 
     // GET /admin/stories - 管理端列表
     app.get('/', adminOnly(async (c) => {

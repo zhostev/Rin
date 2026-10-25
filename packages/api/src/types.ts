@@ -801,6 +801,35 @@ export interface AIReviseResponse {
 }
 
 // ============================================================================
+// Story AI（server/src/services/story-ai.ts）：与 Feed AI 同一套 provider/配置，
+// 但生成结果只返回给编辑器、不自动保存发布；改写对象是单个 rich_text 块。
+// ============================================================================
+
+/** POST /api/admin/stories/:id/ai-compose：同步生成一段正文，返回后由编辑器插块。 */
+export interface StoryAIComposeRequest {
+  topic: string;
+  style?: string;
+  length?: ComposeLength;
+  /** 以故事已有正文/图片说明作素材时，编辑器把素材文本随请求发来。 */
+  sourceText?: string;
+}
+
+export interface StoryAIComposeResponse {
+  markdown: string;
+}
+
+/** POST /api/admin/stories/:id/ai-revise：改写单个 rich_text 块，content 来自编辑器当前内容。 */
+export interface StoryAIReviseRequest {
+  mode: AIReviseMode;
+  instruction?: string;
+  content: string;
+}
+
+export interface StoryAIReviseResponse {
+  revised: string;
+}
+
+// ============================================================================
 // WeChat Draft (server/src/services/feed-wechat-draft.ts)
 // ============================================================================
 

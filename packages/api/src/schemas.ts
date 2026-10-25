@@ -196,3 +196,20 @@ export const feedAIReviseSchema = t.Object({
   mode: t.String({ minLength: 1 }),
   instruction: t.Optional(t.String()),
 });
+
+// ============================================================================
+// Story AI Schemas (server/src/services/story-ai.ts)
+// ============================================================================
+
+export const storyAIComposeSchema = t.Object({
+  topic: t.String(),
+  style: t.Optional(t.String()),
+  length: t.Optional(t.String()),
+  sourceText: t.Optional(t.String()),
+});
+
+export const storyAIReviseSchema = t.Object({
+  mode: t.String({ minLength: 1 }),
+  instruction: t.Optional(t.String()),
+  content: t.String({ minLength: 1 }),
+});

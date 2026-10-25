@@ -23,7 +23,7 @@ const REVISE_MODE_TASKS: Record<Exclude<AIReviseMode, "custom">, string> = {
     proofread: "校对文章：修正错别字、标点符号和语病。不改变原文的文风、观点和结构，只做最小必要修改。",
 };
 
-const REVISE_SYSTEM_PROMPT = [
+export const REVISE_SYSTEM_PROMPT = [
     "你是一位中文写作编辑，负责按用户要求修改文章。",
     "规则：",
     "1. 只输出修改后的文章正文（Markdown），不要输出任何解释、前言、总结或修改说明。",

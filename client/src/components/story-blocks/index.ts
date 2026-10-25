@@ -9,6 +9,7 @@ export { AudioBlock } from "./audio-block";
 export { MediaPicker } from "./media-picker";
 export {
   addGalleryItem,
+  collectStorySourceText,
   galleryItems,
   mediaTabsForBlocks,
   moveGalleryItem,

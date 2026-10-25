@@ -113,6 +113,31 @@ export function galleryItems(payload: unknown): GalleryItem[] {
     }));
 }
 
+/**
+ * AI 素材文本：把故事现有内容拼成一段可发给 AI 的素材——rich_text 原文、
+ * 图片/图集的说明文字。只做文本收集，不发请求、不改块，可单测。
+ */
+export function collectStorySourceText(blocks: ContentBlock[]): string {
+  const parts: string[] = [];
+  for (const block of blocks ?? []) {
+    const payload = (block.payload ?? {}) as Record<string, unknown>;
+    if (block.type === "rich_text") {
+      const markdown = typeof payload.markdown === "string" ? payload.markdown.trim() : "";
+      if (markdown) parts.push(markdown);
+    } else if (block.type === "image") {
+      const note = [payload.caption, payload.alt].find(
+        (v): v is string => typeof v === "string" && v.trim().length > 0,
+      );
+      if (note) parts.push(`[图片说明] ${note.trim()}`);
+    } else if (block.type === "gallery") {
+      for (const item of galleryItems(payload)) {
+        if (item.alt?.trim()) parts.push(`[图片说明] ${item.alt.trim()}`);
+      }
+    }
+  }
+  return parts.join("\n\n").trim();
+}
+
 /** Append an item unless the same asset id (or, for id-less links, the same url) is already in. */
 export function addGalleryItem(items: GalleryItem[], item: GalleryItem): GalleryItem[] {
   const duplicate = items.some((existing) =>
