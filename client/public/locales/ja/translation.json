@@ -62,7 +62,25 @@
       "from_url_batch_all": "カルーセル全体を取り込む",
       "group_count": "{{count}} 枚",
       "group_expand": "展開する",
-      "group_collapse": "閉じる"
+      "group_collapse": "閉じる",
+      "batch_from_url": "URL から一括インポート",
+      "batch_from_url_title": "URL から画像を一括インポート",
+      "batch_from_url_text": "画像 URL（1 行に 1 つ）",
+      "batch_from_url_text_placeholder": "https://…\nhttps://…\nまたは：https://… | タイトル",
+      "batch_from_url_hint": "1 行に 1 つの URL、または「URL | タイトル」；20 件を超えると自動で分割され、同じグループになります",
+      "batch_group_title": "グループタイトル（任意）",
+      "batch_group_title_placeholder": "例：山海ライド；タイトル未設定の画像は「グループタイトル (i/N)」になります",
+      "batch_start": "インポート開始",
+      "batch_stop": "停止",
+      "batch_retry_failed": "失敗分を再試行",
+      "batch_progress": "第 {{chunk}} / {{chunks}} バッチ · {{done}} / {{total}} 枚 · 成功 {{success}} · 失敗 {{failed}}",
+      "batch_stopped": "停止しました",
+      "batch_no_lines": "URL を少なくとも 1 つ入力してください",
+      "batch_chunk_failed": "このバッチのリクエストが失敗し、失敗項目として記録されました",
+      "batch_dismiss": "閉じる",
+      "upload_group_title": "グループタイトル（任意、バッチアップロード用）",
+      "upload_queue": "アップロードキュー：{{done}} / {{total}}",
+      "upload_queue_current": "現在：{{name}}"
     }
   },
   "compat_tasks": {
