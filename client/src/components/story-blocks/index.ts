@@ -2,12 +2,17 @@
 
 export { BlockShell } from "./block-shell";
 export { RichTextBlock } from "./rich-text-block";
+export { GalleryBlock } from "./gallery-block";
 export { ImageBlock } from "./image-block";
 export { VideoBlock } from "./video-block";
 export { AudioBlock } from "./audio-block";
 export { MediaPicker } from "./media-picker";
 export {
+  addGalleryItem,
+  galleryItems,
   mediaTabsForBlocks,
+  moveGalleryItem,
+  removeGalleryItem,
   createBlock,
   moveBlock,
   removeBlock,

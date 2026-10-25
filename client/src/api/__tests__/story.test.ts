@@ -66,6 +66,7 @@ const expectedList: StoryListResponse = {
       title: 'Hello Story',
       summary: 'A summary',
       status: 'published',
+      coverAssetId: null,
       updated_at: '2026-09-24T01:00:00.000Z',
     },
   ],
@@ -109,6 +110,28 @@ describe('Story API', () => {
     expect(result.data).toEqual(expectedList)
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining('/api/admin/stories?page=1&limit=20&status=published'),
+      expect.any(Object)
+    )
+  })
+
+  it('should list public stories against the public endpoint without blocks', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockResponse({
+        ok: true,
+        headers: new Map([['content-type', 'application/json']]),
+        json: async () => ({
+          size: 1,
+          data: [{ ...wireStoryDetail, blocks: undefined }],
+          hasNext: true,
+        }),
+      })
+    )
+
+    const result = await api.story.listPublic({ page: 1, limit: 20 })
+
+    expect(result.data).toEqual({ ...expectedList, hasNext: true })
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/story?page=1&limit=20'),
       expect.any(Object)
     )
   })

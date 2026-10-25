@@ -57,11 +57,17 @@ export function MediaPicker({
   kind,
   onSelect,
   onClose,
+  keepOpenOnSelect,
 }: {
   open: boolean;
   kind: AssetKind;
   onSelect: (asset: MediaAsset) => void;
   onClose: () => void;
+  /**
+   * Gallery mode: picking an asset appends it but leaves the picker open so
+   * the user can keep picking from Library/Recent/Upload; close with the X.
+   */
+  keepOpenOnSelect?: boolean;
 }) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<PickerTab>("upload");
@@ -112,7 +118,9 @@ export function MediaPicker({
   function choose(asset: MediaAsset) {
     remember(asset);
     onSelect(asset);
-    onClose();
+    if (!keepOpenOnSelect) {
+      onClose();
+    }
   }
 
   async function loadLibrary() {
