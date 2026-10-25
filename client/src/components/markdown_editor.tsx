@@ -11,6 +11,7 @@ import { buildMarkdownImage, uploadImageFile } from "../utils/image-upload";
 import { detectMediaType, uploadImageToLibrary, uploadMediaFile } from "../utils/media-upload";
 import { Markdown } from "./markdown";
 import { buildMediaMarkup } from "./media-embed";
+import { resetEditorViewportToStart } from "./markdown-editor-viewport";
 
 interface MarkdownEditorProps {
   content: string;
@@ -445,27 +446,45 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
   /* ---------------- Monaco Mount & IME Optimization ---------------- */
 
   /**
-   * Force Monaco to re-measure its container once it is actually visible.
+   * Force Monaco to re-measure its container once it is actually visible,
+   * and reset the viewport to the start of the document.
    * Monaco measures its container at creation; story rich-text editors are
    * mounted through React.lazy / Suspense and sit inside a wrapper that hides
    * the editor DOM until it reports ready, so the first measurement can be
-   * stale (blank viewport, misplaced lines, unresponsive scroll). A layout
-   * pass after paint re-measures the real container size. layout() is
-   * idempotent, so extra calls on tab switches are harmless. The double
+   * stale. PR #78 added a layout-only pass, but that proved insufficient:
+   * after deployment, a pre-filled multi-paragraph block still opened with
+   * a mostly blank viewport showing only the last sentence, and scrolling
+   * down did nothing while one scroll up revealed everything at normal
+   * width — i.e. the initial viewport was stuck near the end of the
+   * document. layout() fixes size but never touches scroll position, so a
+   * viewport that starts at the end stays there. Resetting the cursor to
+   * (1, 1) and the scroll offset to 0 after layout makes the initial
+   * viewport deterministic regardless of what left it at the end, and the
+   * second layout repaints the top lines at the correct width. The double
    * requestAnimationFrame lets the Suspense swap and the flex layout settle
    * before measuring. This intentionally does not touch accessibilitySupport
-   * or the IME composition handlers below.
+   * or the IME composition handlers below: cursor/scroll changes do not
+   * touch model content, so composition and onDidChangeModelContent sync
+   * are unaffected.
+   *
+   * Policy, stated explicitly: whenever the edit pane becomes visible
+   * (mount, or switching back from preview/comparison), the viewport resets
+   * to the start of the document. A scroll position from before preview is
+   * therefore not preserved; that tradeoff keeps a stuck-at-end viewport
+   * from ever surviving a tab switch.
    */
-  const layoutEditor = () => {
+  const layoutAndResetViewport = () => {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        editorRef.current?.layout();
+        resetEditorViewportToStart(editorRef.current);
       });
     });
   };
 
   // The editor instance is disposed by @monaco-editor/react on unmount; drop
   // our reference so a pending layout pass never touches a disposed editor.
+  // resetEditorViewportToStart also no-ops on a null editor, so a pending
+  // pass firing after unmount is harmless either way.
   useEffect(
     () => () => {
       editorRef.current = undefined;
@@ -475,7 +494,7 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
 
   const handleEditorMount = (editor: editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
-    layoutEditor();
+    layoutAndResetViewport();
 
     editor.onDidCompositionStart(() => {
       isComposingRef.current = true;
@@ -500,12 +519,13 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
   /* ---------------- synchronization ---------------- */
 
   // Switching back from preview hides the edit pane (display: none) and shows
-  // it again; re-measure then, for the same reason as on mount.
+  // it again; re-measure and reset the viewport then, for the same reason
+  // as on mount (see the policy note above).
   useEffect(() => {
     if (preview !== "preview") {
-      layoutEditor();
+      layoutAndResetViewport();
     }
-    // layoutEditor only reads editorRef; intentionally not a dep.
+    // layoutAndResetViewport only reads editorRef; intentionally not a dep.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preview]);
 
@@ -518,9 +538,15 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
 
     const editorValue = model.getValue();
 
-    // Avoid infinite loops & prevent overwriting content being edited
+    // Avoid infinite loops & prevent overwriting content being edited.
+    // Typing takes the no-op path here (the value already matches), so the
+    // cursor and scroll position are never disturbed while typing. Only an
+    // external content replacement (e.g. an AI revision applied to this
+    // block) reaches setValue, and that also resets the viewport to the
+    // start so a replaced document never opens stuck at its end.
     if (editorValue !== content) {
       editor.setValue(content);
+      resetEditorViewportToStart(editor);
     }
   }, [content]);
 
