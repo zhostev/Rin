@@ -655,7 +655,8 @@
       "media": "媒體庫",
       "series": "專題",
       "ai_studio": "AI Studio",
-      "maintenance": "維護"
+      "maintenance": "維護",
+      "public_stories": "故事"
     },
     "detail": {
       "not_found": "主題不存在",
@@ -781,14 +782,25 @@
       "image_caption": "圖註",
       "image_caption_placeholder": "如：現場照片",
       "image_alt": "替代文字",
-      "image_alt_placeholder": "如：兩位嘉賓在台上交談"
+      "image_alt_placeholder": "如：兩位嘉賓在台上交談",
+      "block_gallery": "圖集",
+      "gallery_count": "共 {{count}} 張",
+      "gallery_add": "從素材庫新增",
+      "gallery_empty": "還沒有圖片，點選新增從素材庫裡選圖。",
+      "gallery_remove": "移除這張",
+      "gallery_alt_placeholder": "圖片說明（選填）"
     },
     "list": {
       "hint": "每個內容包只有一個永久地址；文字、影片、音訊是同一主題的不同入口。",
       "new_story": "新建內容包",
       "empty": "還沒有內容包。",
       "delete_title": "刪除內容包",
-      "delete_confirm": "刪除「{{title}}」？此操作不可復原。"
+      "delete_confirm": "刪除「{{title}}」？此操作不可復原。",
+      "public_title": "故事",
+      "public_empty": "還沒有已發佈的故事。",
+      "public_failed": "故事列表載入失敗，請稍後再試。",
+      "total$count_one": "共有 {{count}} 個故事",
+      "total$count_other": "共有 {{count}} 個故事"
     },
     "placeholder": {
       "scheduled": "計畫中",
