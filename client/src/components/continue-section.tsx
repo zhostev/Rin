@@ -27,6 +27,24 @@ function positionLabel(entry: ContinueEntry, t: (key: string, options?: Record<s
   return "";
 }
 
+// Layout classes for the homepage continue section.
+//
+// The section must share the same centered column as the article list
+// (the `wauto` column in FeedsPage). Adding `w-full` here used to
+// override `wauto` (the utility layer wins over the base layer where
+// `wauto` is defined), stretching the section to the full content width
+// so a single entry landed in the left column of the two-column grid,
+// about 412px left of the article cards at a ~1920px viewport.
+export const CONTINUE_SECTION_CLASS = "wauto mb-2";
+
+export function continueGridClassName(entryCount: number): string {
+  // A single entry must span the whole centered column; keeping the
+  // two-column grid for it would leave a half-width card on the left.
+  return entryCount <= 1
+    ? "grid grid-cols-1 gap-2"
+    : "grid grid-cols-1 gap-2 sm:grid-cols-2";
+}
+
 export function ContinueSection() {
   const { t } = useTranslation();
   const [entries, setEntries] = useState<ContinueEntry[]>([]);
@@ -42,12 +60,12 @@ export function ContinueSection() {
   if (entries.length === 0) return null;
 
   return (
-    <section aria-label={t("continue.title")} className="wauto w-full mb-2">
+    <section aria-label={t("continue.title")} className={CONTINUE_SECTION_CLASS}>
       <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold t-primary">
         <i className="ri-history-line text-theme" />
         {t("continue.title")}
       </h2>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className={continueGridClassName(entries.length)}>
         {entries.map((entry, index) => {
           const meta = KIND_META[entry.kind];
           const label = positionLabel(entry, t as (key: string, options?: Record<string, unknown>) => string);
