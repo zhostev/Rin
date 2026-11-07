@@ -16,6 +16,9 @@ const AI_PROVIDER_URLS: Record<string, string> = {
 export const WORKER_AI_MODELS: Record<string, string> = {
     "llama-3-8b": "@cf/meta/llama-3-8b-instruct",
     "llama-3-1-8b-fp8": "@cf/meta/llama-3.1-8b-instruct-fp8",
+    // Cloudflare 2026-11-20 下线 llama-3.1-8b-instruct-fp8 后，AI Studio / 站内问答
+    // 默认聊天模型改用官方建议的 deepseek-v4.1-flash-1017。
+    "deepseek-v4-1-flash-1017": "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
     "llama-2-7b": "@cf/meta/llama-2-7b-chat-int8",
     "mistral-7b": "@cf/mistral/mistral-7b-instruct-v0.1",
     "mistral-7b-v2": "@cf/mistral/mistral-7b-instruct-v0.2-lora",
